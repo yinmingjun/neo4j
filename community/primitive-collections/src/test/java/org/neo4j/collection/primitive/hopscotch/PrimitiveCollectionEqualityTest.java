@@ -32,12 +32,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.neo4j.collection.primitive.Primitive;
 import org.neo4j.collection.primitive.PrimitiveCollection;
-import org.neo4j.collection.primitive.PrimitiveIntLongMap;
-import org.neo4j.collection.primitive.PrimitiveIntObjectMap;
 import org.neo4j.collection.primitive.PrimitiveIntSet;
-import org.neo4j.collection.primitive.PrimitiveLongIntMap;
-import org.neo4j.collection.primitive.PrimitiveLongLongMap;
-import org.neo4j.collection.primitive.PrimitiveLongObjectMap;
 import org.neo4j.collection.primitive.PrimitiveLongSet;
 import org.neo4j.function.Factory;
 import org.neo4j.unsafe.impl.internal.dragons.UnsafeUtil;
@@ -110,168 +105,168 @@ public class PrimitiveCollectionEqualityTest
         }
     };
 
-    @DataPoint
-    public static ValueProducer<PrimitiveLongSet> longV =
-            new ValueProducer<PrimitiveLongSet>( PrimitiveLongSet.class )
-    {
-        @Override
-        public Value<PrimitiveLongSet> randomValue()
-        {
-            final long x = randomLong();
-            return new Value<PrimitiveLongSet>()
-            {
-                @Override
-                public void add( PrimitiveLongSet coll )
-                {
-                    coll.add( x );
-                }
+//    @DataPoint
+//    public static ValueProducer<PrimitiveLongSet> longV =
+//            new ValueProducer<PrimitiveLongSet>( PrimitiveLongSet.class )
+//    {
+//        @Override
+//        public Value<PrimitiveLongSet> randomValue()
+//        {
+//            final long x = randomLong();
+//            return new Value<PrimitiveLongSet>()
+//            {
+//                @Override
+//                public void add( PrimitiveLongSet coll )
+//                {
+//                    coll.add( x );
+//                }
+//
+//                @Override
+//                public boolean remove( PrimitiveLongSet coll )
+//                {
+//                    return coll.remove( x );
+//                }
+//            };
+//        }
+//    };
 
-                @Override
-                public boolean remove( PrimitiveLongSet coll )
-                {
-                    return coll.remove( x );
-                }
-            };
-        }
-    };
+//    @DataPoint
+//    public static ValueProducer<PrimitiveIntLongMap> intLongV = new ValueProducer<PrimitiveIntLongMap>(
+//            PrimitiveIntLongMap.class )
+//    {
+//        @Override
+//        public Value<PrimitiveIntLongMap> randomValue()
+//        {
+//            final int x = randomInt();
+//            final long y = randomLong();
+//            return new Value<PrimitiveIntLongMap>()
+//            {
+//                @Override
+//                public void add( PrimitiveIntLongMap coll )
+//                {
+//                    coll.put( x, y );
+//                }
+//
+//                @Override
+//                public boolean remove( PrimitiveIntLongMap coll )
+//                {
+//                    return coll.remove( x ) == y;
+//                }
+//            };
+//        }
+//    };
 
-    @DataPoint
-    public static ValueProducer<PrimitiveIntLongMap> intLongV = new ValueProducer<PrimitiveIntLongMap>(
-            PrimitiveIntLongMap.class )
-    {
-        @Override
-        public Value<PrimitiveIntLongMap> randomValue()
-        {
-            final int x = randomInt();
-            final long y = randomLong();
-            return new Value<PrimitiveIntLongMap>()
-            {
-                @Override
-                public void add( PrimitiveIntLongMap coll )
-                {
-                    coll.put( x, y );
-                }
+//    @DataPoint
+//    public static ValueProducer<PrimitiveLongIntMap> longIntV = new ValueProducer<PrimitiveLongIntMap>(
+//            PrimitiveLongIntMap.class )
+//    {
+//        @Override
+//        public Value<PrimitiveLongIntMap> randomValue()
+//        {
+//            final long x = randomLong();
+//            final int y = randomInt();
+//            return new Value<PrimitiveLongIntMap>()
+//            {
+//                @Override
+//                public void add( PrimitiveLongIntMap coll )
+//                {
+//                    coll.put( x, y );
+//                }
+//
+//                @Override
+//                public boolean remove( PrimitiveLongIntMap coll )
+//                {
+//                    return coll.remove( x ) == y;
+//                }
+//            };
+//        }
+//    };
 
-                @Override
-                public boolean remove( PrimitiveIntLongMap coll )
-                {
-                    return coll.remove( x ) == y;
-                }
-            };
-        }
-    };
+//    @DataPoint
+//    public static ValueProducer<PrimitiveLongLongMap> longLongV = new ValueProducer<PrimitiveLongLongMap>(
+//            PrimitiveLongLongMap.class )
+//    {
+//        @Override
+//        public Value<PrimitiveLongLongMap> randomValue()
+//        {
+//            final long x = randomLong();
+//            final long y = randomLong();
+//            return new Value<PrimitiveLongLongMap>()
+//            {
+//                @Override
+//                public void add( PrimitiveLongLongMap coll )
+//                {
+//                    coll.put( x, y );
+//                }
+//
+//                @Override
+//                public boolean remove( PrimitiveLongLongMap coll )
+//                {
+//                    return coll.remove( x ) == y;
+//                }
+//            };
+//        }
+//    };
 
-    @DataPoint
-    public static ValueProducer<PrimitiveLongIntMap> longIntV = new ValueProducer<PrimitiveLongIntMap>(
-            PrimitiveLongIntMap.class )
-    {
-        @Override
-        public Value<PrimitiveLongIntMap> randomValue()
-        {
-            final long x = randomLong();
-            final int y = randomInt();
-            return new Value<PrimitiveLongIntMap>()
-            {
-                @Override
-                public void add( PrimitiveLongIntMap coll )
-                {
-                    coll.put( x, y );
-                }
+//    @DataPoint
+//    public static ValueProducer<PrimitiveIntObjectMap> intObjV =
+//            new ValueProducer<PrimitiveIntObjectMap>( PrimitiveIntObjectMap.class )
+//    {
+//        @Override
+//        public Value<PrimitiveIntObjectMap> randomValue()
+//        {
+//            final int x = randomInt();
+//            final Object y = new Object();
+//            return new Value<PrimitiveIntObjectMap>()
+//            {
+//                @Override
+//                public void add( PrimitiveIntObjectMap coll )
+//                {
+//                    coll.put( x, y );
+//                }
+//
+//                @Override
+//                public boolean remove( PrimitiveIntObjectMap coll )
+//                {
+//                    return coll.remove( x ) == y;
+//                }
+//            };
+//        }
+//    };
 
-                @Override
-                public boolean remove( PrimitiveLongIntMap coll )
-                {
-                    return coll.remove( x ) == y;
-                }
-            };
-        }
-    };
-
-    @DataPoint
-    public static ValueProducer<PrimitiveLongLongMap> longLongV = new ValueProducer<PrimitiveLongLongMap>(
-            PrimitiveLongLongMap.class )
-    {
-        @Override
-        public Value<PrimitiveLongLongMap> randomValue()
-        {
-            final long x = randomLong();
-            final long y = randomLong();
-            return new Value<PrimitiveLongLongMap>()
-            {
-                @Override
-                public void add( PrimitiveLongLongMap coll )
-                {
-                    coll.put( x, y );
-                }
-
-                @Override
-                public boolean remove( PrimitiveLongLongMap coll )
-                {
-                    return coll.remove( x ) == y;
-                }
-            };
-        }
-    };
-
-    @DataPoint
-    public static ValueProducer<PrimitiveIntObjectMap> intObjV =
-            new ValueProducer<PrimitiveIntObjectMap>( PrimitiveIntObjectMap.class )
-    {
-        @Override
-        public Value<PrimitiveIntObjectMap> randomValue()
-        {
-            final int x = randomInt();
-            final Object y = new Object();
-            return new Value<PrimitiveIntObjectMap>()
-            {
-                @Override
-                public void add( PrimitiveIntObjectMap coll )
-                {
-                    coll.put( x, y );
-                }
-
-                @Override
-                public boolean remove( PrimitiveIntObjectMap coll )
-                {
-                    return coll.remove( x ) == y;
-                }
-            };
-        }
-    };
-
-    @DataPoint
-    public static ValueProducer<PrimitiveLongObjectMap> longObjV =
-            new ValueProducer<PrimitiveLongObjectMap>( PrimitiveLongObjectMap.class )
-    {
-        @Override
-        public Value<PrimitiveLongObjectMap> randomValue()
-        {
-            final long x = randomLong();
-            final Object y = new Object();
-            return new Value<PrimitiveLongObjectMap>()
-            {
-                @Override
-                public void add( PrimitiveLongObjectMap coll )
-                {
-                    coll.put( x, y );
-                }
-
-                @Override
-                public boolean remove( PrimitiveLongObjectMap coll )
-                {
-                    return coll.remove( x ) == y;
-                }
-            };
-        }
-    };
+//    @DataPoint
+//    public static ValueProducer<PrimitiveLongObjectMap> longObjV =
+//            new ValueProducer<PrimitiveLongObjectMap>( PrimitiveLongObjectMap.class )
+//    {
+//        @Override
+//        public Value<PrimitiveLongObjectMap> randomValue()
+//        {
+//            final long x = randomLong();
+//            final Object y = new Object();
+//            return new Value<PrimitiveLongObjectMap>()
+//            {
+//                @Override
+//                public void add( PrimitiveLongObjectMap coll )
+//                {
+//                    coll.put( x, y );
+//                }
+//
+//                @Override
+//                public boolean remove( PrimitiveLongObjectMap coll )
+//                {
+//                    return coll.remove( x ) == y;
+//                }
+//            };
+//        }
+//    };
 
     // ==== Primitive Collection Implementations ====
 
-    @DataPoint
-    public static Factory<PrimitiveIntSet> intSet = Primitive::intSet;
+//    @DataPoint
+//    public static Factory<PrimitiveIntSet> intSet = Primitive::intSet;
 
-    @DataPoint
-    public static Factory<PrimitiveIntSet> intSetWithCapacity = () -> Primitive.intSet( randomCapacity() );
+//    @DataPoint
+//    public static Factory<PrimitiveIntSet> intSetWithCapacity = () -> Primitive.intSet( randomCapacity() );
 
     @DataPoint
     public static Factory<PrimitiveIntSet> offheapIntSet = Primitive::offHeapIntSet;
@@ -279,50 +274,50 @@ public class PrimitiveCollectionEqualityTest
     @DataPoint
     public static Factory<PrimitiveIntSet> offheapIntSetWithCapacity = () -> Primitive.offHeapIntSet( randomCapacity() );
 
-    @DataPoint
-    public static Factory<PrimitiveLongSet> longSet = Primitive::longSet;
+//    @DataPoint
+//    public static Factory<PrimitiveLongSet> longSet = Primitive::longSet;
+//
+//    @DataPoint
+//    public static Factory<PrimitiveLongSet> longSetWithCapacity = () -> Primitive.longSet( randomCapacity() );
+//
+//    @DataPoint
+//    public static Factory<PrimitiveLongSet> offheapLongSet = Primitive::offHeapLongSet;
+//
+//    @DataPoint
+//    public static Factory<PrimitiveLongSet> offheapLongSetWithCapacity = () -> Primitive.offHeapLongSet( randomCapacity() );
+//
+//    @DataPoint
+//    public static Factory<PrimitiveIntLongMap> intLongMap = Primitive::intLongMap;
+//
+//    @DataPoint
+//    public static Factory<PrimitiveIntLongMap> intLongMapWithCapacity = () -> Primitive.intLongMap( randomCapacity() );
+//
+//    @DataPoint
+//    public static Factory<PrimitiveLongIntMap> longIntMap = Primitive::longIntMap;
+//
+//    @DataPoint
+//    public static Factory<PrimitiveLongIntMap> longIntMapWithCapacity = () -> Primitive.longIntMap( randomCapacity() );
+//
+//    @DataPoint
+//    public static Factory<PrimitiveLongLongMap> offheapLongLongMap = Primitive::offHeapLongLongMap;
 
-    @DataPoint
-    public static Factory<PrimitiveLongSet> longSetWithCapacity = () -> Primitive.longSet( randomCapacity() );
-
-    @DataPoint
-    public static Factory<PrimitiveLongSet> offheapLongSet = Primitive::offHeapLongSet;
-
-    @DataPoint
-    public static Factory<PrimitiveLongSet> offheapLongSetWithCapacity = () -> Primitive.offHeapLongSet( randomCapacity() );
-
-    @DataPoint
-    public static Factory<PrimitiveIntLongMap> intLongMap = Primitive::intLongMap;
-
-    @DataPoint
-    public static Factory<PrimitiveIntLongMap> intLongMapWithCapacity = () -> Primitive.intLongMap( randomCapacity() );
-
-    @DataPoint
-    public static Factory<PrimitiveLongIntMap> longIntMap = Primitive::longIntMap;
-
-    @DataPoint
-    public static Factory<PrimitiveLongIntMap> longIntMapWithCapacity = () -> Primitive.longIntMap( randomCapacity() );
-
-    @DataPoint
-    public static Factory<PrimitiveLongLongMap> offheapLongLongMap = Primitive::offHeapLongLongMap;
-
-    @DataPoint
-    public static Factory<PrimitiveLongLongMap> offheapLongLongMapWithCapacity =
-            () -> Primitive.offHeapLongLongMap( randomCapacity() );
-
-    @DataPoint
-    public static Factory<PrimitiveIntObjectMap> intObjMap = Primitive::intObjectMap;
-
-    @DataPoint
-    public static Factory<PrimitiveIntObjectMap> intObjMapWithCapacity =
-            () -> Primitive.intObjectMap( randomCapacity() );
-
-    @DataPoint
-    public static Factory<PrimitiveLongObjectMap> longObjectMap = Primitive::longObjectMap;
-
-    @DataPoint
-    public static Factory<PrimitiveLongObjectMap> longObjectMapWithCapacity =
-            () -> Primitive.longObjectMap( randomCapacity() );
+//    @DataPoint
+//    public static Factory<PrimitiveLongLongMap> offheapLongLongMapWithCapacity =
+//            () -> Primitive.offHeapLongLongMap( randomCapacity() );
+//
+//    @DataPoint
+//    public static Factory<PrimitiveIntObjectMap> intObjMap = Primitive::intObjectMap;
+//
+//    @DataPoint
+//    public static Factory<PrimitiveIntObjectMap> intObjMapWithCapacity =
+//            () -> Primitive.intObjectMap( randomCapacity() );
+//
+//    @DataPoint
+//    public static Factory<PrimitiveLongObjectMap> longObjectMap = Primitive::longObjectMap;
+//
+//    @DataPoint
+//    public static Factory<PrimitiveLongObjectMap> longObjectMapWithCapacity =
+//            () -> Primitive.longObjectMap( randomCapacity() );
 
     private static final PrimitiveIntSet observedRandomInts = Primitive.intSet();
     private static final PrimitiveLongSet observedRandomLongs = Primitive.longSet();
@@ -364,10 +359,12 @@ public class PrimitiveCollectionEqualityTest
     {
         long startTime = System.nanoTime();
         assertThat( a, is( equalTo( b ) ) );
-        assertThat( b, is( equalTo( a ) ) );
-        assertThat( a.hashCode(), is( equalTo( b.hashCode() ) ) );
-        if ( TimeUnit.NANOSECONDS.toMillis( System.nanoTime() - startTime ) > 1000 )
+//        assertThat( b, is( equalTo( a ) ) );
+//        assertThat( a.hashCode(), is( equalTo( b.hashCode() ) ) );
+        long millis = TimeUnit.NANOSECONDS.toMillis( System.nanoTime() - startTime );
+        if ( millis > 1000 )
         {
+            System.out.println( "Assertion time: " + millis + " ms. Collection size: " + a.size() + ", class: " + a.getClass().getName() );
             UnsafeUtil.dumpAllocationRecords();
         }
     }

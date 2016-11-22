@@ -19,10 +19,15 @@
  */
 package org.neo4j.collection.primitive.hopscotch;
 
+import java.util.concurrent.TimeUnit;
+
 import org.neo4j.unsafe.impl.internal.dragons.UnsafeUtil;
 
 public class IntKeyUnsafeTable<VALUE> extends UnsafeTable<VALUE>
 {
+    private long totalTime = 0;
+    private long callCounter = 0;
+
     public IntKeyUnsafeTable( int capacity, VALUE valueMarker )
     {
         super( capacity, 4, valueMarker );
@@ -31,7 +36,11 @@ public class IntKeyUnsafeTable<VALUE> extends UnsafeTable<VALUE>
     @Override
     protected long internalKey( long keyAddress )
     {
-        return UnsafeUtil.getInt( keyAddress );
+        long start = System.nanoTime();
+        int value = UnsafeUtil.getInt( keyAddress );
+        totalTime += (System.nanoTime() - start);
+        callCounter++;
+        return  value;
     }
 
     @Override
@@ -47,5 +56,19 @@ public class IntKeyUnsafeTable<VALUE> extends UnsafeTable<VALUE>
     protected Table<VALUE> newInstance( int newCapacity )
     {
         return new IntKeyUnsafeTable<>( newCapacity, valueMarker );
+    }
+
+    public void printStatistic()
+    {
+        System.out.println( "Table internal key time: " + TimeUnit.NANOSECONDS.toMillis( totalTime ) + " ms. "
+                + "Number " + callCounter + "of calls." );
+        UnsafeUtil.printSummary();
+    }
+
+    public void reset()
+    {
+        UnsafeUtil.resetTime();
+        totalTime = 0;
+        callCounter = 0;
     }
 }

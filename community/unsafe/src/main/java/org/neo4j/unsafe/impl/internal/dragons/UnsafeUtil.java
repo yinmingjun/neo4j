@@ -33,6 +33,7 @@ import java.security.PrivilegedExceptionAction;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
@@ -78,6 +79,9 @@ public final class UnsafeUtil
 
     public static final boolean allowUnalignedMemoryAccess;
     public static final boolean storeByteOrderIsNative;
+
+    private static long checkAccessTime = 0;
+    private static long getIntTime = 0;
 
     static
     {
@@ -460,8 +464,24 @@ public final class UnsafeUtil
         {
             AllocationRecord ceilingRecord = pointers.ceilingRecord( pointer );
             throwException( pointer, size, start, floorRecord, ceilingRecord );
-            return;
         }
+        checkAccessTime += (System.nanoTime() - start);
+    }
+
+    public static void printSummary()
+    {
+        System.out.println( "Access time is: " + nanoToMs( checkAccessTime ) + ", getIntTime: " + nanoToMs( getIntTime ) );
+    }
+
+    private static long nanoToMs( long time )
+    {
+        return TimeUnit.NANOSECONDS.toMillis( time );
+    }
+
+    public static void resetTime()
+    {
+        checkAccessTime = 0;
+        getIntTime = 0;
     }
 
     private static void throwException( long pointer, int size, long start, AllocationRecord floorRecord,
@@ -708,7 +728,15 @@ public final class UnsafeUtil
     public static int getInt( long address )
     {
         checkAccess( address, Integer.BYTES );
-        return unsafe.getInt( address );
+        long start = System.nanoTime();
+        try
+        {
+            return unsafe.getInt( address );
+        }
+        finally
+        {
+            getIntTime += (System.nanoTime() - start);
+        }
     }
 
     public static void putIntVolatile( long address, int value )
@@ -1173,6 +1201,7 @@ public final class UnsafeUtil
         {
             this.address = address;
             this.sizeInBytes = sizeInBytes;
+            System.out.println( "Created " + toString() );
         }
 
         long getSizeInBytes()
