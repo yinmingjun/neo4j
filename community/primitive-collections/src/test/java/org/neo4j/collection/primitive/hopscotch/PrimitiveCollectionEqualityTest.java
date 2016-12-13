@@ -28,14 +28,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
 
 import org.neo4j.collection.primitive.Primitive;
 import org.neo4j.collection.primitive.PrimitiveCollection;
 import org.neo4j.collection.primitive.PrimitiveIntSet;
 import org.neo4j.collection.primitive.PrimitiveLongSet;
 import org.neo4j.function.Factory;
-import org.neo4j.unsafe.impl.internal.dragons.UnsafeUtil;
 
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
@@ -105,219 +103,13 @@ public class PrimitiveCollectionEqualityTest
         }
     };
 
-//    @DataPoint
-//    public static ValueProducer<PrimitiveLongSet> longV =
-//            new ValueProducer<PrimitiveLongSet>( PrimitiveLongSet.class )
-//    {
-//        @Override
-//        public Value<PrimitiveLongSet> randomValue()
-//        {
-//            final long x = randomLong();
-//            return new Value<PrimitiveLongSet>()
-//            {
-//                @Override
-//                public void add( PrimitiveLongSet coll )
-//                {
-//                    coll.add( x );
-//                }
-//
-//                @Override
-//                public boolean remove( PrimitiveLongSet coll )
-//                {
-//                    return coll.remove( x );
-//                }
-//            };
-//        }
-//    };
-
-//    @DataPoint
-//    public static ValueProducer<PrimitiveIntLongMap> intLongV = new ValueProducer<PrimitiveIntLongMap>(
-//            PrimitiveIntLongMap.class )
-//    {
-//        @Override
-//        public Value<PrimitiveIntLongMap> randomValue()
-//        {
-//            final int x = randomInt();
-//            final long y = randomLong();
-//            return new Value<PrimitiveIntLongMap>()
-//            {
-//                @Override
-//                public void add( PrimitiveIntLongMap coll )
-//                {
-//                    coll.put( x, y );
-//                }
-//
-//                @Override
-//                public boolean remove( PrimitiveIntLongMap coll )
-//                {
-//                    return coll.remove( x ) == y;
-//                }
-//            };
-//        }
-//    };
-
-//    @DataPoint
-//    public static ValueProducer<PrimitiveLongIntMap> longIntV = new ValueProducer<PrimitiveLongIntMap>(
-//            PrimitiveLongIntMap.class )
-//    {
-//        @Override
-//        public Value<PrimitiveLongIntMap> randomValue()
-//        {
-//            final long x = randomLong();
-//            final int y = randomInt();
-//            return new Value<PrimitiveLongIntMap>()
-//            {
-//                @Override
-//                public void add( PrimitiveLongIntMap coll )
-//                {
-//                    coll.put( x, y );
-//                }
-//
-//                @Override
-//                public boolean remove( PrimitiveLongIntMap coll )
-//                {
-//                    return coll.remove( x ) == y;
-//                }
-//            };
-//        }
-//    };
-
-//    @DataPoint
-//    public static ValueProducer<PrimitiveLongLongMap> longLongV = new ValueProducer<PrimitiveLongLongMap>(
-//            PrimitiveLongLongMap.class )
-//    {
-//        @Override
-//        public Value<PrimitiveLongLongMap> randomValue()
-//        {
-//            final long x = randomLong();
-//            final long y = randomLong();
-//            return new Value<PrimitiveLongLongMap>()
-//            {
-//                @Override
-//                public void add( PrimitiveLongLongMap coll )
-//                {
-//                    coll.put( x, y );
-//                }
-//
-//                @Override
-//                public boolean remove( PrimitiveLongLongMap coll )
-//                {
-//                    return coll.remove( x ) == y;
-//                }
-//            };
-//        }
-//    };
-
-//    @DataPoint
-//    public static ValueProducer<PrimitiveIntObjectMap> intObjV =
-//            new ValueProducer<PrimitiveIntObjectMap>( PrimitiveIntObjectMap.class )
-//    {
-//        @Override
-//        public Value<PrimitiveIntObjectMap> randomValue()
-//        {
-//            final int x = randomInt();
-//            final Object y = new Object();
-//            return new Value<PrimitiveIntObjectMap>()
-//            {
-//                @Override
-//                public void add( PrimitiveIntObjectMap coll )
-//                {
-//                    coll.put( x, y );
-//                }
-//
-//                @Override
-//                public boolean remove( PrimitiveIntObjectMap coll )
-//                {
-//                    return coll.remove( x ) == y;
-//                }
-//            };
-//        }
-//    };
-
-//    @DataPoint
-//    public static ValueProducer<PrimitiveLongObjectMap> longObjV =
-//            new ValueProducer<PrimitiveLongObjectMap>( PrimitiveLongObjectMap.class )
-//    {
-//        @Override
-//        public Value<PrimitiveLongObjectMap> randomValue()
-//        {
-//            final long x = randomLong();
-//            final Object y = new Object();
-//            return new Value<PrimitiveLongObjectMap>()
-//            {
-//                @Override
-//                public void add( PrimitiveLongObjectMap coll )
-//                {
-//                    coll.put( x, y );
-//                }
-//
-//                @Override
-//                public boolean remove( PrimitiveLongObjectMap coll )
-//                {
-//                    return coll.remove( x ) == y;
-//                }
-//            };
-//        }
-//    };
-
     // ==== Primitive Collection Implementations ====
-
-//    @DataPoint
-//    public static Factory<PrimitiveIntSet> intSet = Primitive::intSet;
-
-//    @DataPoint
-//    public static Factory<PrimitiveIntSet> intSetWithCapacity = () -> Primitive.intSet( randomCapacity() );
 
     @DataPoint
     public static Factory<PrimitiveIntSet> offheapIntSet = Primitive::offHeapIntSet;
 
     @DataPoint
     public static Factory<PrimitiveIntSet> offheapIntSetWithCapacity = () -> Primitive.offHeapIntSet( randomCapacity() );
-
-//    @DataPoint
-//    public static Factory<PrimitiveLongSet> longSet = Primitive::longSet;
-//
-//    @DataPoint
-//    public static Factory<PrimitiveLongSet> longSetWithCapacity = () -> Primitive.longSet( randomCapacity() );
-//
-//    @DataPoint
-//    public static Factory<PrimitiveLongSet> offheapLongSet = Primitive::offHeapLongSet;
-//
-//    @DataPoint
-//    public static Factory<PrimitiveLongSet> offheapLongSetWithCapacity = () -> Primitive.offHeapLongSet( randomCapacity() );
-//
-//    @DataPoint
-//    public static Factory<PrimitiveIntLongMap> intLongMap = Primitive::intLongMap;
-//
-//    @DataPoint
-//    public static Factory<PrimitiveIntLongMap> intLongMapWithCapacity = () -> Primitive.intLongMap( randomCapacity() );
-//
-//    @DataPoint
-//    public static Factory<PrimitiveLongIntMap> longIntMap = Primitive::longIntMap;
-//
-//    @DataPoint
-//    public static Factory<PrimitiveLongIntMap> longIntMapWithCapacity = () -> Primitive.longIntMap( randomCapacity() );
-//
-//    @DataPoint
-//    public static Factory<PrimitiveLongLongMap> offheapLongLongMap = Primitive::offHeapLongLongMap;
-
-//    @DataPoint
-//    public static Factory<PrimitiveLongLongMap> offheapLongLongMapWithCapacity =
-//            () -> Primitive.offHeapLongLongMap( randomCapacity() );
-//
-//    @DataPoint
-//    public static Factory<PrimitiveIntObjectMap> intObjMap = Primitive::intObjectMap;
-//
-//    @DataPoint
-//    public static Factory<PrimitiveIntObjectMap> intObjMapWithCapacity =
-//            () -> Primitive.intObjectMap( randomCapacity() );
-//
-//    @DataPoint
-//    public static Factory<PrimitiveLongObjectMap> longObjectMap = Primitive::longObjectMap;
-//
-//    @DataPoint
-//    public static Factory<PrimitiveLongObjectMap> longObjectMapWithCapacity =
-//            () -> Primitive.longObjectMap( randomCapacity() );
 
     private static final PrimitiveIntSet observedRandomInts = Primitive.intSet();
     private static final PrimitiveLongSet observedRandomLongs = Primitive.longSet();
@@ -336,20 +128,6 @@ public class PrimitiveCollectionEqualityTest
         return n;
     }
 
-    /**
-     * Produce a random long that hasn't been seen before by any test.
-     */
-    private static long randomLong()
-    {
-        long n;
-        do
-        {
-            n = ThreadLocalRandom.current().nextLong();
-        }
-        while ( n == -1 || !observedRandomLongs.add( n ) );
-        return n;
-    }
-
     private static int randomCapacity()
     {
         return ThreadLocalRandom.current().nextInt( 30, 1200 );
@@ -357,38 +135,7 @@ public class PrimitiveCollectionEqualityTest
 
     private void assertEquals( PrimitiveCollection a, PrimitiveCollection b )
     {
-        long startTime = System.nanoTime();
         assertThat( a, is( equalTo( b ) ) );
-//        assertThat( b, is( equalTo( a ) ) );
-//        assertThat( a.hashCode(), is( equalTo( b.hashCode() ) ) );
-        long millis = TimeUnit.NANOSECONDS.toMillis( System.nanoTime() - startTime );
-        if ( millis > 1000 )
-        {
-            System.out.println( "Assertion time: " + millis + " ms. Collection size: " + a.size() + ", class: " + a.getClass().getName() );
-            UnsafeUtil.dumpAllocationRecords();
-        }
-    }
-
-    @Theory
-    public void collectionsAreNotEqualToObjectsOfOtherTypes( Factory<PrimitiveCollection> factory )
-    {
-        try ( PrimitiveCollection coll = factory.newInstance() )
-        {
-            assertNotEquals( coll, new Object() );
-        }
-    }
-
-    @Theory
-    public void emptyCollectionsAreEqual(
-            ValueProducer values, Factory<PrimitiveCollection> factoryA, Factory<PrimitiveCollection> factoryB )
-    {
-        assumeTrue( values.isApplicable( factoryA ) );
-        assumeTrue( values.isApplicable( factoryB ) );
-        try ( PrimitiveCollection a = factoryA.newInstance();
-              PrimitiveCollection b = factoryB.newInstance() )
-        {
-            assertEquals( a, b );
-        }
     }
 
     @Theory
@@ -398,126 +145,12 @@ public class PrimitiveCollectionEqualityTest
         assumeTrue( values.isApplicable( factoryA ) );
         assumeTrue( values.isApplicable( factoryB ) );
         try ( PrimitiveCollection a = factoryA.newInstance();
-              PrimitiveCollection b = factoryB.newInstance() )
+                PrimitiveCollection b = factoryB.newInstance() )
         {
             Value value = values.randomValue();
             value.add( a );
             value.add( b );
             assertEquals( a, b );
-        }
-    }
-
-    @Theory
-    public void addingDifferentValuesMustProduceUnequalCollections(
-            ValueProducer values, Factory<PrimitiveCollection> factoryA, Factory<PrimitiveCollection> factoryB )
-    {
-        assumeTrue( values.isApplicable( factoryA ) );
-        assumeTrue( values.isApplicable( factoryB ) );
-        try ( PrimitiveCollection a = factoryA.newInstance();
-              PrimitiveCollection b = factoryB.newInstance() )
-        {
-            values.randomValue().add( a );
-            values.randomValue().add( b );
-            assertNotEquals( a, b );
-        }
-    }
-
-    @Theory
-    public void differentButEquivalentMutationsShouldProduceEqualCollections(
-            ValueProducer values, Factory<PrimitiveCollection> factoryA, Factory<PrimitiveCollection> factoryB )
-    {
-        // Note that this test, cute as it is, also verifies that the hashCode implementation is order-invariant :)
-        assumeTrue( values.isApplicable( factoryA ) );
-        assumeTrue( values.isApplicable( factoryB ) );
-        try ( PrimitiveCollection a = factoryA.newInstance();
-              PrimitiveCollection b = factoryB.newInstance() )
-        {
-            Value x = values.randomValue();
-            Value y = values.randomValue();
-            Value z = values.randomValue();
-
-            x.add( a );
-            z.add( a );
-
-            z.add( b );
-            y.add( b );
-            x.add( b );
-            y.remove( b );
-
-            assertEquals( a, b );
-        }
-    }
-
-    @Theory
-    public void capacityDifferencesMustNotInfluenceEquality(
-            ValueProducer values, Factory<PrimitiveCollection> factoryA, Factory<PrimitiveCollection> factoryB )
-    {
-        assumeTrue( values.isApplicable( factoryA ) );
-        assumeTrue( values.isApplicable( factoryB ) );
-        try ( PrimitiveCollection a = factoryA.newInstance();
-              PrimitiveCollection b = factoryB.newInstance() )
-        {
-            List<Value> tmps = new ArrayList<>();
-            for ( int i = 0; i < 5000; i++ )
-            {
-                Value value = values.randomValue();
-                value.add( b );
-                tmps.add( value );
-            }
-
-            Value specificValue = values.randomValue();
-            specificValue.add( a );
-            specificValue.add( b );
-
-            for ( int i = 0; i < 5000; i++ )
-            {
-                Value value = values.randomValue();
-                value.add( b );
-                tmps.add( value );
-            }
-
-            Collections.shuffle( tmps );
-            for ( Value value : tmps )
-            {
-                value.remove( b );
-            }
-
-            assertEquals( a, b );
-        }
-    }
-
-    @Theory
-    public void hashCodeMustFollowValues(
-            ValueProducer values, Factory<PrimitiveCollection> factory )
-    {
-        assumeTrue( values.isApplicable( factory ) );
-        try ( PrimitiveCollection a = factory.newInstance() )
-        {
-            Value x = values.randomValue();
-            Value y = values.randomValue();
-            Value z = values.randomValue();
-
-            int i = a.hashCode();
-            x.add( a );
-            int j = a.hashCode();
-            y.add( a );
-            int k = a.hashCode();
-            z.add( a );
-            int l = a.hashCode();
-            z.remove( a );
-            int m = a.hashCode();
-            y.remove( a );
-            int n = a.hashCode();
-            x.remove( a );
-            int o = a.hashCode();
-
-            assertThat( "0 elm hashcode equal", o, is( i ) );
-            assertThat( "1 elm hashcode equal", n, is( j ) );
-            assertThat( "2 elm hashcode equal", m, is( k ) );
-            assertThat( "3 elm hashcode distinct", l, not( isOneOf( i, j, k, m, n, o ) ) );
-            assertThat( "2 elm hashcode distinct", k, not( isOneOf( i, j, l, n, o ) ) );
-            assertThat( "1 elm hashcode distinct", n, not( isOneOf( i, k, l, m, o ) ) );
-            assertThat( "0 elm hashcode distinct", i, not( isOneOf( j, k, l, m, n ) ) );
         }
     }
 }

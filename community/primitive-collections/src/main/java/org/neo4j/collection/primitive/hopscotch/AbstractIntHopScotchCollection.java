@@ -65,10 +65,11 @@ public abstract class AbstractIntHopScotchCollection<VALUE> extends AbstractHopS
         long visitorTotal = 0;
 
         int visitedRecords = 0;
-        for ( int i = 0; i < capacity && visitedRecords < size; i++ )
+        int counter = 0;
+        for (; counter < capacity; counter++ )
         {
             long keyLookUpStart = System.nanoTime();
-            long key = table.key( i );
+            long key = table.key( counter );
             keyLookupTotal += (System.nanoTime() - keyLookUpStart);
             if ( key != nullKey )
             {
@@ -78,11 +79,12 @@ public abstract class AbstractIntHopScotchCollection<VALUE> extends AbstractHopS
                 visitorTotal += (System.nanoTime() - visitStart);
                 if ( visited )
                 {
-                    printStatistic( startTime, capacity, size, i, keyLookupTotal, visitorTotal );
+                    printStatistic( startTime, capacity, size, counter, keyLookupTotal, visitorTotal );
                     return;
                 }
             }
         }
+        System.out.println( "Loop counter is: " + counter );
         if (table instanceof IntKeyUnsafeTable)
         {
             IntKeyUnsafeTable unsafeTable = (IntKeyUnsafeTable) this.table;
