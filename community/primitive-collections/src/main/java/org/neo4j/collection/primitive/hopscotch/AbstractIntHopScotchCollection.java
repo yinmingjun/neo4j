@@ -66,24 +66,12 @@ public abstract class AbstractIntHopScotchCollection<VALUE> extends AbstractHopS
 
         int visitedRecords = 0;
         int counter = 0;
-        for (; counter < capacity; counter++ )
-        {
-            long keyLookUpStart = System.nanoTime();
-            long key = table.key( counter );
-            keyLookupTotal += (System.nanoTime() - keyLookUpStart);
-            if ( key != nullKey )
-            {
-                long visitStart = System.nanoTime();
-                boolean visited = visitor.visited( (int) key );
-                visitedRecords++;
-                visitorTotal += (System.nanoTime() - visitStart);
-                if ( visited )
-                {
-                    printStatistic( startTime, capacity, size, counter, keyLookupTotal, visitorTotal );
-                    return;
-                }
-            }
-        }
+        Loop loop = new Loop<E>( visitor, capacity, nullKey, keyLookupTotal, visitorTotal, visitedRecords, counter )
+                .loop();
+        counter = loop.getCounter();
+        visitedRecords = loop.getVisitedRecords();
+        keyLookupTotal = loop.getKeyLookupTotal();
+        visitorTotal = loop.getVisitorTotal();
         System.out.println( "Loop counter is: " + counter );
         if (table instanceof IntKeyUnsafeTable)
         {
@@ -106,5 +94,66 @@ public abstract class AbstractIntHopScotchCollection<VALUE> extends AbstractHopS
     private long nanoToMillis( long nanos )
     {
         return TimeUnit.NANOSECONDS.toMillis( nanos );
+    }
+
+    private class Loop<E extends Exception>
+    {
+        private PrimitiveIntVisitor<E> visitor;
+        private int capacity;
+        private long nullKey;
+        private long keyLookupTotal;
+        private long visitorTotal;
+        private int visitedRecords;
+        private int counter;
+
+        public Loop( PrimitiveIntVisitor<E> visitor, int capacity, long nullKey, long keyLookupTotal, long visitorTotal,
+                int visitedRecords, int counter )
+        {
+            this.visitor = visitor;
+            this.capacity = capacity;
+            this.nullKey = nullKey;
+            this.keyLookupTotal = keyLookupTotal;
+            this.visitorTotal = visitorTotal;
+            this.visitedRecords = visitedRecords;
+            this.counter = counter;
+        }
+
+        public long getKeyLookupTotal()
+        {
+            return keyLookupTotal;
+        }
+
+        public long getVisitorTotal()
+        {
+            return visitorTotal;
+        }
+
+        public int getVisitedRecords()
+        {
+            return visitedRecords;
+        }
+
+        public int getCounter()
+        {
+            return counter;
+        }
+
+        public Loop loop() throws E
+        {
+            for (; counter < capacity; counter++ )
+            {
+                long keyLookUpStart = System.nanoTime();
+                long key = table.key( counter );
+                keyLookupTotal += (System.nanoTime() - keyLookUpStart);
+                if ( key != nullKey )
+                {
+                    long visitStart = System.nanoTime();
+                    visitor.visited( (int) key );
+                    visitedRecords++;
+                    visitorTotal += (System.nanoTime() - visitStart);
+                }
+            }
+            return this;
+        }
     }
 }

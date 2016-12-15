@@ -1129,8 +1129,15 @@ public final class UnsafeUtil
         AllocationRecord floorRecord( long pointer )
         {
             AllocationRecord[] records = allocationRecords;
-            int index = binarySearch( records, pointer );
-            return index >= 0 ? records[index] : (index == -1) ? null : records[Math.abs( index + 2 )];
+            if ( records.length == 1 )
+            {
+                return ( Long.compare( records[0].address, pointer ) <= 0 ) ? records[0] : null;
+            }
+            else
+            {
+                int index = binarySearch( records, pointer );
+                return index >= 0 ? records[index] : (index == -1) ? null : records[Math.abs( index + 2 )];
+            }
         }
 
         AllocationRecord ceilingRecord( long pointer )

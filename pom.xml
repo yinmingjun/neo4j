@@ -33,7 +33,6 @@
     <test.runner.jvm.settings>-Xmx2G -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=target/test-data -Dorg.neo4j.unsafe.impl.internal.dragons.UnsafeUtil.DIRTY_MEMORY=true -Dorg.neo4j.unsafe.impl.internal.dragons.UnsafeUtil.CHECK_NATIVE_ACCESS=true
       -Dorg.neo4j.io.pagecache.impl.muninn.usePreciseCursorErrorStackTraces=true -XX:+UnlockExperimentalVMOptions -XX:+UnlockDiagnosticVMOptions
       -XX:+PrintCompilation -XX:+PrintCompilation2 -XX:+PrintInlining -XX:+PrintIntrinsics -XX:PrintAssemblyOptions=intel,hsdis-help
-      -XX:CompileCommand="print *UnsafeUtil.*"
       -XX:+PrintGCApplicationStoppedTime -XX:+PrintSafepointStatistics -XX:PrintSafepointStatisticsCount=1
       -XX:+PrintFlagsFinal -XX:+PrintBiasedLockingStatistics -XX:+CITime -XX:+TraceNMethodInstalls
       -XX:+TraceBiasedLocking
@@ -47,6 +46,8 @@
       -XX:+ProfileVM
       -XX:+ProfileIntervals
       -XX:GuaranteedSafepointInterval=1000
+      -XX:+TraceTypeProfile
+      -XX:+LogCompilation
       -XX:+TrustFinalNonStaticFields ${test.runner.jvm.settings.additional}</test.runner.jvm.settings>
     <doclint-groups>reference</doclint-groups>
     <jetty.version>9.2.9.v20150224</jetty.version>
