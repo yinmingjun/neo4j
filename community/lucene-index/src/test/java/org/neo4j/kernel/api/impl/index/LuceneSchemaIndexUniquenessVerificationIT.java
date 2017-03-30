@@ -73,7 +73,8 @@ public class LuceneSchemaIndexUniquenessVerificationIT
     @Rule
     public RuleChain ruleChain = RuleChain.outerRule( testDir ).around( testName );
 
-    public int nodesToCreate = 0;
+    @Parameterized.Parameter
+    public int nodesToCreate;
 
     private SchemaIndex index;
     private static final long MAX_LONG_VALUE = Long.MAX_VALUE >> 10;
@@ -100,7 +101,6 @@ public class LuceneSchemaIndexUniquenessVerificationIT
     @Before
     public void setPartitionSize() throws Exception
     {
-        nodesToCreate = DOCS_PER_PARTITION / 2;
         File directory = testDir.directory( "uniquenessVerification" );
         File[] filesInDirectory = directory.listFiles();
         boolean directoryIsEmpty = true;
