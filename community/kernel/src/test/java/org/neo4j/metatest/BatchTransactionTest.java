@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,11 +19,11 @@
  */
 package org.neo4j.metatest;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Transaction;
-import org.neo4j.helpers.progress.ProgressListener;
+import org.neo4j.internal.helpers.progress.ProgressListener;
 import org.neo4j.test.BatchTransaction;
 
 import static org.mockito.Mockito.mock;
@@ -32,10 +32,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.neo4j.test.BatchTransaction.beginBatchTx;
 
-public class BatchTransactionTest
+class BatchTransactionTest
 {
     @Test
-    public void shouldUseProgressListener() throws Exception
+    void shouldUseProgressListener()
     {
         // GIVEN
         Transaction transaction = mock( Transaction.class );
@@ -50,8 +50,8 @@ public class BatchTransactionTest
 
         // THEN
         verify( db, times( 2 ) ).beginTx();
-        verify( transaction, times( 1 ) ).close();
-        verify( progress, times( 1 ) ).add( 1 );
-        verify( progress, times( 1 ) ).add( 9 );
+        verify( transaction ).commit();
+        verify( progress ).add( 1 );
+        verify( progress ).add( 9 );
     }
 }

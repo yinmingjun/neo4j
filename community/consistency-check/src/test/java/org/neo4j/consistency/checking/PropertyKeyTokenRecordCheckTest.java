@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,51 +19,51 @@
  */
 package org.neo4j.consistency.checking;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import org.neo4j.consistency.report.ConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.PropertyKeyTokenConsistencyReport;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
 import org.neo4j.kernel.impl.store.record.PropertyKeyTokenRecord;
 
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-public class PropertyKeyTokenRecordCheckTest extends
-                                        RecordCheckTestBase<PropertyKeyTokenRecord, ConsistencyReport.PropertyKeyTokenConsistencyReport, PropertyKeyTokenRecordCheck>
+class PropertyKeyTokenRecordCheckTest extends
+        RecordCheckTestBase<PropertyKeyTokenRecord, PropertyKeyTokenConsistencyReport, PropertyKeyTokenRecordCheck>
 {
-    public PropertyKeyTokenRecordCheckTest()
+    PropertyKeyTokenRecordCheckTest()
     {
-        super( new PropertyKeyTokenRecordCheck(), ConsistencyReport.PropertyKeyTokenConsistencyReport.class, new int[0] );
+        super( new PropertyKeyTokenRecordCheck(), PropertyKeyTokenConsistencyReport.class, new int[0] );
     }
 
     @Test
-    public void shouldNotReportAnythingForRecordNotInUse() throws Exception
+    void shouldNotReportAnythingForRecordNotInUse()
     {
         // given
         PropertyKeyTokenRecord key = notInUse( new PropertyKeyTokenRecord( 42 ) );
 
         // when
-        ConsistencyReport.PropertyKeyTokenConsistencyReport report = check( key );
+        PropertyKeyTokenConsistencyReport report = check( key );
 
         // then
         verifyNoMoreInteractions( report );
     }
 
     @Test
-    public void shouldNotReportAnythingForRecordThatDoesNotReferenceADynamicBlock() throws Exception
+    void shouldNotReportAnythingForRecordThatDoesNotReferenceADynamicBlock()
     {
         // given
         PropertyKeyTokenRecord key = inUse( new PropertyKeyTokenRecord( 42 ) );
 
         // when
-        ConsistencyReport.PropertyKeyTokenConsistencyReport report = check( key );
+        PropertyKeyTokenConsistencyReport report = check( key );
 
         // then
         verifyNoMoreInteractions( report );
     }
 
     @Test
-    public void shouldReportDynamicBlockNotInUse() throws Exception
+    void shouldReportDynamicBlockNotInUse()
     {
         // given
         PropertyKeyTokenRecord key = inUse( new PropertyKeyTokenRecord( 42 ) );
@@ -71,7 +71,7 @@ public class PropertyKeyTokenRecordCheckTest extends
         key.setNameId( (int) name.getId() );
 
         // when
-        ConsistencyReport.PropertyKeyTokenConsistencyReport report = check( key );
+        PropertyKeyTokenConsistencyReport report = check( key );
 
         // then
         verify( report ).nameBlockNotInUse( name );
@@ -79,7 +79,7 @@ public class PropertyKeyTokenRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportEmptyName() throws Exception
+    void shouldReportEmptyName()
     {
         // given
         PropertyKeyTokenRecord key = inUse( new PropertyKeyTokenRecord( 42 ) );
@@ -87,7 +87,7 @@ public class PropertyKeyTokenRecordCheckTest extends
         key.setNameId( (int) name.getId() );
 
         // when
-        ConsistencyReport.PropertyKeyTokenConsistencyReport report = check( key );
+        PropertyKeyTokenConsistencyReport report = check( key );
 
         // then
         verify( report ).emptyName( name );

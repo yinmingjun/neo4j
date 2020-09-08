@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,110 +19,91 @@
  */
 package org.neo4j.kernel.monitoring.tracing;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.io.pagecache.tracing.DefaultPageCacheTracer;
 import org.neo4j.io.pagecache.tracing.PageCacheTracer;
-import org.neo4j.io.pagecache.tracing.cursor.DefaultPageCursorTracerSupplier;
-import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracerSupplier;
-import org.neo4j.kernel.impl.api.DefaultTransactionTracer;
-import org.neo4j.kernel.impl.transaction.log.checkpoint.DefaultCheckPointerTracer;
-import org.neo4j.kernel.impl.transaction.tracing.TransactionTracer;
-import org.neo4j.kernel.impl.util.JobScheduler;
-import org.neo4j.kernel.monitoring.Monitors;
+import org.neo4j.kernel.impl.api.tracer.DefaultTracer;
+import org.neo4j.kernel.impl.transaction.tracing.DatabaseTracer;
 import org.neo4j.logging.AssertableLogProvider;
 import org.neo4j.logging.Log;
+import org.neo4j.monitoring.Monitors;
+import org.neo4j.scheduler.JobScheduler;
+import org.neo4j.time.Clocks;
+import org.neo4j.time.SystemNanoClock;
 
-import static org.hamcrest.Matchers.instanceOf;
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.neo4j.logging.AssertableLogProvider.Level.WARN;
+import static org.neo4j.logging.LogAssertions.assertThat;
 
-public class TracersTest
+class TracersTest
 {
     private final AssertableLogProvider logProvider = new AssertableLogProvider();
     private final JobScheduler jobScheduler = mock( JobScheduler.class );
+    private final SystemNanoClock clock = Clocks.nanoClock();
     private final Monitors monitors = new Monitors();
 
     private Log log;
 
-    @Before
-    public void setUp()
+    @BeforeEach
+    void setUp()
     {
         log = logProvider.getLog( getClass() );
-        System.setProperty( "org.neo4j.helpers.Service.printServiceLoaderStackTraces", "true" );
     }
 
     @Test
-    public void mustProduceNullImplementationsWhenRequested() throws Exception
+    void mustProduceNullImplementationsWhenRequested()
     {
-        Tracers tracers = new Tracers( "null", log, monitors, jobScheduler );
-        assertThat( tracers.pageCacheTracer, is( PageCacheTracer.NULL ) );
-        assertThat( tracers.pageCursorTracerSupplier, is( PageCursorTracerSupplier.NULL ) );
-        assertThat( tracers.transactionTracer, is( TransactionTracer.NULL ) );
+        Tracers tracers = createTracers( "null" );
+        assertThat( tracers.getPageCacheTracer() ).isEqualTo( PageCacheTracer.NULL );
+        assertThat( tracers.getDatabaseTracer() ).isEqualTo( DatabaseTracer.NULL.NULL );
         assertNoWarning();
     }
 
     @Test
-    public void mustProduceNullImplementationsWhenRequestedIgnoringCase() throws Exception
+    void mustProduceDefaultImplementationForNullConfiguration()
     {
-        Tracers tracers = new Tracers( "NuLl", log, monitors, jobScheduler );
-        assertThat( tracers.pageCacheTracer, is( PageCacheTracer.NULL ) );
-        assertThat( tracers.pageCursorTracerSupplier, is( PageCursorTracerSupplier.NULL ) );
-        assertThat( tracers.transactionTracer, is( TransactionTracer.NULL ) );
-        assertNoWarning();
-    }
-
-    @Test
-    public void mustProduceDefaultImplementationForNullConfiguration() throws Exception
-    {
-        Tracers tracers = new Tracers( null, log, monitors, jobScheduler );
+        Tracers tracers = createTracers( null );
         assertDefaultImplementation( tracers );
         assertNoWarning();
     }
 
     @Test
-    public void mustProduceDefaultImplementationWhenRequested() throws Exception
+    void mustProduceDefaultImplementationWhenRequested()
     {
-        Tracers tracers = new Tracers( "default", log, monitors, jobScheduler );
+        Tracers tracers = createTracers( "default" );
         assertDefaultImplementation( tracers );
         assertNoWarning();
     }
 
     @Test
-    public void mustProduceDefaultImplementationWhenRequestedIgnoringCase() throws Exception
+    void mustProduceDefaultImplementationWhenRequestingUnknownImplementation()
     {
-        Tracers tracers = new Tracers( "DeFaUlT", log, monitors, jobScheduler );
-        assertDefaultImplementation( tracers );
-        assertNoWarning();
-    }
-
-    @Test
-    public void mustProduceDefaultImplementationWhenRequestingUnknownImplementation() throws Exception
-    {
-        Tracers tracers = new Tracers( "there's nothing like this", log, monitors, jobScheduler );
+        Tracers tracers = createTracers( "there's nothing like this" );
         assertDefaultImplementation( tracers );
         assertWarning( "there's nothing like this" );
     }
 
+    private Tracers createTracers( String s )
+    {
+        return new Tracers( s, log, monitors, jobScheduler, clock );
+    }
+
     private void assertDefaultImplementation( Tracers tracers )
     {
-        assertThat( tracers.pageCacheTracer, instanceOf( DefaultPageCacheTracer.class ) );
-        assertThat( tracers.transactionTracer, instanceOf( DefaultTransactionTracer.class ) );
-        assertThat( tracers.checkPointTracer, instanceOf( DefaultCheckPointerTracer.class ) );
-        assertThat( tracers.pageCursorTracerSupplier, instanceOf( DefaultPageCursorTracerSupplier.class ) );
+        assertThat( tracers.getPageCacheTracer() ).isInstanceOf( DefaultPageCacheTracer.class );
+        assertThat( tracers.getDatabaseTracer() ).isInstanceOf( DefaultTracer.class );
     }
 
     private void assertNoWarning()
     {
-        logProvider.assertNoLoggingOccurred();
+        assertThat( logProvider ).doesNotHaveAnyLogs();
     }
 
-    private void assertWarning( String implementationName )
+    private void assertWarning( String tracerName )
     {
-        logProvider.assertExactly(
-                AssertableLogProvider.inLog( getClass() ).warn( "Using default tracer implementations instead of '%s'", implementationName )
-        );
+        assertThat( logProvider ).forClass( getClass() ).forLevel( WARN )
+                .containsMessageWithArguments( "Using default tracer implementations instead of '%s'", tracerName );
     }
 }

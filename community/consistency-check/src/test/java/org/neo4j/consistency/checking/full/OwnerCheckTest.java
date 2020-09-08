@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,7 +19,7 @@
  */
 package org.neo4j.consistency.checking.full;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.consistency.RecordType;
 import org.neo4j.consistency.checking.DynamicStore;
@@ -27,27 +27,24 @@ import org.neo4j.consistency.checking.PrimitiveRecordCheck;
 import org.neo4j.consistency.checking.RecordCheck;
 import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.store.RecordAccessStub;
-import org.neo4j.helpers.progress.ProgressMonitorFactory;
+import org.neo4j.internal.helpers.progress.ProgressMonitorFactory;
 import org.neo4j.kernel.impl.store.PropertyType;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
-import org.neo4j.kernel.impl.store.record.NeoStoreRecord;
 import org.neo4j.kernel.impl.store.record.NodeRecord;
 import org.neo4j.kernel.impl.store.record.PropertyKeyTokenRecord;
 import org.neo4j.kernel.impl.store.record.PropertyRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipTypeTokenRecord;
 
-import static org.junit.Assert.assertSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
-import static org.mockito.Mockito.verifyZeroInteractions;
-
 import static org.neo4j.consistency.checking.DynamicRecordCheckTest.configureDynamicStore;
 import static org.neo4j.consistency.checking.RecordCheckTestBase.NONE;
 import static org.neo4j.consistency.checking.RecordCheckTestBase.array;
 import static org.neo4j.consistency.checking.RecordCheckTestBase.check;
 import static org.neo4j.consistency.checking.RecordCheckTestBase.dummyDynamicCheck;
-import static org.neo4j.consistency.checking.RecordCheckTestBase.dummyNeoStoreCheck;
 import static org.neo4j.consistency.checking.RecordCheckTestBase.dummyNodeCheck;
 import static org.neo4j.consistency.checking.RecordCheckTestBase.dummyPropertyChecker;
 import static org.neo4j.consistency.checking.RecordCheckTestBase.dummyPropertyKeyCheck;
@@ -58,10 +55,10 @@ import static org.neo4j.consistency.checking.RecordCheckTestBase.notInUse;
 import static org.neo4j.consistency.checking.RecordCheckTestBase.propertyBlock;
 import static org.neo4j.consistency.checking.RecordCheckTestBase.string;
 
-public class OwnerCheckTest
+class OwnerCheckTest
 {
     @Test
-    public void shouldNotDecorateCheckerWhenInactive() throws Exception
+    void shouldNotDecorateCheckerWhenInactive()
     {
         // given
         OwnerCheck decorator = new OwnerCheck( false );
@@ -76,7 +73,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldNotReportAnythingForNodesWithDifferentPropertyChains() throws Exception
+    void shouldNotReportAnythingForNodesWithDifferentPropertyChains()
     {
         // given
         OwnerCheck decorator = new OwnerCheck( true );
@@ -85,8 +82,8 @@ public class OwnerCheckTest
 
         RecordAccessStub records = new RecordAccessStub();
 
-        NodeRecord node1 = records.add( inUse( new NodeRecord( 1, false, NONE, 7 ) ) );
-        NodeRecord node2 = records.add( inUse( new NodeRecord( 2, false, NONE, 8 ) ) );
+        NodeRecord node1 = records.add( inUse( new NodeRecord( 1 ).initialize( false, 7, false, NONE, 0 ) ) );
+        NodeRecord node2 = records.add( inUse( new NodeRecord( 2 ).initialize( false, 8, false, NONE, 0 ) ) );
 
         // when
         ConsistencyReport.NodeConsistencyReport report1 =
@@ -95,12 +92,12 @@ public class OwnerCheckTest
                 check( ConsistencyReport.NodeConsistencyReport.class, nodeChecker, node2, records );
 
         // then
-        verifyZeroInteractions( report1 );
-        verifyZeroInteractions( report2 );
+        verifyNoInteractions( report1 );
+        verifyNoInteractions( report2 );
     }
 
     @Test
-    public void shouldNotReportAnythingForNodesNotInUse() throws Exception
+    void shouldNotReportAnythingForNodesNotInUse()
     {
         // given
         OwnerCheck decorator = new OwnerCheck( true );
@@ -109,8 +106,8 @@ public class OwnerCheckTest
 
         RecordAccessStub records = new RecordAccessStub();
 
-        NodeRecord node1 = records.add( notInUse( new NodeRecord( 1, false, NONE, 6 ) ) );
-        NodeRecord node2 = records.add( notInUse( new NodeRecord( 2, false, NONE, 6 ) ) );
+        NodeRecord node1 = records.add( notInUse( new NodeRecord( 1 ).initialize( false, 6, false, NONE, 0 ) ) );
+        NodeRecord node2 = records.add( notInUse( new NodeRecord( 2 ).initialize( false, 6, false, NONE, 0 ) ) );
 
         // when
         ConsistencyReport.NodeConsistencyReport report1 =
@@ -119,12 +116,12 @@ public class OwnerCheckTest
                 check( ConsistencyReport.NodeConsistencyReport.class, nodeChecker, node2, records );
 
         // then
-        verifyZeroInteractions( report1 );
-        verifyZeroInteractions( report2 );
+        verifyNoInteractions( report1 );
+        verifyNoInteractions( report2 );
     }
 
     @Test
-    public void shouldNotReportAnythingForRelationshipsWithDifferentPropertyChains() throws Exception
+    void shouldNotReportAnythingForRelationshipsWithDifferentPropertyChains()
     {
         // given
         OwnerCheck decorator = new OwnerCheck( true );
@@ -133,9 +130,11 @@ public class OwnerCheckTest
 
         RecordAccessStub records = new RecordAccessStub();
 
-        RelationshipRecord relationship1 = records.add( inUse( new RelationshipRecord( 1, 0, 1, 0 ) ) );
+        RelationshipRecord relationship1 = records.add( inUse( new RelationshipRecord( 1 ) ) );
+        relationship1.setLinks( 0, 1, 0 );
         relationship1.setNextProp( 7 );
-        RelationshipRecord relationship2 = records.add( inUse( new RelationshipRecord( 2, 0, 1, 0 ) ) );
+        RelationshipRecord relationship2 = records.add( inUse( new RelationshipRecord( 2 ) ) );
+        relationship2.setLinks( 0, 1, 0 );
         relationship2.setNextProp( 8 );
 
         // when
@@ -147,12 +146,12 @@ public class OwnerCheckTest
                        relationshipChecker, relationship2, records );
 
         // then
-        verifyZeroInteractions( report1 );
-        verifyZeroInteractions( report2 );
+        verifyNoInteractions( report1 );
+        verifyNoInteractions( report2 );
     }
 
     @Test
-    public void shouldReportTwoNodesWithSamePropertyChain() throws Exception
+    void shouldReportTwoNodesWithSamePropertyChain()
     {
         // given
         OwnerCheck decorator = new OwnerCheck( true );
@@ -161,8 +160,8 @@ public class OwnerCheckTest
 
         RecordAccessStub records = new RecordAccessStub();
 
-        NodeRecord node1 = records.add( inUse( new NodeRecord( 1, false, NONE, 7 ) ) );
-        NodeRecord node2 = records.add( inUse( new NodeRecord( 2, false, NONE, 7 ) ) );
+        NodeRecord node1 = records.add( inUse( new NodeRecord( 1 ).initialize( false, 7, false, NONE, 0 ) ) );
+        NodeRecord node2 = records.add( inUse( new NodeRecord( 2 ).initialize( false, 7, false, NONE, 0 ) ) );
 
         // when
         ConsistencyReport.NodeConsistencyReport report1 =
@@ -171,12 +170,12 @@ public class OwnerCheckTest
                 check( ConsistencyReport.NodeConsistencyReport.class, nodeChecker, node2, records );
 
         // then
-        verifyZeroInteractions( report1 );
+        verifyNoInteractions( report1 );
         verify( report2 ).multipleOwners( node1 );
     }
 
     @Test
-    public void shouldReportTwoRelationshipsWithSamePropertyChain() throws Exception
+    void shouldReportTwoRelationshipsWithSamePropertyChain()
     {
         // given
         OwnerCheck decorator = new OwnerCheck( true );
@@ -185,9 +184,11 @@ public class OwnerCheckTest
 
         RecordAccessStub records = new RecordAccessStub();
 
-        RelationshipRecord relationship1 = records.add( inUse( new RelationshipRecord( 1, 0, 1, 0 ) ) );
+        RelationshipRecord relationship1 = records.add( inUse( new RelationshipRecord( 1 ) ) );
+        relationship1.setLinks( 0, 1, 0 );
         relationship1.setNextProp( 7 );
-        RelationshipRecord relationship2 = records.add( inUse( new RelationshipRecord( 2, 0, 1, 0 ) ) );
+        RelationshipRecord relationship2 = records.add( inUse( new RelationshipRecord( 2 ) ) );
+        relationship2.setLinks( 0, 1, 0 );
         relationship2.setNextProp( relationship1.getNextProp() );
 
         // when
@@ -199,12 +200,12 @@ public class OwnerCheckTest
                        relationshipChecker, relationship2, records );
 
         // then
-        verifyZeroInteractions( report1 );
+        verifyNoInteractions( report1 );
         verify( report2 ).multipleOwners( relationship1 );
     }
 
     @Test
-    public void shouldReportRelationshipWithSamePropertyChainAsNode() throws Exception
+    void shouldReportRelationshipWithSamePropertyChainAsNode()
     {
         // given
         OwnerCheck decorator = new OwnerCheck( true );
@@ -215,8 +216,9 @@ public class OwnerCheckTest
 
         RecordAccessStub records = new RecordAccessStub();
 
-        NodeRecord node = records.add( inUse( new NodeRecord( 1, false, NONE, 7 ) ) );
-        RelationshipRecord relationship = records.add( inUse( new RelationshipRecord( 1, 0, 1, 0 ) ) );
+        NodeRecord node = records.add( inUse( new NodeRecord( 1 ).initialize( false, 7, false, NONE, 0 ) ) );
+        RelationshipRecord relationship = records.add( inUse( new RelationshipRecord( 1 ) ) );
+        relationship.setLinks( 0, 1, 0 );
         relationship.setNextProp( node.getNextProp() );
 
         // when
@@ -227,41 +229,12 @@ public class OwnerCheckTest
                        relationshipChecker, relationship, records );
 
         // then
-        verifyZeroInteractions( nodeReport );
+        verifyNoInteractions( nodeReport );
         verify( relationshipReport ).multipleOwners( node );
     }
 
     @Test
-    public void shouldReportRelationshipWithReferenceToTheGraphGlobalChain() throws Exception
-    {
-        // given
-        OwnerCheck decorator = new OwnerCheck( true );
-        RecordCheck<RelationshipRecord, ConsistencyReport.RelationshipConsistencyReport> relationshipChecker =
-                decorator.decorateRelationshipChecker( dummyRelationshipChecker() );
-        RecordCheck<NeoStoreRecord, ConsistencyReport.NeoStoreConsistencyReport> neoStoreCheck =
-                decorator.decorateNeoStoreChecker( dummyNeoStoreCheck() );
-
-        RecordAccessStub records = new RecordAccessStub();
-
-        NeoStoreRecord master = records.add( new NeoStoreRecord() );
-        master.setNextProp( 7 );
-        RelationshipRecord relationship = records.add( inUse( new RelationshipRecord( 1, 0, 1, 0 ) ) );
-        relationship.setNextProp( 7 );
-
-        // when
-        ConsistencyReport.NeoStoreConsistencyReport masterReport =
-                check( ConsistencyReport.NeoStoreConsistencyReport.class, neoStoreCheck, master, records );
-        ConsistencyReport.RelationshipConsistencyReport relationshipReport =
-                check( ConsistencyReport.RelationshipConsistencyReport.class,
-                       relationshipChecker, relationship, records );
-
-        // then
-        verifyZeroInteractions( masterReport );
-        verify( relationshipReport ).multipleOwners( master );
-    }
-
-    @Test
-    public void shouldReportNodeWithSamePropertyChainAsRelationship() throws Exception
+    void shouldReportNodeWithSamePropertyChainAsRelationship()
     {
         // given
         OwnerCheck decorator = new OwnerCheck( true );
@@ -272,8 +245,9 @@ public class OwnerCheckTest
 
         RecordAccessStub records = new RecordAccessStub();
 
-        NodeRecord node = records.add( inUse( new NodeRecord( 1, false, NONE, 7 ) ) );
-        RelationshipRecord relationship = records.add( inUse( new RelationshipRecord( 1, 0, 1, 0 ) ) );
+        NodeRecord node = records.add( inUse( new NodeRecord( 1 ).initialize( false, 7, false, NONE, 0 ) ) );
+        RelationshipRecord relationship = records.add( inUse( new RelationshipRecord( 1 ) ) );
+        relationship.setLinks( 0, 1, 0 );
         relationship.setNextProp( node.getNextProp() );
 
         // when
@@ -284,95 +258,12 @@ public class OwnerCheckTest
                 check( ConsistencyReport.NodeConsistencyReport.class, nodeChecker, node, records );
 
         // then
-        verifyZeroInteractions( relationshipReport );
+        verifyNoInteractions( relationshipReport );
         verify( nodeReport ).multipleOwners( relationship );
     }
 
     @Test
-    public void shouldReportNodeWithReferenceToTheGraphGlobalChain() throws Exception
-    {
-        // given
-        OwnerCheck decorator = new OwnerCheck( true );
-        RecordCheck<NodeRecord, ConsistencyReport.NodeConsistencyReport> nodeChecker =
-                decorator.decorateNodeChecker( dummyNodeCheck() );
-        RecordCheck<NeoStoreRecord, ConsistencyReport.NeoStoreConsistencyReport> neoStoreCheck =
-                decorator.decorateNeoStoreChecker( dummyNeoStoreCheck() );
-
-        RecordAccessStub records = new RecordAccessStub();
-
-        NodeRecord node = records.add( inUse( new NodeRecord( 1, false, NONE, 7 ) ) );
-        NeoStoreRecord master = records.add( new NeoStoreRecord() );
-        master.setNextProp( node.getNextProp() );
-
-        // when
-        ConsistencyReport.NeoStoreConsistencyReport masterReport =
-                check( ConsistencyReport.NeoStoreConsistencyReport.class, neoStoreCheck, master, records );
-        ConsistencyReport.NodeConsistencyReport nodeReport =
-                check( ConsistencyReport.NodeConsistencyReport.class, nodeChecker, node, records );
-
-        // then
-        verifyZeroInteractions( masterReport );
-        verify( nodeReport ).multipleOwners( master );
-    }
-
-    @Test
-    public void shouldReportNodeStoreReferencingSameChainAsNode() throws Exception
-    {
-        // given
-        OwnerCheck decorator = new OwnerCheck( true );
-        RecordCheck<NodeRecord, ConsistencyReport.NodeConsistencyReport> nodeChecker =
-                decorator.decorateNodeChecker( dummyNodeCheck() );
-        RecordCheck<NeoStoreRecord, ConsistencyReport.NeoStoreConsistencyReport> neoStoreCheck =
-                decorator.decorateNeoStoreChecker( dummyNeoStoreCheck() );
-
-        RecordAccessStub records = new RecordAccessStub();
-
-        NodeRecord node = records.add( inUse( new NodeRecord( 1, false, NONE, 7 ) ) );
-        NeoStoreRecord master = records.add( new NeoStoreRecord() );
-        master.setNextProp( node.getNextProp() );
-
-        // when
-        ConsistencyReport.NodeConsistencyReport nodeReport =
-                check( ConsistencyReport.NodeConsistencyReport.class, nodeChecker, node, records );
-        ConsistencyReport.NeoStoreConsistencyReport masterReport =
-                check( ConsistencyReport.NeoStoreConsistencyReport.class, neoStoreCheck, master, records );
-
-        // then
-        verifyZeroInteractions( nodeReport );
-        verify( masterReport ).multipleOwners( node );
-    }
-
-    @Test
-    public void shouldReportNodeStoreReferencingSameChainAsRelationship() throws Exception
-    {
-        // given
-        OwnerCheck decorator = new OwnerCheck( true );
-        RecordCheck<RelationshipRecord, ConsistencyReport.RelationshipConsistencyReport> relationshipChecker =
-                decorator.decorateRelationshipChecker( dummyRelationshipChecker() );
-        RecordCheck<NeoStoreRecord, ConsistencyReport.NeoStoreConsistencyReport> neoStoreCheck =
-                decorator.decorateNeoStoreChecker( dummyNeoStoreCheck() );
-
-        RecordAccessStub records = new RecordAccessStub();
-
-        NeoStoreRecord master = records.add( new NeoStoreRecord() );
-        master.setNextProp( 7 );
-        RelationshipRecord relationship = records.add( inUse( new RelationshipRecord( 1, 0, 1, 0 ) ) );
-        relationship.setNextProp( 7 );
-
-        // when
-        ConsistencyReport.RelationshipConsistencyReport relationshipReport =
-                check( ConsistencyReport.RelationshipConsistencyReport.class,
-                       relationshipChecker, relationship, records );
-        ConsistencyReport.NeoStoreConsistencyReport masterReport =
-                check( ConsistencyReport.NeoStoreConsistencyReport.class, neoStoreCheck, master, records );
-
-        // then
-        verifyZeroInteractions( relationshipReport );
-        verify( masterReport ).multipleOwners( relationship );
-    }
-
-    @Test
-    public void shouldReportOrphanPropertyChain() throws Exception
+    void shouldReportOrphanPropertyChain()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -394,7 +285,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldNotReportOrphanIfOwnedByNode() throws Exception
+    void shouldNotReportOrphanIfOwnedByNode()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -408,7 +299,7 @@ public class OwnerCheckTest
         ConsistencyReport.NodeConsistencyReport nodeReport =
                 check( ConsistencyReport.NodeConsistencyReport.class,
                        decorator.decorateNodeChecker( dummyNodeCheck() ),
-                       inUse( new NodeRecord( 10, false, NONE, 42 ) ), records );
+                       inUse( new NodeRecord( 10 ).initialize( false, 42, false, NONE, 0 ) ), records );
 
         // when
         decorator.scanForOrphanChains( ProgressMonitorFactory.NONE );
@@ -421,7 +312,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldNotReportOrphanIfOwnedByRelationship() throws Exception
+    void shouldNotReportOrphanIfOwnedByRelationship()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -432,7 +323,8 @@ public class OwnerCheckTest
                 check( ConsistencyReport.PropertyConsistencyReport.class,
                        decorator.decoratePropertyChecker( dummyPropertyChecker() ),
                        record, records );
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 10, 1, 1, 0 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 10 ) );
+        relationship.setLinks( 1, 1, 0 );
         relationship.setNextProp( 42 );
         ConsistencyReport.RelationshipConsistencyReport relationshipReport =
                 check( ConsistencyReport.RelationshipConsistencyReport.class,
@@ -450,36 +342,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldNotReportOrphanIfOwnedByNeoStore() throws Exception
-    {
-        // given
-        RecordAccessStub records = new RecordAccessStub();
-        OwnerCheck decorator = new OwnerCheck( true );
-
-        PropertyRecord record = inUse( new PropertyRecord( 42 ) );
-        ConsistencyReport.PropertyConsistencyReport report =
-                check( ConsistencyReport.PropertyConsistencyReport.class,
-                       decorator.decoratePropertyChecker( dummyPropertyChecker() ),
-                       record, records );
-        NeoStoreRecord master = inUse( new NeoStoreRecord() );
-        master.setNextProp( 42 );
-        ConsistencyReport.NeoStoreConsistencyReport masterReport =
-                check( ConsistencyReport.NeoStoreConsistencyReport.class,
-                       decorator.decorateNeoStoreChecker( dummyNeoStoreCheck() ),
-                       master, records );
-
-        // when
-        decorator.scanForOrphanChains( ProgressMonitorFactory.NONE );
-
-        records.checkDeferred();
-
-        // then
-        verifyNoMoreInteractions( report );
-        verifyNoMoreInteractions( masterReport );
-    }
-
-    @Test
-    public void shouldReportDynamicRecordOwnedByTwoOtherDynamicRecords() throws Exception
+    void shouldReportDynamicRecordOwnedByTwoOtherDynamicRecords()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -508,7 +371,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportDynamicStringRecordOwnedByTwoPropertyRecords() throws Exception
+    void shouldReportDynamicStringRecordOwnedByTwoPropertyRecords()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -537,7 +400,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportDynamicArrayRecordOwnedByTwoPropertyRecords() throws Exception
+    void shouldReportDynamicArrayRecordOwnedByTwoPropertyRecords()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -566,7 +429,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportDynamicRecordOwnedByPropertyAndOtherDynamic() throws Exception
+    void shouldReportDynamicRecordOwnedByPropertyAndOtherDynamic()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -598,7 +461,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportDynamicStringRecordOwnedByOtherDynamicAndProperty() throws Exception
+    void shouldReportDynamicStringRecordOwnedByOtherDynamicAndProperty()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -630,7 +493,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportDynamicArrayRecordOwnedByOtherDynamicAndProperty() throws Exception
+    void shouldReportDynamicArrayRecordOwnedByOtherDynamicAndProperty()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -662,7 +525,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportDynamicRecordOwnedByTwoRelationshipLabels() throws Exception
+    void shouldReportDynamicRecordOwnedByTwoRelationshipLabels()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -690,7 +553,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportDynamicRecordOwnedByRelationshipLabelAndOtherDynamicRecord() throws Exception
+    void shouldReportDynamicRecordOwnedByRelationshipLabelAndOtherDynamicRecord()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -723,7 +586,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportDynamicRecordOwnedByOtherDynamicRecordAndRelationshipLabel() throws Exception
+    void shouldReportDynamicRecordOwnedByOtherDynamicRecordAndRelationshipLabel()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -756,7 +619,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportDynamicRecordOwnedByTwoPropertyKeys() throws Exception
+    void shouldReportDynamicRecordOwnedByTwoPropertyKeys()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -784,7 +647,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportDynamicRecordOwnedByPropertyKeyAndOtherDynamicRecord() throws Exception
+    void shouldReportDynamicRecordOwnedByPropertyKeyAndOtherDynamicRecord()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -817,7 +680,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportDynamicRecordOwnedByOtherDynamicRecordAndPropertyKey() throws Exception
+    void shouldReportDynamicRecordOwnedByOtherDynamicRecordAndPropertyKey()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -850,7 +713,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportOrphanedDynamicStringRecord() throws Exception
+    void shouldReportOrphanedDynamicStringRecord()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -873,7 +736,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportOrphanedDynamicArrayRecord() throws Exception
+    void shouldReportOrphanedDynamicArrayRecord()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -896,7 +759,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportOrphanedDynamicRelationshipLabelRecord() throws Exception
+    void shouldReportOrphanedDynamicRelationshipLabelRecord()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();
@@ -919,7 +782,7 @@ public class OwnerCheckTest
     }
 
     @Test
-    public void shouldReportOrphanedDynamicPropertyKeyRecord() throws Exception
+    void shouldReportOrphanedDynamicPropertyKeyRecord()
     {
         // given
         RecordAccessStub records = new RecordAccessStub();

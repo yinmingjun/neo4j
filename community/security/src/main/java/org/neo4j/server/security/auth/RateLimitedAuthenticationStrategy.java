@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,36 +20,42 @@
 package org.neo4j.server.security.auth;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.neo4j.kernel.api.security.AuthenticationResult;
+import org.neo4j.configuration.Config;
+import org.neo4j.internal.kernel.api.security.AuthenticationResult;
 import org.neo4j.kernel.impl.security.User;
+
+import static org.neo4j.configuration.GraphDatabaseSettings.auth_lock_time;
+import static org.neo4j.configuration.GraphDatabaseSettings.auth_max_failed_attempts;
 
 public class RateLimitedAuthenticationStrategy implements AuthenticationStrategy
 {
-    private static final int FAILED_AUTH_COOLDOWN_PERIOD = 5_000;
     private final Clock clock;
+    private final long lockDurationMs;
     private final int maxFailedAttempts;
 
     private class AuthenticationMetadata
     {
         private final AtomicInteger failedAuthAttempts = new AtomicInteger();
-        private long lastFailedAttemptTime = 0;
+        private long lastFailedAttemptTime;
 
-        public boolean authenticationPermitted()
+        boolean authenticationPermitted()
         {
-            return failedAuthAttempts.get() < maxFailedAttempts
-                    || clock.millis() >= ( lastFailedAttemptTime + FAILED_AUTH_COOLDOWN_PERIOD );
+            return maxFailedAttempts <= 0 || // amount of attempts is not limited
+                   failedAuthAttempts.get() < maxFailedAttempts || // less failed attempts than configured
+                   clock.millis() >= lastFailedAttemptTime + lockDurationMs; // auth lock duration expired
         }
 
-        public void authSuccess()
+        void authSuccess()
         {
             failedAuthAttempts.set( 0 );
         }
 
-        public void authFailed()
+        void authFailed()
         {
             failedAuthAttempts.incrementAndGet();
             lastFailedAttemptTime = clock.millis();
@@ -61,14 +67,20 @@ public class RateLimitedAuthenticationStrategy implements AuthenticationStrategy
      */
     private final ConcurrentMap<String, AuthenticationMetadata> authenticationData = new ConcurrentHashMap<>();
 
-    public RateLimitedAuthenticationStrategy( Clock clock, int maxFailedAttempts )
+    public RateLimitedAuthenticationStrategy( Clock clock, Config config )
+    {
+        this( clock, config.get( auth_lock_time ), config.get( auth_max_failed_attempts ) );
+    }
+
+    RateLimitedAuthenticationStrategy( Clock clock, Duration lockDuration, int maxFailedAttempts )
     {
         this.clock = clock;
+        this.lockDurationMs = lockDuration.toMillis();
         this.maxFailedAttempts = maxFailedAttempts;
     }
 
     @Override
-    public AuthenticationResult authenticate( User user, String password)
+    public AuthenticationResult authenticate( User user, byte[] password )
     {
         AuthenticationMetadata authMetadata = authMetadataFor( user.name() );
 

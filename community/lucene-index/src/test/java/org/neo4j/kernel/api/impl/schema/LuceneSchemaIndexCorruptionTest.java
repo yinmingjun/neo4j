@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,114 +20,122 @@
 package org.neo4j.kernel.api.impl.schema;
 
 import org.apache.lucene.index.CorruptIndexException;
-import org.hamcrest.CoreMatchers;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.EOFException;
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicReference;
 
+import org.neo4j.configuration.Config;
+import org.neo4j.internal.kernel.api.InternalIndexState;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.io.fs.EphemeralFileSystemAbstraction;
 import org.neo4j.io.fs.FileSystemAbstraction;
 import org.neo4j.kernel.api.impl.index.storage.DirectoryFactory;
 import org.neo4j.kernel.api.impl.index.storage.IndexStorageFactory;
 import org.neo4j.kernel.api.impl.index.storage.PartitionedIndexStorage;
-import org.neo4j.kernel.api.index.InternalIndexState;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptorFactory;
-import org.neo4j.kernel.configuration.Config;
-import org.neo4j.kernel.impl.factory.OperationalMode;
+import org.neo4j.kernel.api.index.IndexDirectoryStructure;
+import org.neo4j.kernel.api.index.IndexProvider;
+import org.neo4j.kernel.api.index.LoggingMonitor;
 import org.neo4j.logging.AssertableLogProvider;
+import org.neo4j.test.extension.Inject;
+import org.neo4j.test.extension.testdirectory.EphemeralTestDirectoryExtension;
 import org.neo4j.test.rule.TestDirectory;
-import org.neo4j.test.rule.fs.EphemeralFileSystemRule;
 
 import static java.util.Collections.singletonList;
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.CoreMatchers.sameInstance;
-import static org.junit.Assert.assertThat;
-import static org.mockito.Matchers.any;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-import static org.neo4j.logging.AssertableLogProvider.inLog;
+import static org.neo4j.internal.schema.IndexPrototype.forSchema;
+import static org.neo4j.internal.schema.SchemaDescriptor.forLabel;
+import static org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer.NULL;
+import static org.neo4j.kernel.api.index.IndexDirectoryStructure.directoriesByProvider;
+import static org.neo4j.logging.LogAssertions.assertThat;
 
-public class LuceneSchemaIndexCorruptionTest
+@EphemeralTestDirectoryExtension
+class LuceneSchemaIndexCorruptionTest
 {
-    @Rule
-    public final TestDirectory testDirectory = TestDirectory.testDirectory();
-    @Rule
-    public final EphemeralFileSystemRule fs = new EphemeralFileSystemRule();
-    private final AssertableLogProvider logProvider = new AssertableLogProvider();
+    @Inject
+    private TestDirectory testDirectory;
+    @Inject
+    private EphemeralFileSystemAbstraction fs;
+    private final AssertableLogProvider logProvider = new AssertableLogProvider( true );
+    private final IndexProvider.Monitor monitor = new LoggingMonitor( logProvider.getLog( "test" ) );
 
     @Test
-    public void shouldRequestIndexPopulationIfTheIndexIsCorrupt() throws Exception
+    void shouldRequestIndexPopulationIfTheIndexIsCorrupt()
     {
         // Given
         long faultyIndexId = 1;
         CorruptIndexException error = new CorruptIndexException( "It's broken.", "" );
 
-        LuceneSchemaIndexProvider provider = newFaultySchemaIndexProvider( faultyIndexId, error );
+        LuceneIndexProvider provider = newFaultyIndexProvider( faultyIndexId, error );
 
         // When
-        IndexDescriptor descriptor = IndexDescriptorFactory.forLabel( 1, 1 );
-        InternalIndexState initialState = provider.getInitialState( faultyIndexId, descriptor );
+        IndexDescriptor descriptor = forSchema( forLabel( 1, 1 ), provider.getProviderDescriptor() )
+                .withName( "index_" + faultyIndexId ).materialise( faultyIndexId );
+        InternalIndexState initialState = provider.getInitialState( descriptor, NULL );
 
         // Then
-        assertThat( initialState, equalTo(InternalIndexState.POPULATING) );
-        logProvider.assertAtLeastOnce( loggedException( error ) );
+        assertThat( initialState ).isEqualTo( InternalIndexState.POPULATING );
+        assertThat( logProvider ).containsException( error );
     }
 
     @Test
-    public void shouldRequestIndexPopulationFailingWithFileNotFoundException() throws Exception
+    void shouldRequestIndexPopulationFailingWithFileNotFoundException()
     {
         // Given
         long faultyIndexId = 1;
-        FileNotFoundException error = new FileNotFoundException( "/some/path/somewhere" );
+        NoSuchFileException error = new NoSuchFileException( "/some/path/somewhere" );
 
-        LuceneSchemaIndexProvider provider = newFaultySchemaIndexProvider( faultyIndexId, error );
+        LuceneIndexProvider provider = newFaultyIndexProvider( faultyIndexId, error );
 
         // When
-        IndexDescriptor descriptor = IndexDescriptorFactory.forLabel( 1, 1 );
-        InternalIndexState initialState = provider.getInitialState( faultyIndexId, descriptor );
+        IndexDescriptor descriptor = forSchema( forLabel( 1, 1 ), provider.getProviderDescriptor() )
+                .withName( "index_" + faultyIndexId ).materialise( faultyIndexId );
+        InternalIndexState initialState = provider.getInitialState( descriptor, NULL );
 
         // Then
-        assertThat( initialState, equalTo(InternalIndexState.POPULATING) );
-        logProvider.assertAtLeastOnce( loggedException( error ) );
+        assertThat( initialState ).isEqualTo( InternalIndexState.POPULATING );
+        assertThat( logProvider ).containsException( error );
     }
 
     @Test
-    public void shouldRequestIndexPopulationWhenFailingWithEOFException() throws Exception
+    void shouldRequestIndexPopulationWhenFailingWithEOFException()
     {
         // Given
         long faultyIndexId = 1;
         EOFException error = new EOFException( "/some/path/somewhere" );
 
-        LuceneSchemaIndexProvider provider = newFaultySchemaIndexProvider( faultyIndexId, error );
+        LuceneIndexProvider provider = newFaultyIndexProvider( faultyIndexId, error );
 
         // When
-        IndexDescriptor descriptor = IndexDescriptorFactory.forLabel( 1, 1 );
-        InternalIndexState initialState = provider.getInitialState( faultyIndexId, descriptor );
+        IndexDescriptor descriptor = forSchema( forLabel( 1, 1 ), provider.getProviderDescriptor() )
+                .withName( "index_" + faultyIndexId ).materialise( faultyIndexId );
+        InternalIndexState initialState = provider.getInitialState( descriptor, NULL );
 
         // Then
-        assertThat( initialState, equalTo(InternalIndexState.POPULATING) );
-        logProvider.assertAtLeastOnce( loggedException( error ) );
+        assertThat( initialState ).isEqualTo( InternalIndexState.POPULATING );
+        assertThat( logProvider ).containsException( error );
     }
 
-    private LuceneSchemaIndexProvider newFaultySchemaIndexProvider( long faultyIndexId, Exception error )
+    private LuceneIndexProvider newFaultyIndexProvider( long faultyIndexId, Exception error )
     {
         DirectoryFactory directoryFactory = mock( DirectoryFactory.class );
-        File indexRootFolder = testDirectory.graphDbDir();
-        FaultyIndexStorageFactory storageFactory = new FaultyIndexStorageFactory( faultyIndexId, error,
-                directoryFactory, indexRootFolder );
-        return new LuceneSchemaIndexProvider( fs.get(), directoryFactory, indexRootFolder, logProvider,
-                Config.defaults(), OperationalMode.single )
+        Path indexRootFolder = testDirectory.homePath();
+        AtomicReference<FaultyIndexStorageFactory> reference = new AtomicReference<>();
+        return new LuceneIndexProvider( fs, directoryFactory, directoriesByProvider( indexRootFolder ), monitor,
+                Config.defaults(), true )
         {
             @Override
-            protected IndexStorageFactory buildIndexStorageFactory( FileSystemAbstraction fileSystem,
-                                                                    DirectoryFactory directoryFactory,
-                                                                    File schemaIndexStoreFolder )
+            protected IndexStorageFactory buildIndexStorageFactory( FileSystemAbstraction fileSystem, DirectoryFactory directoryFactory )
             {
+                FaultyIndexStorageFactory storageFactory = new FaultyIndexStorageFactory( faultyIndexId, error,
+                        directoryFactory, directoryStructure() );
+                reference.set( storageFactory );
                 return storageFactory;
             }
         };
@@ -139,17 +147,17 @@ public class LuceneSchemaIndexCorruptionTest
         final Exception error;
 
         FaultyIndexStorageFactory( long faultyIndexId, Exception error, DirectoryFactory directoryFactory,
-                                   File indexRootFolder )
+                IndexDirectoryStructure directoryStructure )
         {
-            super( directoryFactory, fs.get(), indexRootFolder );
+            super( directoryFactory, fs, directoryStructure );
             this.faultyIndexId = faultyIndexId;
             this.error = error;
         }
 
         @Override
-        public PartitionedIndexStorage indexStorageOf( long indexId, boolean archiveFailed )
+        public PartitionedIndexStorage indexStorageOf( long indexId )
         {
-            return indexId == faultyIndexId ? newFaultyPartitionedIndexStorage() : super.indexStorageOf( indexId, archiveFailed );
+            return indexId == faultyIndexId ? newFaultyPartitionedIndexStorage() : super.indexStorageOf( indexId );
         }
 
         PartitionedIndexStorage newFaultyPartitionedIndexStorage()
@@ -157,7 +165,7 @@ public class LuceneSchemaIndexCorruptionTest
             try
             {
                 PartitionedIndexStorage storage = mock( PartitionedIndexStorage.class );
-                when( storage.listFolders() ).thenReturn( singletonList( new File( "/some/path/somewhere/1" ) ) );
+                when( storage.listFolders() ).thenReturn( singletonList( Path.of( "/some/path/somewhere/1" ) ) );
                 when( storage.openDirectory( any() ) ).thenThrow( error );
                 return storage;
             }
@@ -166,11 +174,5 @@ public class LuceneSchemaIndexCorruptionTest
                 throw new UncheckedIOException( e );
             }
         }
-    }
-
-    private static AssertableLogProvider.LogMatcher loggedException( Throwable exception )
-    {
-        return inLog( CoreMatchers.any( String.class ) )
-                .error( CoreMatchers.any( String.class ), sameInstance( exception ) );
     }
 }

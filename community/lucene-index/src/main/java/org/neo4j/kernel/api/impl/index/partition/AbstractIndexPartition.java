@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -24,10 +24,11 @@ import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.store.Directory;
 
 import java.io.Closeable;
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 
 import org.neo4j.graphdb.ResourceIterator;
+import org.neo4j.kernel.api.impl.index.SearcherReference;
 
 /**
  * Represents a single partition of a partitioned lucene index. Each partition is a separate Lucene index.
@@ -37,9 +38,9 @@ import org.neo4j.graphdb.ResourceIterator;
 public abstract class AbstractIndexPartition implements Closeable
 {
     protected final Directory directory;
-    protected final File partitionFolder;
+    protected final Path partitionFolder;
 
-    public AbstractIndexPartition( File partitionFolder, Directory directory )
+    public AbstractIndexPartition( Path partitionFolder, Directory directory )
     {
         this.partitionFolder = partitionFolder;
         this.directory = directory;
@@ -68,7 +69,7 @@ public abstract class AbstractIndexPartition implements Closeable
      * @return partition searcher
      * @throws IOException if exception happened during searcher acquisition
      */
-    public abstract PartitionSearcher acquireSearcher() throws IOException;
+    public abstract SearcherReference acquireSearcher() throws IOException;
 
     /**
      * Refresh partition to make newly inserted data visible for readers.
@@ -83,6 +84,6 @@ public abstract class AbstractIndexPartition implements Closeable
      * @return the iterator over index files.
      * @throws IOException if any IO operation fails.
      */
-    public abstract ResourceIterator<File> snapshot() throws IOException;
+    public abstract ResourceIterator<Path> snapshot() throws IOException;
 
 }

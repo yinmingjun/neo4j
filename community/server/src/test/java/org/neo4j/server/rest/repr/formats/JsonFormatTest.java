@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,7 +19,8 @@
  */
 package org.neo4j.server.rest.repr.formats;
 
-import static org.junit.Assert.assertEquals;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -28,8 +29,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-import org.junit.Before;
-import org.junit.Test;
 import org.neo4j.server.rest.domain.JsonHelper;
 import org.neo4j.server.rest.repr.ListRepresentation;
 import org.neo4j.server.rest.repr.MappingRepresentation;
@@ -40,40 +39,44 @@ import org.neo4j.server.rest.repr.RepresentationType;
 import org.neo4j.server.rest.repr.ServerListRepresentation;
 import org.neo4j.server.rest.repr.ValueRepresentation;
 
-public class JsonFormatTest
+import static java.util.Collections.singletonMap;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.neo4j.server.rest.domain.JsonHelper.createJsonFrom;
+
+class JsonFormatTest
 {
     private OutputFormat json;
 
-    @Before
-    public void createOutputFormat() throws Exception
+    @BeforeEach
+    void createOutputFormat() throws Exception
     {
-        json = new OutputFormat( new JsonFormat(), new URI( "http://localhost/" ), null );
+        json = new OutputFormat( new JsonFormat(), new URI( "http://localhost/" ) );
     }
 
     @Test
-    public void canFormatString() throws Exception
+    void canFormatString()
     {
         String entity = json.assemble( ValueRepresentation.string( "expected value" ) );
-        assertEquals( entity, "\"expected value\"" );
+        assertEquals( "\"expected value\"", entity );
     }
 
     @Test
-    public void canFormatListOfStrings() throws Exception
+    void canFormatListOfStrings()
     {
         String entity = json.assemble( ListRepresentation.strings( "hello", "world" ) );
-        String expectedString = JsonHelper.createJsonFrom( Arrays.asList( "hello", "world" ) );
+        String expectedString = createJsonFrom( Arrays.asList( "hello", "world" ) );
         assertEquals( expectedString, entity );
     }
 
     @Test
-    public void canFormatInteger() throws Exception
+    void canFormatInteger()
     {
         String entity = json.assemble( ValueRepresentation.number( 10 ) );
         assertEquals( "10", entity );
     }
 
     @Test
-    public void canFormatEmptyObject() throws Exception
+    void canFormatEmptyObject()
     {
         String entity = json.assemble( new MappingRepresentation( "empty" )
         {
@@ -82,11 +85,11 @@ public class JsonFormatTest
             {
             }
         } );
-        assertEquals( JsonHelper.createJsonFrom( Collections.emptyMap() ), entity );
+        assertEquals( createJsonFrom( Collections.emptyMap() ), entity );
     }
 
     @Test
-    public void canFormatObjectWithStringField() throws Exception
+    void canFormatObjectWithStringField()
     {
         String entity = json.assemble( new MappingRepresentation( "string" )
         {
@@ -96,11 +99,11 @@ public class JsonFormatTest
                 serializer.putString( "key", "expected string" );
             }
         } );
-        assertEquals( JsonHelper.createJsonFrom( Collections.singletonMap( "key", "expected string" ) ), entity );
+        assertEquals( createJsonFrom( singletonMap( "key", "expected string" ) ), entity );
     }
 
     @Test
-    public void canFormatObjectWithUriField() throws Exception
+    void canFormatObjectWithUriField()
     {
         String entity = json.assemble( new MappingRepresentation( "uri" )
         {
@@ -111,12 +114,11 @@ public class JsonFormatTest
             }
         } );
 
-        assertEquals( JsonHelper.createJsonFrom( Collections.singletonMap( "URL", "http://localhost/subpath" ) ),
-                entity );
+        assertEquals( createJsonFrom( singletonMap( "URL", "http://localhost/subpath" ) ), entity );
     }
 
     @Test
-    public void canFormatObjectWithNestedObject() throws Exception
+    void canFormatObjectWithNestedObject()
     {
         String entity = json.assemble( new MappingRepresentation( "nesting" )
         {
@@ -134,19 +136,19 @@ public class JsonFormatTest
             }
         } );
         assertEquals(
-                JsonHelper.createJsonFrom( Collections.singletonMap( "nested",
-                        Collections.singletonMap( "data", "expected data" ) ) ), entity );
+                createJsonFrom( singletonMap( "nested",
+                        singletonMap( "data", "expected data" ) ) ), entity );
     }
 
     @Test
-    public void canFormatNestedMapsAndLists() throws Exception
+    void canFormatNestedMapsAndLists() throws Exception
     {
         String entity = json.assemble( new MappingRepresentation( "test" )
         {
             @Override
             protected void serialize( MappingSerializer serializer )
             {
-                ArrayList<Representation> maps = new ArrayList<Representation>();
+                List<Representation> maps = new ArrayList<>();
                 maps.add( new MappingRepresentation( "map" )
                 {
 
@@ -161,6 +163,6 @@ public class JsonFormatTest
             }
         } );
 
-        assertEquals( "bar",((Map)((List)((Map)JsonHelper.jsonToMap(entity)).get("foo")).get(0)).get("foo") );
+        assertEquals( "bar", ((Map) ((List) JsonHelper.jsonToMap( entity ).get( "foo" )).get( 0 )).get( "foo" ) );
     }
 }

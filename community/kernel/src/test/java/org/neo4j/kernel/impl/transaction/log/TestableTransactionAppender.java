@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,12 +19,9 @@
  */
 package org.neo4j.kernel.impl.transaction.log;
 
-import java.io.IOException;
-
 import org.neo4j.kernel.impl.api.TransactionToApply;
-import org.neo4j.kernel.impl.transaction.DeadSimpleTransactionIdStore;
 import org.neo4j.kernel.impl.transaction.tracing.LogAppendEvent;
-import org.neo4j.kernel.impl.transaction.tracing.LogCheckPointEvent;
+import org.neo4j.storageengine.api.TransactionIdStore;
 
 public class TestableTransactionAppender implements TransactionAppender
 {
@@ -35,27 +32,17 @@ public class TestableTransactionAppender implements TransactionAppender
         this.transactionIdStore = transactionIdStore;
     }
 
-    public TestableTransactionAppender()
-    {
-        this( new DeadSimpleTransactionIdStore() );
-    }
-
     @Override
-    public long append( TransactionToApply batch, LogAppendEvent logAppendEvent ) throws IOException
+    public long append( TransactionToApply batch, LogAppendEvent logAppendEvent )
     {
         long txId = TransactionIdStore.BASE_TX_ID;
         while ( batch != null )
         {
             txId = transactionIdStore.nextCommittingTransactionId();
             batch.commitment( new FakeCommitment( txId, transactionIdStore ), txId );
-            batch.commitment().publishAsCommitted();
+            batch.publishAsCommitted();
             batch = batch.next();
         }
         return txId;
-    }
-
-    @Override
-    public void checkPoint( LogPosition logPosition, LogCheckPointEvent logCheckPointEvent ) throws IOException
-    {
     }
 }

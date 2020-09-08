@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,15 +20,15 @@
 package org.neo4j.kernel.impl.coreapi.schema;
 
 import java.util.ArrayList;
+import java.util.List;
 
+import org.neo4j.common.TokenNameLookup;
+import org.neo4j.exceptions.KernelException;
 import org.neo4j.graphdb.schema.IndexDefinition;
-import org.neo4j.helpers.collection.Iterables;
-import org.neo4j.kernel.api.ReadOperations;
-import org.neo4j.kernel.api.TokenNameLookup;
-import org.neo4j.kernel.api.TokenWriteOperations;
-import org.neo4j.kernel.api.exceptions.PropertyKeyIdNotFoundKernelException;
-import org.neo4j.kernel.api.exceptions.schema.IllegalTokenNameException;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
+import org.neo4j.internal.kernel.api.TokenRead;
+import org.neo4j.internal.kernel.api.TokenWrite;
+import org.neo4j.internal.kernel.api.exceptions.PropertyKeyIdNotFoundKernelException;
+import org.neo4j.internal.schema.LabelSchemaDescriptor;
 
 public class PropertyNameUtils
 {
@@ -36,14 +36,13 @@ public class PropertyNameUtils
     {
     }
 
-    public static String[] getPropertyKeys( ReadOperations readOperations, LabelSchemaDescriptor descriptor )
+    public static String[] getPropertyKeysOrThrow( TokenRead tokenRead, int... properties )
             throws PropertyKeyIdNotFoundKernelException
     {
-        int[] propertyKeyIds = descriptor.getPropertyIds();
-        String[] propertyKeys = new String[propertyKeyIds.length];
-        for ( int i = 0; i < propertyKeyIds.length; i++ )
+        String[] propertyKeys = new String[properties.length];
+        for ( int i = 0; i < properties.length; i++ )
         {
-            propertyKeys[i] = readOperations.propertyKeyGetName( propertyKeyIds[i] );
+            propertyKeys[i] = tokenRead.propertyKeyName( properties[i] );
         }
         return propertyKeys;
     }
@@ -59,17 +58,6 @@ public class PropertyNameUtils
         return propertyKeys;
     }
 
-    public static String[] getPropertyKeys( ReadOperations readOperations, int[] propertyIds )
-            throws PropertyKeyIdNotFoundKernelException
-    {
-        String[] propertyKeys = new String[propertyIds.length];
-        for ( int i = 0; i < propertyIds.length; i++ )
-        {
-            propertyKeys[i] = readOperations.propertyKeyGetName( propertyIds[i] );
-        }
-        return propertyKeys;
-    }
-
     public static String[] getPropertyKeys( TokenNameLookup tokenNameLookup, int[] propertyIds )
     {
         String[] propertyKeys = new String[propertyIds.length];
@@ -80,40 +68,31 @@ public class PropertyNameUtils
         return propertyKeys;
     }
 
-    public static int[] getPropertyIds( ReadOperations statement, String[] propertyKeys )
+    public static int[] getOrCreatePropertyKeyIds( TokenWrite tokenWrite, String... propertyKeys )
+            throws KernelException
     {
         int[] propertyKeyIds = new int[propertyKeys.length];
-        for ( int i = 0; i < propertyKeys.length; i++ )
-        {
-            propertyKeyIds[i] = statement.propertyKeyGetForName( propertyKeys[i] );
-        }
+        tokenWrite.propertyKeyGetOrCreateForNames( propertyKeys, propertyKeyIds );
         return propertyKeyIds;
     }
 
-    public static int[] getPropertyIds( ReadOperations statement, Iterable<String> propertyKeys )
+    public static int[] getOrCreatePropertyKeyIds( TokenWrite tokenWrite, IndexDefinition indexDefinition )
+            throws KernelException
     {
-        return Iterables.stream( propertyKeys ).mapToInt( statement::propertyKeyGetForName ).toArray();
+        return getOrCreatePropertyKeyIds( tokenWrite, getPropertyKeysArrayOf( indexDefinition ) );
     }
 
-    public static int[] getOrCreatePropertyKeyIds( TokenWriteOperations statement, String... propertyKeys )
-            throws IllegalTokenNameException
+    private static String[] getPropertyKeysArrayOf( IndexDefinition indexDefinition )
     {
-        int[] propertyKeyIds = new int[propertyKeys.length];
-        for ( int i = 0; i < propertyKeys.length; i++ )
+        if ( indexDefinition instanceof IndexDefinitionImpl )
         {
-            propertyKeyIds[i] = statement.propertyKeyGetOrCreateForName( propertyKeys[i] );
+            return ((IndexDefinitionImpl) indexDefinition).getPropertyKeysArrayShared();
         }
-        return propertyKeyIds;
-    }
-
-    public static int[] getOrCreatePropertyKeyIds( TokenWriteOperations statement, IndexDefinition indexDefinition )
-            throws IllegalTokenNameException
-    {
-        ArrayList<Integer> propertyKeyIds = new ArrayList<>();
-        for ( String s : indexDefinition.getPropertyKeys() )
+        List<String> keys = new ArrayList<>();
+        for ( String key : indexDefinition.getPropertyKeys() )
         {
-            propertyKeyIds.add( statement.propertyKeyGetOrCreateForName( s ) );
+            keys.add( key );
         }
-        return propertyKeyIds.stream().mapToInt( i -> i ).toArray();
+        return keys.toArray( new String[0] );
     }
 }

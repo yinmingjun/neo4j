@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -26,27 +26,24 @@ import java.util.Map;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 
-import org.neo4j.helpers.Service;
-import org.neo4j.server.AbstractNeoServer;
-import org.neo4j.server.plugins.PluginManager;
 import org.neo4j.server.rest.repr.formats.JsonFormat;
+import org.neo4j.service.Services;
 
 public final class RepresentationFormatRepository
 {
     private final Map<MediaType, RepresentationFormat> formats;
-    private final AbstractNeoServer injectorProvider;
 
-    public RepresentationFormatRepository( AbstractNeoServer injectorProvider )
+    public RepresentationFormatRepository()
     {
-        this.injectorProvider = injectorProvider;
-        this.formats = new HashMap<MediaType, RepresentationFormat>();
-        for ( RepresentationFormat format : Service.load( RepresentationFormat.class ) )
+        this.formats = new HashMap<>();
+        for ( RepresentationFormat format : Services.loadAll( RepresentationFormat.class ) )
         {
             formats.put( format.mediaType, format );
         }
     }
 
-    public OutputFormat outputFormat(List<MediaType> acceptable, URI baseUri, MultivaluedMap<String, String> requestHeaders)
+    public OutputFormat outputFormat( List<MediaType> acceptable, URI baseUri,
+            MultivaluedMap<String,String> requestHeaders )
     {
         RepresentationFormat format = forHeaders( acceptable, requestHeaders );
         if ( format == null )
@@ -57,15 +54,10 @@ public final class RepresentationFormatRepository
         {
             format = useDefault( acceptable );
         }
-        return new OutputFormat( format, baseUri, getExtensionManager() );
+        return new OutputFormat( format, baseUri );
     }
 
-    private PluginManager getExtensionManager()
-    {
-        return injectorProvider == null ? null : injectorProvider.getExtensionManager();
-    }
-
-    private RepresentationFormat forHeaders(List<MediaType> acceptable, MultivaluedMap<String, String> requestHeaders)
+    private RepresentationFormat forHeaders( List<MediaType> acceptable, MultivaluedMap<String,String> requestHeaders )
     {
         if ( requestHeaders == null )
         {
@@ -83,9 +75,9 @@ public final class RepresentationFormatRepository
         return null;
     }
 
-    private boolean containsType(List<MediaType> mediaTypes, MediaType mediaType)
+    private boolean containsType( List<MediaType> mediaTypes, MediaType mediaType )
     {
-        for (MediaType type : mediaTypes)
+        for ( MediaType type : mediaTypes )
         {
             if ( mediaType.getType().equals( type.getType() ) && mediaType.getSubtype().equals( type.getSubtype() ) )
             {
@@ -95,7 +87,7 @@ public final class RepresentationFormatRepository
         return false;
     }
 
-    private RepresentationFormat forMediaTypes(List<MediaType> acceptable)
+    private RepresentationFormat forMediaTypes( List<MediaType> acceptable )
     {
         for ( MediaType type : acceptable )
         {
@@ -132,7 +124,7 @@ public final class RepresentationFormatRepository
 
     private DefaultFormat useDefault( final List<MediaType> acceptable )
     {
-        return useDefault( acceptable.toArray( new MediaType[acceptable.size()] ) );
+        return useDefault( acceptable.toArray( new MediaType[0] ) );
     }
 
     private DefaultFormat useDefault( final MediaType... type )

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,49 +19,61 @@
  */
 package org.neo4j.kernel.impl.transaction.log;
 
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Random;
 
+import org.neo4j.io.fs.DefaultFileSystemAbstraction;
+import org.neo4j.io.fs.PhysicalFlushableChannel;
 import org.neo4j.io.fs.StoreChannel;
+import org.neo4j.io.memory.ByteBuffers;
+import org.neo4j.io.memory.HeapScopedBuffer;
+import org.neo4j.io.memory.NativeScopedBuffer;
+import org.neo4j.kernel.impl.transaction.log.files.LogFileChannelNativeAccessor;
+import org.neo4j.memory.LocalMemoryTracker;
+import org.neo4j.test.extension.Inject;
+import org.neo4j.test.extension.testdirectory.TestDirectoryExtension;
 import org.neo4j.test.rule.TestDirectory;
-import org.neo4j.test.rule.fs.DefaultFileSystemRule;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.neo4j.memory.EmptyMemoryTracker.INSTANCE;
 
-public class PhysicalFlushableChannelTest
+@TestDirectoryExtension
+class PhysicalFlushableChannelTest
 {
-    @Rule
-    public final DefaultFileSystemRule fileSystemRule = new DefaultFileSystemRule();
-    @Rule
-    public final TestDirectory directory = TestDirectory.testDirectory();
+    @Inject
+    private DefaultFileSystemAbstraction fileSystem;
+    @Inject
+    private TestDirectory directory;
+    private final LogFileChannelNativeAccessor nativeChannelAccessor = mock( LogFileChannelNativeAccessor.class );
 
     @Test
-    public void shouldBeAbleToWriteSmallNumberOfBytes() throws IOException
+    void shouldBeAbleToWriteSmallNumberOfBytes() throws IOException
     {
-        final File firstFile = new File( directory.directory(), "file1" );
-        StoreChannel storeChannel = fileSystemRule.get().open( firstFile, "rw" );
-        PhysicalLogVersionedStoreChannel versionedStoreChannel =
-                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1 /* ignored */ );
-        PhysicalFlushableChannel channel = new PhysicalFlushableChannel( versionedStoreChannel );
-
+        final Path firstFile = directory.homePath().resolve( "file1" );
+        StoreChannel storeChannel = fileSystem.write( firstFile );
+        PhysicalLogVersionedStoreChannel versionedStoreChannel = new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1, firstFile,
+                nativeChannelAccessor );
         int length = 26_145;
-        byte[] bytes = generateBytes( length );
-
-        channel.put( bytes, length );
-        channel.close();
+        byte[] bytes;
+        try ( PhysicalFlushableChannel channel = new PhysicalFlushableChannel( versionedStoreChannel, new HeapScopedBuffer( 100, INSTANCE ) ) )
+        {
+            bytes = generateBytes( length );
+            channel.put( bytes, length );
+        }
 
         byte[] writtenBytes = new byte[length];
-        try ( InputStream in = new FileInputStream( firstFile ) )
+        try ( InputStream in = Files.newInputStream( firstFile ) )
         {
             in.read( writtenBytes );
         }
@@ -70,22 +82,22 @@ public class PhysicalFlushableChannelTest
     }
 
     @Test
-    public void shouldBeAbleToWriteValuesGreaterThanHalfTheBufferSize() throws IOException
+    void shouldBeAbleToWriteValuesGreaterThanHalfTheBufferSize() throws IOException
     {
-        final File firstFile = new File( directory.directory(), "file1" );
-        StoreChannel storeChannel = fileSystemRule.get().open( firstFile, "rw" );
+        final Path firstFile = directory.homePath().resolve( "file1" );
+        StoreChannel storeChannel = fileSystem.write( firstFile );
         PhysicalLogVersionedStoreChannel versionedStoreChannel =
-                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1 /* ignored */ );
-        PhysicalFlushableChannel channel = new PhysicalFlushableChannel( versionedStoreChannel );
-
+                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1, firstFile, nativeChannelAccessor );
         int length = 262_145;
-        byte[] bytes = generateBytes( length );
-
-        channel.put( bytes, length );
-        channel.close();
+        byte[] bytes;
+        try ( PhysicalFlushableChannel channel = new PhysicalFlushableChannel( versionedStoreChannel, INSTANCE ) )
+        {
+            bytes = generateBytes( length );
+            channel.put( bytes, length );
+        }
 
         byte[] writtenBytes = new byte[length];
-        try ( InputStream in = new FileInputStream( firstFile ) )
+        try ( InputStream in = Files.newInputStream( firstFile ) )
         {
             in.read( writtenBytes );
         }
@@ -94,22 +106,45 @@ public class PhysicalFlushableChannelTest
     }
 
     @Test
-    public void shouldBeAbleToWriteValuesGreaterThanTheBufferSize() throws IOException
+    void releaseBufferMemoryOnClose() throws IOException
     {
-        final File firstFile = new File( directory.directory(), "file1" );
-        StoreChannel storeChannel = fileSystemRule.get().open( firstFile, "rw" );
+        var memoryTracker = new LocalMemoryTracker();
+        final Path firstFile = directory.homePath().resolve( "file2" );
+        StoreChannel storeChannel = fileSystem.write( firstFile );
         PhysicalLogVersionedStoreChannel versionedStoreChannel =
-                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1 /* ignored */ );
-        PhysicalFlushableChannel channel = new PhysicalFlushableChannel( versionedStoreChannel );
+                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1, firstFile, nativeChannelAccessor );
 
+        assertThat( memoryTracker.estimatedHeapMemory() ).isZero();
+        assertThat( memoryTracker.usedNativeMemory() ).isZero();
+
+        try ( PhysicalFlushableChannel channel = new PhysicalFlushableChannel( versionedStoreChannel, memoryTracker ) )
+        {
+            channel.put( (byte) 1 );
+            assertThat( memoryTracker.usedNativeMemory() ).isZero();
+            assertThat( memoryTracker.estimatedHeapMemory() ).isGreaterThan( 0 );
+        }
+
+        assertThat( memoryTracker.estimatedHeapMemory() ).isZero();
+        assertThat( memoryTracker.usedNativeMemory() ).isZero();
+    }
+
+    @Test
+    void shouldBeAbleToWriteValuesGreaterThanTheBufferSize() throws IOException
+    {
+        final Path firstFile = directory.homePath().resolve( "file1" );
+        StoreChannel storeChannel = fileSystem.write( firstFile );
+        PhysicalLogVersionedStoreChannel versionedStoreChannel =
+                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1, firstFile, nativeChannelAccessor );
         int length = 1_000_000;
-        byte[] bytes = generateBytes( length );
-
-        channel.put( bytes, length );
-        channel.close();
+        byte[] bytes;
+        try ( PhysicalFlushableChannel channel = new PhysicalFlushableChannel( versionedStoreChannel, INSTANCE ) )
+        {
+            bytes = generateBytes( length );
+            channel.put( bytes, length );
+        }
 
         byte[] writtenBytes = new byte[length];
-        try ( InputStream in = new FileInputStream( firstFile ) )
+        try ( InputStream in = Files.newInputStream( firstFile ) )
         {
             in.read( writtenBytes );
         }
@@ -117,7 +152,7 @@ public class PhysicalFlushableChannelTest
         assertArrayEquals( bytes, writtenBytes );
     }
 
-    private byte[] generateBytes( int length )
+    private static byte[] generateBytes( int length )
     {
         Random random = new Random();
         char[] validCharacters = new char[] { 'a', 'b', 'c', 'd', 'e','f', 'g', 'h','i', 'j', 'k', 'l', 'm', 'n', 'o' };
@@ -130,15 +165,15 @@ public class PhysicalFlushableChannelTest
     }
 
     @Test
-    public void shouldWriteThroughRotation() throws Exception
+    void shouldWriteThroughRotation() throws Exception
     {
         // GIVEN
-        final File firstFile = new File( directory.directory(), "file1" );
-        final File secondFile = new File( directory.directory(), "file2" );
-        StoreChannel storeChannel = fileSystemRule.get().open( firstFile, "rw" );
+        final Path firstFile = directory.homePath().resolve( "file1" );
+        final Path secondFile = directory.homePath().resolve( "file2" );
+        StoreChannel storeChannel = fileSystem.write( firstFile );
         PhysicalLogVersionedStoreChannel versionedStoreChannel =
-                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1 /* ignored */ );
-        PhysicalFlushableChannel channel = new PhysicalFlushableChannel( versionedStoreChannel );
+                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1, firstFile, nativeChannelAccessor );
+        PhysicalFlushableLogChannel channel = new PhysicalFlushableLogChannel( versionedStoreChannel, new HeapScopedBuffer( 100, INSTANCE ) );
 
         // WHEN writing a transaction, of sorts
         byte byteValue = (byte) 4;
@@ -157,8 +192,8 @@ public class PhysicalFlushableChannelTest
         channel.close();
 
         // "Rotate" and continue
-        storeChannel = fileSystemRule.get().open( secondFile, "rw" );
-        channel.setChannel( new PhysicalLogVersionedStoreChannel( storeChannel, 2, (byte) -1 /* ignored */ ) );
+        storeChannel = fileSystem.write( secondFile );
+        channel.setChannel( new PhysicalLogVersionedStoreChannel( storeChannel, 2, (byte) -1, secondFile, nativeChannelAccessor ) );
         channel.putFloat( floatValue );
         channel.putDouble( doubleValue );
         channel.put( byteArrayValue, byteArrayValue.length );
@@ -171,8 +206,8 @@ public class PhysicalFlushableChannelTest
         assertEquals( intValue, firstFileContents.getInt() );
         assertEquals( longValue, firstFileContents.getLong() );
         ByteBuffer secondFileContents = readFile( secondFile );
-        assertEquals( floatValue, secondFileContents.getFloat(), 0.0f );
-        assertEquals( doubleValue, secondFileContents.getDouble(), 0.0d );
+        assertEquals( floatValue, secondFileContents.getFloat(), 0.001f );
+        assertEquals( doubleValue, secondFileContents.getDouble(), 0.001d );
 
         byte[] readByteArray = new byte[byteArrayValue.length];
         secondFileContents.get( readByteArray );
@@ -180,21 +215,21 @@ public class PhysicalFlushableChannelTest
     }
 
     @Test
-    public void shouldSeeCorrectPositionEvenBeforeEmptyingDataIntoChannel() throws Exception
+    void shouldSeeCorrectPositionEvenBeforeEmptyingDataIntoChannel() throws Exception
     {
         // GIVEN
-        final File file = new File( directory.directory(), "file" );
-        StoreChannel storeChannel = fileSystemRule.get().open( file, "rw" );
+        final Path file = directory.homePath().resolve( "file" );
+        StoreChannel storeChannel = fileSystem.write( file );
         PhysicalLogVersionedStoreChannel versionedStoreChannel =
-                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1 /* ignored */ );
-        PositionAwarePhysicalFlushableChannel channel = new PositionAwarePhysicalFlushableChannel( versionedStoreChannel );
-        LogPositionMarker positionMarker = new LogPositionMarker();
-        LogPosition initialPosition = channel.getCurrentPosition( positionMarker ).newPosition();
+                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1, file, nativeChannelAccessor );
+        PositionAwarePhysicalFlushableChecksumChannel channel =
+                new PositionAwarePhysicalFlushableChecksumChannel( versionedStoreChannel, new NativeScopedBuffer( 1024, INSTANCE ) );
+        LogPosition initialPosition = channel.getCurrentPosition();
 
         // WHEN
         channel.putLong( 67 );
         channel.putInt( 1234 );
-        LogPosition positionAfterSomeData = channel.getCurrentPosition( positionMarker ).newPosition();
+        LogPosition positionAfterSomeData = channel.getCurrentPosition();
 
         // THEN
         assertEquals( 12, positionAfterSomeData.getByteOffset() - initialPosition.getByteOffset() );
@@ -202,14 +237,14 @@ public class PhysicalFlushableChannelTest
     }
 
     @Test
-    public void shouldThrowIllegalStateExceptionAfterClosed() throws Exception
+    void shouldThrowIllegalStateExceptionAfterClosed() throws Exception
     {
         // GIVEN
-        final File file = new File( directory.directory(), "file" );
-        StoreChannel storeChannel = fileSystemRule.get().open( file, "rw" );
+        final Path file = directory.homePath().resolve( "file" );
+        StoreChannel storeChannel = fileSystem.write( file );
         PhysicalLogVersionedStoreChannel versionedStoreChannel =
-                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1 /* ignored */ );
-        PhysicalFlushableChannel channel = new PhysicalFlushableChannel( versionedStoreChannel );
+                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1, file, nativeChannelAccessor );
+        PhysicalFlushableChannel channel = new PhysicalFlushableChannel( versionedStoreChannel, INSTANCE );
 
         // closing the WritableLogChannel, then the underlying channel is what PhysicalLogFile does
         channel.close();
@@ -218,26 +253,18 @@ public class PhysicalFlushableChannelTest
         // WHEN just appending something to the buffer
         channel.put( (byte) 0 );
         // and wanting to empty that into the channel
-        try
-        {
-            channel.prepareForFlush();
-            fail( "Should have thrown exception" );
-        }
-        catch ( IllegalStateException e )
-        {
-            // THEN we should get an IllegalStateException, not a ClosedChannelException
-        }
+        assertThrows( IllegalStateException.class, channel::prepareForFlush );
     }
 
     @Test
-    public void shouldThrowClosedChannelExceptionWhenChannelUnexpectedlyClosed() throws Exception
+    void shouldThrowClosedChannelExceptionWhenChannelUnexpectedlyClosed() throws Exception
     {
         // GIVEN
-        final File file = new File( directory.directory(), "file" );
-        StoreChannel storeChannel = fileSystemRule.get().open( file, "rw" );
+        final Path file = directory.homePath().resolve( "file" );
+        StoreChannel storeChannel = fileSystem.write( file );
         PhysicalLogVersionedStoreChannel versionedStoreChannel =
-                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1 /* ignored */ );
-        PhysicalFlushableChannel channel = new PhysicalFlushableChannel( versionedStoreChannel );
+                new PhysicalLogVersionedStoreChannel( storeChannel, 1, (byte) -1, file, nativeChannelAccessor );
+        PhysicalFlushableChannel channel = new PhysicalFlushableChannel( versionedStoreChannel, INSTANCE );
 
         // just close the underlying channel
         storeChannel.close();
@@ -245,23 +272,15 @@ public class PhysicalFlushableChannelTest
         // WHEN just appending something to the buffer
         channel.put( (byte) 0 );
         // and wanting to empty that into the channel
-        try
-        {
-            channel.prepareForFlush();
-            fail( "Should have thrown exception" );
-        }
-        catch ( ClosedChannelException e )
-        {
-            // THEN we should get a ClosedChannelException
-        }
+        assertThrows( ClosedChannelException.class, channel::prepareForFlush );
     }
 
-    private ByteBuffer readFile( File file ) throws IOException
+    private ByteBuffer readFile( Path file ) throws IOException
     {
-        try ( StoreChannel channel = fileSystemRule.get().open( file, "r" ) )
+        try ( StoreChannel channel = fileSystem.read( file ) )
         {
-            ByteBuffer buffer = ByteBuffer.allocate( (int) channel.size() );
-            channel.read( buffer );
+            ByteBuffer buffer = ByteBuffers.allocate( (int) channel.size(), INSTANCE );
+            channel.readAll( buffer );
             buffer.flip();
             return buffer;
         }

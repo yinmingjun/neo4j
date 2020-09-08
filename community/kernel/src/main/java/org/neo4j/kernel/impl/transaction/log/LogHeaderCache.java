@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,29 +19,30 @@
  */
 package org.neo4j.kernel.impl.transaction.log;
 
-import org.neo4j.helpers.collection.LruCache;
+import org.neo4j.internal.helpers.collection.LruCache;
+import org.neo4j.kernel.impl.transaction.log.entry.LogHeader;
 
 public class LogHeaderCache
 {
-    private final LruCache<Long /*log version*/, Long /*last committed tx*/> logHeaderCache;
+    private final LruCache<Long,LogHeader> cache;
 
     public LogHeaderCache( int headerCacheSize )
     {
-        this.logHeaderCache = new LruCache<>( "Log header cache", headerCacheSize );
+        this.cache = new LruCache<>( "Log header cache", headerCacheSize );
     }
 
     public void clear()
     {
-        logHeaderCache.clear();
+        cache.clear();
     }
 
-    public void putHeader( long logVersion, long previousLogLastCommittedTx )
+    public void putHeader( long logVersion, LogHeader logHeader )
     {
-        logHeaderCache.put( logVersion, previousLogLastCommittedTx );
+        cache.put( logVersion, logHeader );
     }
 
-    public Long getLogHeader( long logVersion )
+    public LogHeader getLogHeader( long logVersion )
     {
-        return logHeaderCache.get( logVersion );
+        return cache.get( logVersion );
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -33,7 +33,11 @@ import static java.nio.file.Files.isWritable;
 
 public class Utils
 {
-    public static void checkWritableDirectory( Path directory ) throws FileSystemException
+    private Utils()
+    {
+    }
+
+    static void checkWritableDirectory( Path directory ) throws FileSystemException
     {
         if ( !exists( directory ) )
         {
@@ -41,7 +45,7 @@ public class Utils
         }
         if ( isRegularFile( directory ) )
         {
-            throw new FileSystemException( directory.toString() + ": Not a directory" );
+            throw new FileSystemException( directory + ": Not a directory" );
         }
         if ( !isWritable( directory ) )
         {
@@ -49,13 +53,16 @@ public class Utils
         }
     }
 
-    public static void copy( InputStream in, OutputStream out ) throws IOException
+    public static void copy( InputStream in, OutputStream out, ArchiveProgressPrinter progressPrinter ) throws IOException
     {
+        progressPrinter.beginFile();
         final byte[] buffer = new byte[8192];
         int n;
         while ( -1 != (n = in.read( buffer )) )
         {
             out.write( buffer, 0, n );
+            progressPrinter.addBytes( n );
         }
+        progressPrinter.endFile();
     }
 }

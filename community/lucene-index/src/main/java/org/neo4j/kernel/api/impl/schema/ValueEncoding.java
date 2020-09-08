@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,16 +19,14 @@
  */
 package org.neo4j.kernel.api.impl.schema;
 
-import org.apache.lucene.document.DoubleField;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.search.ConstantScoreQuery;
-import org.apache.lucene.search.NumericRangeQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
 
-import org.neo4j.kernel.api.index.ArrayEncoder;
+import org.neo4j.values.storable.Value;
 
 import static org.apache.lucene.document.Field.Store.NO;
 
@@ -36,146 +34,45 @@ import static org.apache.lucene.document.Field.Store.NO;
  * Enumeration representing all possible property types with corresponding encodings and query structures for Lucene
  * schema indexes.
  */
-enum ValueEncoding
+public enum ValueEncoding
 {
-    Number
-            {
-                @Override
-                String key()
-                {
-                    return "number";
-                }
-
-                @Override
-                boolean canEncode( Object value )
-                {
-                    return value instanceof Number;
-                }
-
-                @Override
-                Field encodeField( String name, Object value )
-                {
-                    return new DoubleField( name, ((Number) value).doubleValue(), NO );
-                }
-
-                @Override
-                void setFieldValue( Object value, Field field )
-                {
-                    field.setDoubleValue( ((Number) value).doubleValue() );
-                }
-
-                @Override
-                Query encodeQuery( Object value, int propertyNumber )
-                {
-                    Double doubleValue = ((Number) value).doubleValue();
-                    return new ConstantScoreQuery( NumericRangeQuery
-                            .newDoubleRange( key( propertyNumber ), doubleValue, doubleValue, true, true ) );
-                }
-            },
-    Array
-            {
-                @Override
-                String key()
-                {
-                    return "array";
-                }
-
-                @Override
-                boolean canEncode( Object value )
-                {
-                    return value.getClass().isArray();
-                }
-
-                @Override
-                Field encodeField( String name, Object value )
-                {
-                    return stringField( name, ArrayEncoder.encode( value ) );
-                }
-
-                @Override
-                void setFieldValue( Object value, Field field )
-                {
-                    field.setStringValue( ArrayEncoder.encode( value ) );
-                }
-
-                @Override
-                Query encodeQuery( Object value, int propertyNumber )
-                {
-                    return new ConstantScoreQuery(
-                            new TermQuery( new Term( key( propertyNumber ), ArrayEncoder.encode( value ) ) ) );
-                }
-            },
-    Bool
-            {
-                @Override
-                String key()
-                {
-                    return "bool";
-                }
-
-                @Override
-                boolean canEncode( Object value )
-                {
-                    return value instanceof Boolean;
-                }
-
-                @Override
-                Field encodeField( String name, Object value )
-                {
-                    return stringField( name, value.toString() );
-                }
-
-                @Override
-                void setFieldValue( Object value, Field field )
-                {
-                    field.setStringValue( value.toString() );
-                }
-
-                @Override
-                Query encodeQuery( Object value, int propertyNumber )
-                {
-                    return new ConstantScoreQuery(
-                            new TermQuery( new Term( key( propertyNumber ), value.toString() ) ) );
-                }
-            },
     String
             {
                 @Override
-                String key()
+                public String key()
                 {
                     return "string";
                 }
 
                 @Override
-                boolean canEncode( Object value )
+                boolean canEncode( Value value )
                 {
                     // Any other type can be safely serialised as a string
                     return true;
                 }
 
                 @Override
-                Field encodeField( String name, Object value )
+                Field encodeField( String name, Value value )
                 {
-                    return stringField( name, value.toString() );
+                    return stringField( name, value.asObject().toString() );
                 }
 
                 @Override
-                void setFieldValue( Object value, Field field )
+                void setFieldValue( Value value, Field field )
                 {
-                    field.setStringValue( value.toString() );
+                    field.setStringValue( value.asObject().toString() );
                 }
 
                 @Override
-                Query encodeQuery( Object value, int propertyNumber )
+                Query encodeQuery( Value value, int propertyNumber )
                 {
-                    return new ConstantScoreQuery(
-                            new TermQuery( new Term( key( propertyNumber ), value.toString() ) ) );
+                    return new ConstantScoreQuery( new TermQuery( new Term( key( propertyNumber ), value.asObject().toString() ) ) );
                 }
             };
 
     private static final ValueEncoding[] AllEncodings = values();
 
-    abstract String key();
+    public abstract String key();
 
     String key( int propertyNumber )
     {
@@ -186,27 +83,25 @@ enum ValueEncoding
         return propertyNumber + key();
     }
 
-    abstract boolean canEncode( Object value );
-
-    abstract Field encodeField( String name, Object value );
-
-    abstract void setFieldValue( Object value, Field field );
-
-    abstract Query encodeQuery( Object value, int propertyNumber );
-
-    public static ValueEncoding forKey( String key )
+    static int fieldPropertyNumber( String fieldName )
     {
-        for ( ValueEncoding encoding : AllEncodings )
+        int index = 0;
+        for ( int i = 0; i < fieldName.length() && Character.isDigit( fieldName.charAt( i ) ); i++ )
         {
-            if ( key.endsWith( encoding.key( ) ) )
-            {
-                return encoding;
-            }
+            index++;
         }
-        throw new IllegalArgumentException( "Unknown key: " + key );
+        return index == 0 ? 0 : Integer.parseInt( fieldName.substring( 0, index ) );
     }
 
-    public static ValueEncoding forValue( Object value )
+    abstract boolean canEncode( Value value );
+
+    abstract Field encodeField( String name, Value value );
+
+    abstract void setFieldValue( Value value, Field field );
+
+    abstract Query encodeQuery( Value value, int propertyNumber );
+
+    public static ValueEncoding forValue( Value value )
     {
         for ( ValueEncoding encoding : AllEncodings )
         {

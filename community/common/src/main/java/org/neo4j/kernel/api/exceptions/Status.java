@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -23,6 +23,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 
+import org.neo4j.annotations.api.PublicApi;
+
 import static java.lang.String.format;
 import static org.neo4j.kernel.api.exceptions.Status.Classification.ClientError;
 import static org.neo4j.kernel.api.exceptions.Status.Classification.ClientNotification;
@@ -41,6 +43,7 @@ import static org.neo4j.kernel.api.exceptions.Status.Classification.TransientErr
  * guaranteed. Instead, the automatically generated documentation derived from this class and available in the Neo4j
  * manual should be considered a user-level API.
  */
+@PublicApi
 public interface Status
 {
     /*
@@ -53,7 +56,7 @@ public interface Status
     Broadly, the naming convention here uses one of three types of name:
 
     1. For unexpected events, name with a leading noun followed by a short problem term in the past tense. For example,
-       EntityNotFound or LockSessionExpired. As a variant, names may omit the leading noun; in this case, the current
+       EntityNotFound or LeaseExpired. As a variant, names may omit the leading noun; in this case, the current
        ongoing operation is implied.
 
     2. For conditions that prevent the current ongoing operation from being performed (or being performed correctly),
@@ -74,24 +77,6 @@ public interface Status
 
     */
 
-    enum Network implements Status
-    {
-        // transient
-        CommunicationError( TransientError, "An unknown network failure occurred, a retry may resolve the issue." );
-        private final Code code;
-
-        @Override
-        public Code code()
-        {
-            return code;
-        }
-
-        Network( Classification classification, String description )
-        {
-            this.code = new Code( classification, this, description );
-        }
-    }
-
     // TODO: rework the names and uses of Invalid and InvalidFormat and reconsider their categorisation (ClientError
     // TODO: MUST be resolvable by the user, do we need ProtocolError/DriverError?)
     enum Request implements Status
@@ -101,9 +86,11 @@ public interface Status
                 "The client provided an invalid request." ),
         InvalidFormat( ClientError,  // TODO: see above
                 "The client provided a request that was missing required fields, or had values that are not allowed." ),
-        TransactionRequired( ClientError,
-                "The request cannot be performed outside of a transaction, and there is no transaction present to " +
-                "use. Wrap your request in a transaction and retry." );
+        InvalidUsage( ClientError,  // TODO: see above
+                "The client made a request but did not consume outgoing buffers in a timely fashion." ),
+        NoThreadsAvailable( TransientError,  // TODO: see above
+                "There are no available threads to serve this request at the moment. You can retry at a later time " +
+                        "or consider increasing max thread pool size for bolt connector(s)." );
         private final Code code;
 
         @Override
@@ -129,14 +116,6 @@ public interface Status
                 "The transaction is of the wrong type to service the request. For instance, a transaction that has " +
                 "had schema modifications performed in it cannot be used to subsequently perform data operations, " +
                 "and vice versa." ),
-        TransactionTerminated( ClientError,
-                "The current transaction has been marked as terminated, meaning no more interactions with it are " +
-                "allowed. There are several reasons this happens - the client might have asked for the transaction " +
-                "to be terminated, an operator might have asked for the database to be shut down, or the current " +
-                "instance is about to go through a cluster role switch. Simply retry your operation in a new " +
-                "transaction." ),
-        TransactionEventHandlerFailed( ClientError,
-                "A transaction event handler threw an exception. The transaction will be rolled back." ),
         TransactionValidationFailed( ClientError,
                 "Transaction changes did not pass validation checks" ),
         TransactionHookFailed( ClientError,
@@ -145,12 +124,16 @@ public interface Status
                 "Transaction was marked as both successful and failed. Failure takes precedence and so this " +
                 "transaction was rolled back although it may have looked like it was going to be committed" ),
         TransactionTimedOut( ClientError,
-                "The transaction has not completed within the specified timeout. You may want to retry with a longer " +
+                "The transaction has not completed within the specified timeout (dbms.transaction.timeout). You may want to retry with a longer " +
                 "timeout." ),
         InvalidBookmark( ClientError,
-                "Supplied bookmark cannot be interpreted. You should only supply a bookmark previously that was " +
+                "Supplied bookmark cannot be interpreted. You should only supply a bookmark that was " +
                 "previously generated by Neo4j. Maybe you have generated your own bookmark, " +
                 "or modified a bookmark since it was generated by Neo4j." ),
+        InvalidBookmarkMixture( ClientError,
+                "Mixing bookmarks generated by different databases is forbidden." +
+                "You should only chain bookmarks that are generated from the same database. " +
+                "You may however chain bookmarks generated from system database with bookmarks from another database." ),
 
         // database errors
         TransactionStartFailed( DatabaseError,
@@ -163,33 +146,36 @@ public interface Status
                 "The database was unable to write transaction to log." ),
 
         // transient errors
-        LockSessionExpired( TransientError,
-                "The lock session under which this transaction was started is no longer valid." ),
+        BookmarkTimeout( TransientError,
+                "Bookmark wait timed out. Database has not reached the specified version" ),
+        LeaseExpired( TransientError,
+                "The lease under which this transaction was started is no longer valid." ),
         DeadlockDetected( TransientError,
                 "This transaction, and at least one more transaction, has acquired locks in a way that it will wait " +
                 "indefinitely, and the database has aborted it. Retrying this transaction will most likely be " +
-                "successful."),
-        InstanceStateChanged( TransientError,
-                "Transactions rely on assumptions around the state of the Neo4j instance they " +
-                "execute on. For instance, transactions in a cluster may expect that " +
-                "they are executing on an instance that can perform writes. However, " +
-                "instances may change state while the transaction is running. This causes " +
-                "assumptions the instance has made about how to execute the transaction " +
-                "to be violated - meaning the transaction must be rolled " +
-                "back. If you see this error, you should retry your operation in a new transaction."),
+                "successful." ),
         ConstraintsChanged( TransientError,
                 "Database constraints changed since the start of this transaction" ),
         Outdated( TransientError,
                 "Transaction has seen state which has been invalidated by applied updates while " +
                 "transaction was active. Transaction may succeed if retried." ),
         LockClientStopped( TransientError,
-                "Transaction terminated, no more locks can be acquired." ),
+                "The transaction has been terminated, so no more locks can be acquired. This can occur because the " +
+                "transaction ran longer than the configured transaction timeout, or because a human operator manually " +
+                "terminated the transaction, or because the database is shutting down." ),
         LockAcquisitionTimeout( TransientError,
-                "Unable to acquire lock within configured timeout." ),
+                "Unable to acquire lock within configured timeout (dbms.lock.acquisition.timeout)." ),
+        MaximumTransactionLimitReached( TransientError,
+                "Unable to start new transaction since the maximum number of concurrently executing transactions is " +
+                        "reached (dbms.transaction.concurrent.maximum). " +
+                        "You can retry at a later time or consider increasing allowed maximum of concurrent transactions." ),
         Terminated( TransientError,
                 "Explicitly terminated by the user." ),
         Interrupted( TransientError,
-                "Interrupted while waiting." );
+                "Interrupted while waiting." ),
+        @Deprecated // Non-specific Status for migrating legacy exceptions.
+        TransientTransactionFailure( TransientError,
+                                     "Unable to complete transaction." );
 
         private final Code code;
 
@@ -220,36 +206,46 @@ public interface Status
                 "The statement refers to a non-existent entity." ),
         PropertyNotFound( ClientError,
                 "The statement refers to a non-existent property." ),
-        LabelNotFound( ClientError,
-                "The statement is referring to a label that does not exist."),
         TypeError( ClientError,
                 "The statement is attempting to perform operations on values with types that are not supported by " +
                 "the operation." ),
         ArgumentError( ClientError,
-                "The statement is attempting to perform operations using invalid arguments"),
+                "The statement is attempting to perform operations using invalid arguments" ),
         ArithmeticError( ClientError,
                 "Invalid use of arithmetic, such as dividing by zero." ),
+        RuntimeUnsupportedError( ClientError,
+                "This query is not supported by the chosen runtime." ),
+        NotSystemDatabaseError( ClientError,
+                "This is an administration command and it should be executed against the system database." ),
+        NotSystemDatabaseOnLeaderError( ClientError,
+                "This is an administration command and it should be executed against the LEADER server of the system database." ),
+        AccessMode( ClientError, "The request could not be completed due to access mode violation" ),
 
         // database errors
         ExecutionFailed( DatabaseError,
                 "The database was unable to execute the statement." ),
+        CodeGenerationFailed( DatabaseError,
+                              "The database was unable to generate code for the query. A stacktrace can be found in the debug.log." ),
+        RemoteExecutionFailed( DatabaseError, "The database was unable to execute a remote part of the statement." ),
 
         // transient errors
         ExternalResourceFailed( ClientError,
-                "Access to an external resource failed"),
+                "Access to an external resource failed" ),
 
         // client notifications (performance)
         CartesianProductWarning( ClientNotification,
                 "This query builds a cartesian product between disconnected patterns." ),
         DynamicPropertyWarning( ClientNotification,
                 "Queries using dynamic properties will use neither index seeks nor index scans for those properties" ),
-        EagerOperatorWarning(ClientNotification,
+        EagerOperatorWarning( ClientNotification,
                 "The execution plan for this query contains the Eager operator, which forces all dependent data to " +
-                "be materialized in main memory before proceeding"),
+                 "be materialized in main memory before proceeding" ),
         JoinHintUnfulfillableWarning( ClientNotification,
                 "The database was unable to plan a hinted join." ),
         NoApplicableIndexWarning( ClientNotification,
                 "Adding a schema index may speed up this query." ),
+        SuboptimalIndexForWildcardQuery( ClientNotification,
+                "Index cannot execute wildcard query efficiently" ),
         UnboundedVariableLengthPatternWarning( ClientNotification,
                 "The provided pattern is unbounded, consider adding an upper limit to the number of node hops." ),
         ExhaustiveShortestPathWarning( ClientNotification,
@@ -258,17 +254,12 @@ public interface Status
                 "might be used in order to find the requested shortest path." ),
 
         // client notifications (not supported/deprecated)
-        PlannerUnavailableWarning( ClientNotification,
-                "The RULE planner is not available in the current CYPHER version, the query has been run by an older " +
-                        "CYPHER version." ),
-        PlannerUnsupportedWarning( ClientNotification,
-                "This query is not supported by the COST planner." ),
         RuntimeUnsupportedWarning( ClientNotification,
-                "This query is not supported by the compiled runtime." ),
+                "This query is not supported by the chosen runtime." ),
         FeatureDeprecationWarning( ClientNotification,
                 "This feature is deprecated and will be removed in future versions." ),
-        JoinHintUnsupportedWarning( ClientNotification,
-                "Queries with join hints are not supported by the RULE planner." ),
+        ExperimentalFeature( ClientNotification,
+                "This feature is experimental and should not be used in production systems." ),
 
         // client notifications (unknown tokens)
         UnknownLabelWarning( ClientNotification,
@@ -277,9 +268,9 @@ public interface Status
                 "The provided relationship type is not in the database." ),
         UnknownPropertyKeyWarning( ClientNotification,
                 "The provided property key is not in the database" ),
-        CreateUniqueUnavailableWarning( ClientNotification,
-                "CREATE UNIQUE is not available in the current CYPHER version, the query has been run by an older " +
-                "CYPHER version." );
+
+        SubqueryVariableShadowingWarning( ClientNotification,
+                "Variable in subquery is shadowing a variable with the same name from the outer scope." );
 
         private final Code code;
 
@@ -299,21 +290,33 @@ public interface Status
     {
         // client errors
         RepeatedPropertyInCompositeSchema( ClientError,
-                "Unable to create composite index or constraint because a property was specified in several positions." ),
+                "Unable to create index or constraint because schema had a repeated property." ),
+        RepeatedLabelInSchema( ClientError,
+                "Unable to create index or constraint because schema had a repeated label." ),
+        RepeatedRelationshipTypeInSchema( ClientError,
+                "Unable to create index or constraint because schema had a repeated relationship type." ),
+        EquivalentSchemaRuleAlreadyExists( ClientError,
+                "Unable to perform operation because an equivalent schema rule already exists." ),
         ConstraintAlreadyExists( ClientError,
                 "Unable to perform operation because it would clash with a pre-existing constraint." ),
         ConstraintNotFound( ClientError,
                 "The request (directly or indirectly) referred to a constraint that does not exist." ),
         ConstraintValidationFailed( ClientError,
                 "A constraint imposed by the database was violated." ),
-        ConstraintVerificationFailed( ClientError,
-                "Unable to create constraint because data that exists in the database violates it." ),
+        ConstraintViolation( ClientError,
+                "Added or changed index entry would violate constraint" ),
         IndexAlreadyExists( ClientError,
                 "Unable to perform operation because it would clash with a pre-existing index." ),
         IndexNotFound( ClientError,
                 "The request (directly or indirectly) referred to an index that does not exist." ),
+        IndexMultipleFound( ClientError,
+                "The request referenced an index by its schema, and multiple matching indexes were found." ),
         IndexNotApplicable( ClientError,
                 "The request did not contain the properties required by the index." ),
+        IndexWithNameAlreadyExists( ClientError,
+                "Unable to perform operation because index with given name already exists." ),
+        ConstraintWithNameAlreadyExists( ClientError,
+                "Unable to perform operation because constraint with given name already exists." ),
         ForbiddenOnConstraintIndex( ClientError,
                 "A requested operation can not be performed on the specified index because the index is part of a " +
                 "constraint. If you want to drop the index, for instance, you must drop the constraint." ),
@@ -327,13 +330,13 @@ public interface Status
         ConstraintDropFailed( DatabaseError,
                 "The database failed to drop a requested constraint." ),
         IndexCreationFailed( DatabaseError,
-                "Failed to create an index."),
+                "Failed to create an index." ),
         IndexDropFailed( DatabaseError,
                 "The database failed to drop a requested index." ),
         LabelAccessFailed( DatabaseError,
                 "The request accessed a label that did not exist." ),
-        LabelLimitReached( DatabaseError,
-                "The maximum number of labels supported has been reached, no more labels can be created." ),
+        TokenLimitReached( DatabaseError,
+                "The maximum number of tokens of this type has been reached, no more tokens of this type can be created." ),
         PropertyKeyAccessFailed( DatabaseError,
                 "The request accessed a property that does not exist." ),
         RelationshipTypeAccessFailed( DatabaseError,
@@ -341,13 +344,7 @@ public interface Status
         SchemaRuleAccessFailed( DatabaseError,
                 "The request referred to a schema rule that does not exist." ),
         SchemaRuleDuplicateFound( DatabaseError,
-                "The request referred to a schema rule that is defined multiple times." ),
-
-        // transient errors
-        SchemaModifiedConcurrently( TransientError,
-                "The database schema was modified while this transaction was running, the transaction should be " +
-                "retried." ),
-
+                "The request referred to a schema rule that is defined multiple times." )
         ;
 
         private final Code code;
@@ -359,27 +356,6 @@ public interface Status
         }
 
         Schema( Classification classification, String description )
-        {
-            this.code = new Code( classification, this, description );
-        }
-    }
-
-    enum LegacyIndex implements Status
-    {
-        LegacyIndexNotFound( ClientError,
-                "The request (directly or indirectly) referred to a legacy index that does not exist." )
-
-        ;
-
-        private final Code code;
-
-        @Override
-        public Code code()
-        {
-            return code;
-        }
-
-        LegacyIndex( Classification classification, String description )
         {
             this.code = new Code( classification, this, description );
         }
@@ -423,7 +399,6 @@ public interface Status
         Unauthorized( ClientError, "The client is unauthorized due to authentication failure." ),
         AuthenticationRateLimit( ClientError, "The client has provided incorrect authentication details too many times in a row." ),
         ModifiedConcurrently( TransientError, "The user was modified concurrently to this request." ),
-        EncryptionRequired( ClientError, "A TLS encrypted connection is required." ),
         Forbidden( ClientError, "An attempt was made to perform an unauthorized action." ),
         AuthorizationExpired( ClientError, "The stored authorization info has expired. Please reconnect." ),
         AuthProviderTimeout( TransientError, "An auth provider request timed out." ),
@@ -449,6 +424,10 @@ public interface Status
         InvalidArguments( ClientError, "The request contained fields that were empty or are not allowed." ),
         ForbiddenOnReadOnlyDatabase( ClientError,
                 "This is a read only database, writing or modifying the database is not allowed." ),
+        TransactionOutOfMemoryError( ClientError,
+                "The transaction used more memory than was allowed. The maximum allowed size for a " +
+                "transaction can be configured with 'dbms.memory.transaction.max_size' in the neo4j configuration " +
+                "(normally in 'conf/neo4j.conf' or, if you are using Neo4j Desktop, found through the user interface)." ),
 
         // database errors
         IndexCorruptionDetected( DatabaseError,
@@ -460,9 +439,17 @@ public interface Status
                 "Expected set of files not found on disk. Please restore from backup." ),
         UnknownError( DatabaseError,
                 "An unknown error occurred." ),
+
+        // transient errors
+
+        // Off heap allocation limit exceeded
+        TransactionMemoryLimit( TransientError,
+                "There is not enough memory to perform the current task. Please try increasing " +
+                        "'dbms.memory.off_heap.max_size' in the neo4j configuration (normally in 'conf/neo4j.conf' or, if " +
+                        "you are using Neo4j Desktop, found through the user interface), and then restart the database." ),
         OutOfMemoryError( TransientError,
                 "There is not enough memory to perform the current task. Please try increasing " +
-                "'dbms.memory.heap.max_size' in the neo4j configuration (normally in 'conf/neo4j.conf' or, if you " +
+                "'dbms.memory.heap.max_size' in the neo4j configuration (normally in 'conf/neo4j.conf' or, if " +
                 "you are using Neo4j Desktop, found through the user interface) or if you are running an embedded " +
                 "installation increase the heap by using '-Xmx' command line flag, and then restart the database." ),
         StackOverFlowError( TransientError,
@@ -472,12 +459,8 @@ public interface Status
                 "in the neo4j configuration (normally in 'conf/neo4j.conf' or, if you are using " +
                 "Neo4j Desktop, found through the user interface) or if you are running an embedded installation " +
                 "just add -Xss2M as command line flag." ),
-
-        // transient errors
-        DatabaseUnavailable( TransientError,
-                "The database is not currently available to serve your request, refer to the database logs for more " +
-                "details. Retrying your request at a later time may succeed." ),
-
+        MemoryPoolOutOfMemoryError( TransientError,
+                "The memory pool limit was exceeded. The corresponding setting can be found in the error message" )
         ;
 
         private final Code code;
@@ -494,14 +477,41 @@ public interface Status
         }
     }
 
+    enum Database implements Status
+    {
+        DatabaseUnavailable( TransientError,
+                "The database is not currently available to serve your request, refer to the database logs for more " +
+                "details. Retrying your request at a later time may succeed." ),
+        DatabaseNotFound( ClientError, "The request referred to a database that does not exist." ),
+        ExistingDatabaseFound( ClientError, "The request referred to a database that already exists." ),
+        DatabaseLimitReached( DatabaseError, "The limit to number of databases has been reached." ),
+        UnableToStartDatabase( DatabaseError, "Unable to start database." ),
+        Unknown( DatabaseError, "Unknown database management error" );
+
+        private final Code code;
+
+        @Override
+        public Code code()
+        {
+            return code;
+        }
+
+        Database( Classification classification, String description )
+        {
+            this.code = new Code( classification, this, description );
+        }
+    }
+
     enum Cluster implements Status
     {
         // transient errors
-        NoLeaderAvailable( TransientError,
-                "No leader available at the moment. Retrying your request at a later time may succeed." ),
+        ReplicationFailure( TransientError,
+                "Replication failure." ),
 
         NotALeader( ClientError,
                 "The request cannot be processed by this server. Write requests can only be processed by the leader." ),
+
+        Routing( TransientError, "Unable to route the request to the appropriate server" )
                 ;
 
         private final Code code;
@@ -518,6 +528,27 @@ public interface Status
         }
     }
 
+    enum Fabric implements Status
+    {
+        @Deprecated
+        RemoteExecutionFailed( DatabaseError, "The database was unable to execute a remote part of the statement." ),
+        @Deprecated
+        AccessMode( ClientError, "The request could not be completed due to access mode violation" );
+
+        private final Code code;
+
+        @Override
+        public Code code()
+        {
+            return code;
+        }
+
+        Fabric( Classification classification, String description )
+        {
+            this.code = new Code( classification, this, description );
+        }
+    }
+
     Code code();
 
     class Code
@@ -529,7 +560,7 @@ public interface Status
             {
                 if ( child.isEnum() && Status.class.isAssignableFrom( child ) )
                 {
-                    @SuppressWarnings("unchecked")
+                    @SuppressWarnings( "unchecked" )
                     Class<? extends Status> statusType = (Class<? extends Status>) child;
                     Collections.addAll( result, statusType.getEnumConstants() );
                 }
@@ -611,14 +642,14 @@ public interface Status
     {
         /** The Client sent a bad request - changing the request might yield a successful outcome. */
         ClientError( TransactionEffect.ROLLBACK,
-                "The Client sent a bad request - changing the request might yield a successful outcome."),
+                "The Client sent a bad request - changing the request might yield a successful outcome." ),
         /** There are notifications about the request sent by the client.*/
         ClientNotification( TransactionEffect.NONE,
                 "There are notifications about the request sent by the client." ),
 
         /** The database cannot service the request right now, retrying later might yield a successful outcome. */
         TransientError( TransactionEffect.ROLLBACK,
-                "The database cannot service the request right now, retrying later might yield a successful outcome. "),
+                "The database cannot service the request right now, retrying later might yield a successful outcome. " ),
 
         // Implementation note: These are a sharp tool, database error signals
         // that something is *seriously* wrong, and will prompt the user to send
@@ -656,5 +687,20 @@ public interface Status
     interface HasStatus
     {
         Status status();
+    }
+
+    static Status statusCodeOf( Throwable e )
+    {
+        do
+        {
+            if ( e instanceof Status.HasStatus )
+            {
+                return ((Status.HasStatus) e).status();
+            }
+            e = e.getCause();
+        }
+        while ( e != null );
+
+        return null;
     }
 }

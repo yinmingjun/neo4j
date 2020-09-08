@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,11 +19,14 @@
  */
 package org.neo4j.kernel.impl.transaction.log.pruning;
 
+import java.util.stream.LongStream;
+
 import org.neo4j.io.fs.FileSystemAbstraction;
-import org.neo4j.kernel.impl.transaction.log.LogFileInformation;
-import org.neo4j.kernel.impl.transaction.log.PhysicalLogFiles;
+import org.neo4j.kernel.impl.transaction.log.files.LogFiles;
 import org.neo4j.kernel.impl.transaction.log.pruning.ThresholdConfigParser.ThresholdConfigValue;
-import org.neo4j.time.Clocks;
+import org.neo4j.logging.LogProvider;
+import org.neo4j.time.SystemNanoClock;
+import org.neo4j.util.VisibleForTesting;
 
 import static java.util.concurrent.TimeUnit.DAYS;
 import static java.util.concurrent.TimeUnit.HOURS;
@@ -31,20 +34,25 @@ import static org.neo4j.kernel.impl.transaction.log.pruning.ThresholdConfigParse
 
 public class LogPruneStrategyFactory
 {
-    public static final LogPruneStrategy NO_PRUNING = new LogPruneStrategy()
+    static final LogPruneStrategy NO_PRUNING = new LogPruneStrategy()
     {
         @Override
-        public void prune( long upToLogVersion )
+        public LongStream findLogVersionsToDelete( long upToLogVersion )
         {
-            // do nothing
+            // Never delete anything.
+            return LongStream.empty();
         }
 
         @Override
         public String toString()
         {
-            return "NO_PRUNING";
+            return "keep_all";
         }
     };
+
+    public LogPruneStrategyFactory()
+    {
+    }
 
     /**
      * Parses a configuration value for log specifying log pruning. It has one of these forms:
@@ -60,10 +68,8 @@ public class LogPruneStrategyFactory
      *   <li>1k hours - For keeping last 1000 hours worth of log data</li>
      * </ul>
      */
-    public static LogPruneStrategy fromConfigValue( FileSystemAbstraction fileSystem,
-                                                    LogFileInformation logFileInformation,
-                                                    PhysicalLogFiles files,
-                                                    String configValue )
+    LogPruneStrategy strategyFromConfigValue( FileSystemAbstraction fileSystem, LogFiles logFiles, LogProvider logProvider, SystemNanoClock clock,
+            String configValue )
     {
         ThresholdConfigValue value = parse( configValue );
 
@@ -72,12 +78,12 @@ public class LogPruneStrategyFactory
             return NO_PRUNING;
         }
 
-        Threshold thresholdToUse = getThresholdByType( fileSystem, value, configValue );
-        return new ThresholdBasedPruneStrategy( fileSystem, logFileInformation, files, thresholdToUse );
+        Threshold thresholdToUse = getThresholdByType( fileSystem, logProvider, clock, value, configValue );
+        return new ThresholdBasedPruneStrategy( logFiles.getLogFile(), thresholdToUse );
     }
 
-    // visible for testing
-    static Threshold getThresholdByType( FileSystemAbstraction fileSystem, ThresholdConfigValue value,
+    @VisibleForTesting
+    static Threshold getThresholdByType( FileSystemAbstraction fileSystem, LogProvider logProvider, SystemNanoClock clock, ThresholdConfigValue value,
             String originalConfigValue )
     {
         long thresholdValue = value.value;
@@ -90,11 +96,11 @@ public class LogPruneStrategyFactory
                 return new FileSizeThreshold( fileSystem, thresholdValue );
             case "txs":
             case "entries": // txs and entries are synonyms
-                return new EntryCountThreshold( thresholdValue );
+                return new EntryCountThreshold( logProvider, thresholdValue );
             case "hours":
-                return new EntryTimespanThreshold( Clocks.systemClock(), HOURS, thresholdValue );
+                return new EntryTimespanThreshold( logProvider, clock, HOURS, thresholdValue );
             case "days":
-                return new EntryTimespanThreshold( Clocks.systemClock(), DAYS, thresholdValue );
+                return new EntryTimespanThreshold( logProvider, clock, DAYS, thresholdValue );
             default:
                 throw new IllegalArgumentException( "Invalid log pruning configuration value '" + originalConfigValue +
                         "'. Invalid type '" + value.type + "', valid are files, size, txs, entries, hours, days." );

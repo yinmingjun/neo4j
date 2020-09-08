@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -25,15 +25,10 @@ public class MappingSerializer extends Serializer
 {
     final MappingWriter writer;
 
-    MappingSerializer( MappingWriter writer, URI baseUri, ExtensionInjector extensions )
+    MappingSerializer( MappingWriter writer, URI baseUri )
     {
-        super( baseUri, extensions );
+        super( baseUri );
         this.writer = writer;
-    }
-
-    void putAbsoluteUri( String key, String path )
-    {
-        writer.writeValue( RepresentationType.URI, key, path );
     }
 
     public void putRelativeUri( String key, String path )
@@ -77,5 +72,10 @@ public class MappingSerializer extends Serializer
             checkThatItIsBuiltInType( value );
             writer.writeInteger( RepresentationType.valueOf( value.getClass() ), key, value.longValue() );
         }
+    }
+
+    public MappingWriter getWriter()
+    {
+        return writer;
     }
 }

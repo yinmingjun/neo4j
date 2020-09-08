@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,12 +19,16 @@
  */
 package org.neo4j.cypher
 
-import com.sun.net.httpserver.{HttpExchange, HttpHandler, HttpServer}
-import java.net.{InetAddress, InetSocketAddress}
 import java.io.IOException
+import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.util.concurrent.Executors
+
+import com.sun.net.httpserver.HttpExchange
+import com.sun.net.httpserver.HttpHandler
+import com.sun.net.httpserver.HttpServer
+
 import scala.collection.mutable
-import scala.collection.mutable.HashMap
 
 trait HttpServerTestSupport {
   def boundInfo: InetSocketAddress
@@ -33,17 +37,10 @@ trait HttpServerTestSupport {
 }
 
 class HttpServerTestSupportBuilder {
-  val ASK_OS_TO_PROVIDE_A_PORT = 0
-  private var port = ASK_OS_TO_PROVIDE_A_PORT
   private var allowedMethods: Set[String] = Set()
-  private val mapping = new mutable.HashMap[String, (HttpExchange => Unit)]()
-  private val filters = new mutable.HashMap[String, (HttpExchange => Boolean)]()
-  private val transformations = new mutable.HashMap[String, (HttpExchange => HttpExchange)]()
-
-  def withPort(newPort: Int) {
-    assert(newPort >= 0 && newPort < 65536)
-    port = newPort
-  }
+  private val mapping = new mutable.HashMap[String, HttpExchange => Unit]()
+  private val filters = new mutable.HashMap[String, HttpExchange => Boolean]()
+  private val transformations = new mutable.HashMap[String, HttpExchange => HttpExchange]()
 
   def onPathReplyWithData(path: String, data: Array[Byte]) {
     assert(path != null && !path.isEmpty)
@@ -72,13 +69,14 @@ class HttpServerTestSupportBuilder {
   }
 
   def build(): HttpServerTestSupport = {
-    new HttpServerTestSupportImpl(port, allowedMethods, mapping.toMap, filters.toMap, transformations.toMap)
+    // Passing port=0 asks bind() to find a free port, use boundInfo to lookup the port later
+    new HttpServerTestSupportImpl(0, allowedMethods, mapping.toMap, filters.toMap, transformations.toMap)
   }
 
   private class HttpServerTestSupportImpl(port: Int, allowedMethods: Set[String],
-                                  mapping: Map[String, (HttpExchange => Unit)],
-                                  filters: Map[String, (HttpExchange => Boolean)],
-                                  transformations: Map[String, (HttpExchange => HttpExchange)])
+                                          mapping: Map[String, HttpExchange => Unit],
+                                          filters: Map[String, HttpExchange => Boolean],
+                                          transformations: Map[String, HttpExchange => HttpExchange])
     extends HttpServerTestSupport {
 
     private var optServer: Option[HttpServer] = None
@@ -88,14 +86,14 @@ class HttpServerTestSupportBuilder {
         val address = new InetSocketAddress(InetAddress.getLoopbackAddress, port)
         HttpServer.create(address, 0)
       } catch {
-        case (ex: IOException) =>
+        case ex: IOException =>
           throw new IllegalStateException("Error in creating and/or binding the server.", ex)
       }
     }
 
     def boundInfo = optServer.get.getAddress
 
-    def start {
+    def start() {
       optServer = Some(provideServer)
       val server = optServer.get
 
@@ -108,7 +106,7 @@ class HttpServerTestSupportBuilder {
 
           val path = exchange.getRequestURI.getPath
           if (mapping.contains(path)) {
-            if (filters.getOrElse(path, {_: HttpExchange => true})(exchange)) {
+            if (filters.getOrElse(path, { _: HttpExchange => true })(exchange)) {
               val reply = transformations.getOrElse(path, identity[HttpExchange](_))(exchange)
               mapping(path)(reply)
             }

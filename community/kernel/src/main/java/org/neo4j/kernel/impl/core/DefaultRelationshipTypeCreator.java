@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,25 +21,20 @@ package org.neo4j.kernel.impl.core;
 
 import java.util.function.Supplier;
 
-import org.neo4j.kernel.api.KernelAPI;
-import org.neo4j.kernel.api.Statement;
-import org.neo4j.kernel.api.exceptions.schema.IllegalTokenNameException;
-import org.neo4j.kernel.impl.store.id.IdGeneratorFactory;
-import org.neo4j.kernel.impl.store.id.IdType;
+import org.neo4j.exceptions.KernelException;
+import org.neo4j.kernel.api.Kernel;
+import org.neo4j.kernel.api.KernelTransaction;
 
 public class DefaultRelationshipTypeCreator extends IsolatedTransactionTokenCreator
 {
-    public DefaultRelationshipTypeCreator( Supplier<KernelAPI> kernelSupplier, IdGeneratorFactory idGeneratorFactory )
+    public DefaultRelationshipTypeCreator( Supplier<Kernel> kernelSupplier )
     {
-        super( kernelSupplier, idGeneratorFactory );
+        super( kernelSupplier );
     }
 
     @Override
-    protected int createKey( Statement statement, String name ) throws IllegalTokenNameException
+    protected int createKey( KernelTransaction transaction, String name, boolean internal ) throws KernelException
     {
-        int id = (int) idGeneratorFactory.get( IdType.RELATIONSHIP_TYPE_TOKEN ).nextId();
-        statement.tokenWriteOperations().relationshipTypeCreateForName( name,
-                id );
-        return id;
+        return transaction.tokenWrite().relationshipTypeCreateForName( name, internal );
     }
 }

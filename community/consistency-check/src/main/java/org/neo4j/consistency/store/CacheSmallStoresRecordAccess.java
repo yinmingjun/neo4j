@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,6 +19,7 @@
  */
 package org.neo4j.consistency.store;
 
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.record.LabelTokenRecord;
 import org.neo4j.kernel.impl.store.record.PropertyKeyTokenRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipTypeTokenRecord;
@@ -34,48 +35,48 @@ public class CacheSmallStoresRecordAccess extends DelegatingRecordAccess
                                          RelationshipTypeTokenRecord[] relationshipTypes,
                                          LabelTokenRecord[] labels )
     {
-        super(delegate);
+        super( delegate );
         this.propertyKeys = propertyKeys;
         this.relationshipTypes = relationshipTypes;
         this.labels = labels;
     }
 
     @Override
-    public RecordReference<RelationshipTypeTokenRecord> relationshipType( int id )
+    public RecordReference<RelationshipTypeTokenRecord> relationshipType( int id, PageCursorTracer cursorTracer )
     {
         if ( id < relationshipTypes.length )
         {
-            return new DirectRecordReference<>( relationshipTypes[id], this );
+            return new DirectRecordReference<>( relationshipTypes[id], this, cursorTracer );
         }
         else
         {
-            return super.relationshipType( id );
+            return super.relationshipType( id, cursorTracer );
         }
     }
 
     @Override
-    public RecordReference<PropertyKeyTokenRecord> propertyKey( int id )
+    public RecordReference<PropertyKeyTokenRecord> propertyKey( int id, PageCursorTracer cursorTracer )
     {
         if ( id < propertyKeys.length )
         {
-            return new DirectRecordReference<>( propertyKeys[id], this );
+            return new DirectRecordReference<>( propertyKeys[id], this, cursorTracer );
         }
         else
         {
-            return super.propertyKey( id );
+            return super.propertyKey( id, cursorTracer );
         }
     }
 
     @Override
-    public RecordReference<LabelTokenRecord> label( int id )
+    public RecordReference<LabelTokenRecord> label( int id, PageCursorTracer cursorTracer )
     {
         if ( id < labels.length )
         {
-            return new DirectRecordReference<>( labels[id], this );
+            return new DirectRecordReference<>( labels[id], this, cursorTracer );
         }
         else
         {
-            return super.label( id );
+            return super.label( id, cursorTracer );
         }
     }
 }

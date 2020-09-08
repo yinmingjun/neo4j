@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,95 +21,128 @@ package org.neo4j.kernel.impl.transaction.state.storeview;
 
 import org.apache.commons.lang3.ArrayUtils;
 
+import java.io.IOException;
 import java.util.function.IntPredicate;
-import java.util.stream.IntStream;
+import java.util.function.Supplier;
 
-import org.neo4j.helpers.collection.Visitor;
-import org.neo4j.kernel.impl.api.index.NodeUpdates;
-import org.neo4j.kernel.api.labelscan.LabelScanStore;
-import org.neo4j.kernel.api.labelscan.NodeLabelUpdate;
+import org.neo4j.configuration.Config;
+import org.neo4j.internal.helpers.collection.Visitor;
+import org.neo4j.internal.index.label.LabelScanStore;
+import org.neo4j.internal.index.label.RelationshipTypeScanStore;
+import org.neo4j.internal.index.label.RelationshipTypeScanStoreSettings;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.kernel.impl.api.index.IndexStoreView;
 import org.neo4j.kernel.impl.api.index.StoreScan;
-import org.neo4j.kernel.impl.locking.LockService;
-import org.neo4j.kernel.impl.store.NeoStores;
-import org.neo4j.kernel.impl.store.counts.CountsTracker;
+import org.neo4j.lock.LockService;
 import org.neo4j.logging.Log;
 import org.neo4j.logging.LogProvider;
-import org.neo4j.register.Registers;
-import org.neo4j.unsafe.impl.internal.dragons.FeatureToggles;
+import org.neo4j.memory.MemoryTracker;
+import org.neo4j.storageengine.api.EntityTokenUpdate;
+import org.neo4j.storageengine.api.EntityUpdates;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
+import org.neo4j.storageengine.api.StorageReader;
+import org.neo4j.util.FeatureToggles;
 
 /**
- * Store view that will try to use label scan store {@link LabelScanStore} for cases when estimated number of nodes
- * is bellow certain threshold otherwise will fallback to whole store scan
+ * Store view that will try to use label scan store {@link LabelScanStore} to produce the view unless label scan
+ * store is empty or explicitly told to use store in which cases it will fallback to whole store scan.
  */
-public class DynamicIndexStoreView extends NeoStoreIndexStoreView
+public class DynamicIndexStoreView implements IndexStoreView
 {
-    private static final int VISIT_ALL_NODES_THRESHOLD_PERCENTAGE =
-            FeatureToggles.getInteger( DynamicIndexStoreView.class, "all.nodes.visit.percentage.threshold", 10 );
-    protected static boolean USE_LABEL_INDEX_FOR_SCHEMA_INDEX_POPULATION = FeatureToggles.flag(
+    private static final boolean USE_LABEL_INDEX_FOR_SCHEMA_INDEX_POPULATION = FeatureToggles.flag(
             DynamicIndexStoreView.class, "use.label.index", true );
 
+    private final NeoStoreIndexStoreView neoStoreIndexStoreView;
     private final LabelScanStore labelScanStore;
-    private final CountsTracker counts;
+    private final RelationshipTypeScanStore relationshipTypeScanStore;
+    protected final LockService locks;
     private final Log log;
+    private final Config config;
+    protected final Supplier<StorageReader> storageEngine;
 
-    public DynamicIndexStoreView( LabelScanStore labelScanStore, LockService locks, NeoStores neoStores,
-            LogProvider logProvider )
+    public DynamicIndexStoreView( NeoStoreIndexStoreView neoStoreIndexStoreView, LabelScanStore labelScanStore,
+            RelationshipTypeScanStore relationshipTypeScanStore, LockService locks,
+            Supplier<StorageReader> storageEngine, LogProvider logProvider, Config config )
     {
-        super( locks, neoStores );
-        this.counts = neoStores.getCounts();
+        this.neoStoreIndexStoreView = neoStoreIndexStoreView;
         this.labelScanStore = labelScanStore;
+        this.relationshipTypeScanStore = relationshipTypeScanStore;
+        this.locks = locks;
+        this.storageEngine = storageEngine;
         this.log = logProvider.getLog( getClass() );
+        this.config = config;
     }
 
     @Override
     public <FAILURE extends Exception> StoreScan<FAILURE> visitNodes( int[] labelIds,
-            IntPredicate propertyKeyIdFilter, Visitor<NodeUpdates,FAILURE> propertyUpdatesVisitor,
-            Visitor<NodeLabelUpdate,FAILURE> labelUpdateVisitor,
-            boolean forceStoreScan )
+            IntPredicate propertyKeyIdFilter, Visitor<EntityUpdates,FAILURE> propertyUpdatesVisitor,
+            Visitor<EntityTokenUpdate,FAILURE> labelUpdateVisitor,
+            boolean forceStoreScan, PageCursorTracer cursorTracer, MemoryTracker memoryTracker )
     {
-        if ( forceStoreScan || !USE_LABEL_INDEX_FOR_SCHEMA_INDEX_POPULATION || useAllNodeStoreScan( labelIds ) )
+        if ( forceStoreScan || !USE_LABEL_INDEX_FOR_SCHEMA_INDEX_POPULATION || useAllNodeStoreScan( labelIds, cursorTracer ) )
         {
-            return super.visitNodes( labelIds, propertyKeyIdFilter, propertyUpdatesVisitor, labelUpdateVisitor,
-                    forceStoreScan );
+            return neoStoreIndexStoreView.visitNodes( labelIds, propertyKeyIdFilter, propertyUpdatesVisitor, labelUpdateVisitor,
+                    forceStoreScan, cursorTracer, memoryTracker );
         }
-        return new LabelScanViewNodeStoreScan<>( nodeStore, locks, propertyStore, labelScanStore, labelUpdateVisitor,
-                propertyUpdatesVisitor, labelIds, propertyKeyIdFilter );
+        return new LabelViewNodeStoreScan<>( storageEngine.get(), locks, labelScanStore, labelUpdateVisitor,
+                propertyUpdatesVisitor, labelIds, propertyKeyIdFilter, cursorTracer, memoryTracker );
     }
 
-    private boolean useAllNodeStoreScan( int[] labelIds )
+    @Override
+    public <FAILURE extends Exception> StoreScan<FAILURE> visitRelationships( int[] relationshipTypeIds, IntPredicate propertyKeyIdFilter,
+            Visitor<EntityUpdates,FAILURE> propertyUpdateVisitor,
+            Visitor<EntityTokenUpdate,FAILURE> relationshipTypeUpdateVisitor,
+            boolean forceStoreScan, PageCursorTracer cursorTracer, MemoryTracker memoryTracker )
+    {
+        if ( forceStoreScan || useAllRelationshipStoreScan( relationshipTypeIds, cursorTracer ) )
+        {
+            return neoStoreIndexStoreView.visitRelationships( relationshipTypeIds, propertyKeyIdFilter, propertyUpdateVisitor, relationshipTypeUpdateVisitor,
+                    forceStoreScan, cursorTracer, memoryTracker );
+        }
+        return new RelationshipTypeViewRelationshipStoreScan<>( storageEngine.get(), locks, relationshipTypeScanStore, relationshipTypeUpdateVisitor,
+                propertyUpdateVisitor, relationshipTypeIds, propertyKeyIdFilter, cursorTracer, memoryTracker );
+    }
+
+    private boolean useAllNodeStoreScan( int[] labelIds, PageCursorTracer cursorTracer )
     {
         try
         {
-            return ArrayUtils.isEmpty( labelIds ) || isEmptyLabelScanStore() ||
-                    isNumberOfLabeledNodesExceedThreshold( labelIds );
+            return ArrayUtils.isEmpty( labelIds ) || isEmptyLabelScanStore( cursorTracer );
         }
         catch ( Exception e )
         {
-            log.error( "Can not determine number of labeled nodes, falling back to all nodes scan.", e );
+            log.error( "Cannot determine number of labeled nodes, falling back to all nodes scan.", e );
             return true;
         }
     }
 
-    private boolean isEmptyLabelScanStore() throws Exception
+    private boolean useAllRelationshipStoreScan( int[] relationshipTypeIds, PageCursorTracer cursorTracer )
     {
-        return labelScanStore.isEmpty();
+        try
+        {
+            return !config.get( RelationshipTypeScanStoreSettings.enable_relationship_type_scan_store ) || ArrayUtils.isEmpty( relationshipTypeIds ) ||
+                    isEmptyRelationshipTypeStoreScan( cursorTracer );
+        }
+        catch ( Exception e )
+        {
+            log.error( "Cannot determine number of relationships in scan store, falling back to all relationships scan.", e );
+            return true;
+        }
     }
 
-    private boolean isNumberOfLabeledNodesExceedThreshold( int[] labelIds )
+    private boolean isEmptyLabelScanStore( PageCursorTracer cursorTracer ) throws Exception
     {
-        return getNumberOfLabeledNodes( labelIds ) > getVisitAllNodesThreshold();
+        return labelScanStore.isEmpty( cursorTracer );
     }
 
-    private long getVisitAllNodesThreshold()
+    private boolean isEmptyRelationshipTypeStoreScan( PageCursorTracer cursorTracer ) throws IOException
     {
-        return (long) ((VISIT_ALL_NODES_THRESHOLD_PERCENTAGE / 100f) * nodeStore.getHighestPossibleIdInUse());
+        return relationshipTypeScanStore.isEmpty( cursorTracer );
     }
 
-    private long getNumberOfLabeledNodes( int[] labelIds )
+    @Override
+    public NodePropertyAccessor newPropertyAccessor( PageCursorTracer cursorTracer, MemoryTracker memoryTracker )
     {
-        return IntStream.of( labelIds )
-                .mapToLong( labelId -> counts.nodeCount( labelId, Registers.newDoubleLongRegister() ).readSecond() )
-                .reduce( Math::addExact )
-                .orElse( 0L );
+        return neoStoreIndexStoreView.newPropertyAccessor( cursorTracer, memoryTracker );
     }
 }

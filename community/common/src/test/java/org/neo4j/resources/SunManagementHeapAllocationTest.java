@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,39 +19,29 @@
  */
 package org.neo4j.resources;
 
+import org.junit.jupiter.api.Test;
+
 import java.util.ArrayList;
 import java.util.List;
 
-import org.hamcrest.Matchers;
-import org.junit.Before;
-import org.junit.Test;
-
 import static java.lang.Thread.currentThread;
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assume.assumeFalse;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.neo4j.resources.HeapAllocation.HEAP_ALLOCATION;
 import static org.neo4j.resources.HeapAllocation.NOT_AVAILABLE;
 
-public class SunManagementHeapAllocationTest
+class SunManagementHeapAllocationTest
 {
-    @Before
-    public void onlyOnSupportedJvms()
-    {
-        assumeFalse( HEAP_ALLOCATION == NOT_AVAILABLE );
-    }
-
     @Test
-    public void shouldLoadHeapAllocation() throws Exception
+    void shouldLoadHeapAllocation()
     {
         assertNotSame( NOT_AVAILABLE, HEAP_ALLOCATION );
-        assertThat( HEAP_ALLOCATION, instanceOf( SunManagementHeapAllocation.class ) );
+        assertThat( HEAP_ALLOCATION ).isInstanceOf( SunManagementHeapAllocation.class );
     }
 
     @Test
-    public void shouldMeasureAllocation() throws Exception
+    void shouldMeasureAllocation()
     {
         // given
         long allocatedBytes = HEAP_ALLOCATION.allocatedBytes( currentThread() );
@@ -64,7 +54,7 @@ public class SunManagementHeapAllocationTest
         }
 
         // then
-        assertThat( allocatedBytes, Matchers.lessThan( HEAP_ALLOCATION.allocatedBytes( currentThread() ) ) );
+        assertThat( allocatedBytes ).isLessThan( HEAP_ALLOCATION.allocatedBytes( currentThread() ) );
         assertEquals( 17, objects.size() );
     }
 }

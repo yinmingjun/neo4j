@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,46 +19,33 @@
  */
 package org.neo4j.kernel.api.impl.schema;
 
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.store.Directory;
-
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import org.neo4j.helpers.TaskCoordinator;
+import org.neo4j.internal.schema.IndexDescriptor;
 import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
 import org.neo4j.kernel.api.impl.index.AbstractLuceneIndex;
+import org.neo4j.kernel.api.impl.index.SearcherReference;
 import org.neo4j.kernel.api.impl.index.partition.AbstractIndexPartition;
 import org.neo4j.kernel.api.impl.index.partition.IndexPartitionFactory;
-import org.neo4j.kernel.api.impl.index.partition.PartitionSearcher;
 import org.neo4j.kernel.api.impl.index.storage.PartitionedIndexStorage;
 import org.neo4j.kernel.api.impl.schema.reader.PartitionedIndexReader;
 import org.neo4j.kernel.api.impl.schema.reader.SimpleIndexReader;
 import org.neo4j.kernel.api.impl.schema.verification.PartitionedUniquenessVerifier;
 import org.neo4j.kernel.api.impl.schema.verification.SimpleUniquenessVerifier;
 import org.neo4j.kernel.api.impl.schema.verification.UniquenessVerifier;
-import org.neo4j.kernel.api.impl.schema.writer.LuceneIndexWriter;
-import org.neo4j.kernel.api.impl.schema.writer.PartitionedIndexWriter;
-import org.neo4j.kernel.api.index.PropertyAccessor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.kernel.impl.api.index.sampling.IndexSamplingConfig;
-import org.neo4j.storageengine.api.schema.IndexReader;
-
-import static java.util.Collections.singletonMap;
+import org.neo4j.kernel.api.index.IndexReader;
+import org.neo4j.kernel.impl.api.index.IndexSamplingConfig;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
+import org.neo4j.values.storable.Value;
 
 /**
  * Implementation of Lucene schema index that support multiple partitions.
  */
-class LuceneSchemaIndex extends AbstractLuceneIndex
+class LuceneSchemaIndex extends AbstractLuceneIndex<IndexReader>
 {
-    private static final String KEY_STATUS = "status";
-    private static final String ONLINE = "online";
-    private static final Map<String,String> ONLINE_COMMIT_USER_DATA = singletonMap( KEY_STATUS, ONLINE );
 
-    private final IndexDescriptor descriptor;
     private final IndexSamplingConfig samplingConfig;
 
     private final TaskCoordinator taskCoordinator = new TaskCoordinator( 10, TimeUnit.MILLISECONDS );
@@ -66,28 +53,8 @@ class LuceneSchemaIndex extends AbstractLuceneIndex
     LuceneSchemaIndex( PartitionedIndexStorage indexStorage, IndexDescriptor descriptor,
             IndexSamplingConfig samplingConfig, IndexPartitionFactory partitionFactory )
     {
-        super( indexStorage, partitionFactory );
-        this.descriptor = descriptor;
+        super( indexStorage, partitionFactory, descriptor );
         this.samplingConfig = samplingConfig;
-    }
-
-    public LuceneIndexWriter getIndexWriter( WritableDatabaseSchemaIndex writableLuceneSchemaIndex ) throws IOException
-    {
-        ensureOpen();
-        return new PartitionedIndexWriter( writableLuceneSchemaIndex );
-    }
-
-    public IndexReader getIndexReader() throws IOException
-    {
-        ensureOpen();
-        List<AbstractIndexPartition> partitions = getPartitions();
-        return hasSinglePartition( partitions ) ? createSimpleReader( partitions )
-                                                : createPartitionedReader( partitions );
-    }
-
-    public IndexDescriptor getDescriptor()
-    {
-        return descriptor;
     }
 
     /**
@@ -97,9 +64,9 @@ class LuceneSchemaIndex extends AbstractLuceneIndex
      * @param propertyKeyIds the ids of the properties to verify.
      * @throws IndexEntryConflictException if there are duplicates.
      * @throws IOException
-     * @see UniquenessVerifier#verify(PropertyAccessor, int[])
+     * @see UniquenessVerifier#verify(NodePropertyAccessor, int[])
      */
-    public void verifyUniqueness( PropertyAccessor accessor, int[] propertyKeyIds )
+    public void verifyUniqueness( NodePropertyAccessor accessor, int[] propertyKeyIds )
             throws IOException, IndexEntryConflictException
     {
         flush( true );
@@ -114,22 +81,22 @@ class LuceneSchemaIndex extends AbstractLuceneIndex
      *
      * @param accessor the accessor to retrieve actual property values from the store.
      * @param propertyKeyIds the ids of the properties to verify.
-     * @param updatedPropertyValues the values to check uniqueness for.
+     * @param updatedValueTuples the values to check uniqueness for.
      * @throws IndexEntryConflictException if there are duplicates.
      * @throws IOException
-     * @see UniquenessVerifier#verify(PropertyAccessor, int[], List)
+     * @see UniquenessVerifier#verify(NodePropertyAccessor, int[], List)
      */
-    public void verifyUniqueness( PropertyAccessor accessor, int[] propertyKeyIds, List<Object> updatedPropertyValues )
+    public void verifyUniqueness( NodePropertyAccessor accessor, int[] propertyKeyIds, List<Value[]> updatedValueTuples )
             throws IOException, IndexEntryConflictException
     {
         try ( UniquenessVerifier verifier = createUniquenessVerifier() )
         {
-            verifier.verify( accessor, propertyKeyIds, updatedPropertyValues );
+            verifier.verify( accessor, propertyKeyIds, updatedValueTuples );
         }
     }
 
     @Override
-    public void drop() throws IOException
+    public void drop()
     {
         taskCoordinator.cancel();
         try
@@ -138,52 +105,9 @@ class LuceneSchemaIndex extends AbstractLuceneIndex
         }
         catch ( InterruptedException e )
         {
-            throw new IOException( "Interrupted while waiting for concurrent tasks to complete.", e );
+            throw new RuntimeException( "Interrupted while waiting for concurrent tasks to complete.", e );
         }
         super.drop();
-    }
-
-    /**
-     * Check if this index is marked as online.
-     *
-     * @return <code>true</code> if index is online, <code>false</code> otherwise
-     * @throws IOException
-     */
-    public boolean isOnline() throws IOException
-    {
-        ensureOpen();
-        AbstractIndexPartition partition = getFirstPartition( getPartitions() );
-        Directory directory = partition.getDirectory();
-        try ( DirectoryReader reader = DirectoryReader.open( directory ) )
-        {
-            Map<String,String> userData = reader.getIndexCommit().getUserData();
-            return ONLINE.equals( userData.get( KEY_STATUS ) );
-        }
-    }
-
-    /**
-     * Marks index as online by including "status" -> "online" map into commit metadata of the first partition.
-     *
-     * @throws IOException
-     */
-    public void markAsOnline() throws IOException
-    {
-        ensureOpen();
-        AbstractIndexPartition partition = getFirstPartition( getPartitions() );
-        IndexWriter indexWriter = partition.getIndexWriter();
-        indexWriter.setCommitData( ONLINE_COMMIT_USER_DATA );
-        flush( false );
-    }
-
-    /**
-     * Writes the given failure message to the failure storage.
-     *
-     * @param failure the failure message.
-     * @throws IOException
-     */
-    public void markAsFailed( String failure ) throws IOException
-    {
-        indexStorage.storeIndexFailure( failure );
     }
 
     private UniquenessVerifier createUniquenessVerifier() throws IOException
@@ -195,29 +119,31 @@ class LuceneSchemaIndex extends AbstractLuceneIndex
                                                 : createPartitionedUniquenessVerifier( partitions );
     }
 
-    private SimpleIndexReader createSimpleReader( List<AbstractIndexPartition> partitions ) throws IOException
-    {
-        AbstractIndexPartition singlePartition = getFirstPartition( partitions );
-        return new SimpleIndexReader( singlePartition.acquireSearcher(), descriptor, samplingConfig, taskCoordinator );
-    }
-
     private UniquenessVerifier createSimpleUniquenessVerifier( List<AbstractIndexPartition> partitions ) throws IOException
     {
         AbstractIndexPartition singlePartition = getFirstPartition( partitions );
-        PartitionSearcher partitionSearcher = singlePartition.acquireSearcher();
+        SearcherReference partitionSearcher = singlePartition.acquireSearcher();
         return new SimpleUniquenessVerifier( partitionSearcher );
-    }
-
-    private PartitionedIndexReader createPartitionedReader( List<AbstractIndexPartition> partitions ) throws IOException
-    {
-        List<PartitionSearcher> searchers = acquireSearchers( partitions );
-        return new PartitionedIndexReader( searchers, descriptor, samplingConfig, taskCoordinator );
     }
 
     private UniquenessVerifier createPartitionedUniquenessVerifier( List<AbstractIndexPartition> partitions ) throws IOException
     {
-        List<PartitionSearcher> searchers = acquireSearchers( partitions );
+        List<SearcherReference> searchers = acquireSearchers( partitions );
         return new PartitionedUniquenessVerifier( searchers );
+    }
+
+    @Override
+    protected SimpleIndexReader createSimpleReader( List<AbstractIndexPartition> partitions ) throws IOException
+    {
+        AbstractIndexPartition searcher = getFirstPartition( partitions );
+        return new SimpleIndexReader( searcher.acquireSearcher(), descriptor, samplingConfig, taskCoordinator );
+    }
+
+    @Override
+    protected PartitionedIndexReader createPartitionedReader( List<AbstractIndexPartition> partitions ) throws IOException
+    {
+        List<SearcherReference> searchers = acquireSearchers( partitions );
+        return new PartitionedIndexReader( searchers, descriptor, samplingConfig, taskCoordinator );
     }
 
 }

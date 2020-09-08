@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -39,7 +39,6 @@ import org.neo4j.graphdb.Relationship;
  *             The {@link CostAccumulator} and cost comparator are both called
  *             n^3 times. Assuming they run in constant time, the time
  *             complexity for this algorithm is O(n^3).
- * @author Patrik Larsson
  * @param <CostType>
  *            The datatype the edge weights are represented by.
  */
@@ -48,16 +47,16 @@ public class FloydWarshall<CostType>
     protected CostType startCost; // starting cost for all nodes
     protected CostType infinitelyBad; // starting value for calculation
     protected Direction relationDirection;
-    protected CostEvaluator<CostType> costEvaluator = null;
-    protected CostAccumulator<CostType> costAccumulator = null;
-    protected Comparator<CostType> costComparator = null;
+    protected CostEvaluator<CostType> costEvaluator;
+    protected CostAccumulator<CostType> costAccumulator;
+    protected Comparator<CostType> costComparator;
     protected Set<Node> nodeSet;
     protected Set<Relationship> relationshipSet;
     CostType[][] costMatrix;
     Integer[][] predecessors;
     Map<Node,Integer> nodeIndexes; // node ->index
     Node[] IndexedNodes; // index -> node
-    protected boolean doneCalculation = false;
+    protected boolean doneCalculation;
 
     /**
      * @param startCost
@@ -65,8 +64,6 @@ public class FloydWarshall<CostType>
      * @param infinitelyBad
      *            A cost worse than all others. This is used to initialize the
      *            distance matrix.
-     * @param costRelationType
-     *            The relationship type to traverse.
      * @param relationDirection
      *            The direction in which the paths should follow the
      *            relationships.
@@ -124,7 +121,7 @@ public class FloydWarshall<CostType>
         costMatrix = (CostType[][]) new Object[n][n];
         predecessors = new Integer[n][n];
         IndexedNodes = new Node[n];
-        nodeIndexes = new HashMap<Node,Integer>();
+        nodeIndexes = new HashMap<>();
         for ( int i = 0; i < n; ++i )
         {
             for ( int j = 0; j < n; ++j )
@@ -154,9 +151,7 @@ public class FloydWarshall<CostType>
             if ( relationDirection.equals( Direction.BOTH )
                 || relationDirection.equals( Direction.OUTGOING ) )
             {
-                costMatrix[i1][i2] = costEvaluator
-.getCost( relationship,
-                        Direction.OUTGOING );
+                costMatrix[i1][i2] = costEvaluator.getCost( relationship, Direction.OUTGOING );
                 predecessors[i1][i2] = i1;
             }
             if ( relationDirection.equals( Direction.BOTH )
@@ -212,7 +207,7 @@ public class FloydWarshall<CostType>
     public List<Node> getPath( Node startNode, Node targetNode )
     {
         calculate();
-        LinkedList<Node> path = new LinkedList<Node>();
+        LinkedList<Node> path = new LinkedList<>();
         int index = nodeIndexes.get( targetNode );
         int startIndex = nodeIndexes.get( startNode );
         Node n = targetNode;

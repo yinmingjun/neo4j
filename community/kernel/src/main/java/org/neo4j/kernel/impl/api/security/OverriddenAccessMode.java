@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,8 +19,12 @@
  */
 package org.neo4j.kernel.impl.api.security;
 
-import org.neo4j.kernel.api.exceptions.InvalidArgumentsException;
-import org.neo4j.kernel.api.security.AccessMode;
+import java.util.function.IntSupplier;
+import java.util.function.Supplier;
+
+import org.neo4j.internal.kernel.api.TokenSet;
+import org.neo4j.internal.kernel.api.security.AccessMode;
+import org.neo4j.internal.kernel.api.security.PrivilegeAction;
 
 /**
  * Access mode that overrides the original access mode with the overriding mode. Allows exactly what the overriding
@@ -34,21 +38,15 @@ public class OverriddenAccessMode extends WrappedAccessMode
     }
 
     @Override
-    public boolean allowsReads()
-    {
-        return wrapping.allowsReads();
-    }
-
-    @Override
     public boolean allowsWrites()
     {
         return wrapping.allowsWrites();
     }
 
     @Override
-    public boolean allowsTokenCreates()
+    public boolean allowsTokenCreates( PrivilegeAction action )
     {
-        return wrapping.allowsTokenCreates();
+        return wrapping.allowsTokenCreates( action );
     }
 
     @Override
@@ -58,9 +56,135 @@ public class OverriddenAccessMode extends WrappedAccessMode
     }
 
     @Override
-    public boolean allowsProcedureWith( String[] allowed ) throws InvalidArgumentsException
+    public boolean allowsSchemaWrites( PrivilegeAction action )
+    {
+        return wrapping.allowsSchemaWrites( action );
+    }
+
+    @Override
+    public boolean allowsTraverseAllLabels()
+    {
+        return wrapping.allowsTraverseAllLabels();
+    }
+
+    @Override
+    public boolean allowsTraverseAllNodesWithLabel( long label )
+    {
+        return wrapping.allowsTraverseAllNodesWithLabel( label );
+    }
+
+    @Override
+    public boolean disallowsTraverseLabel( long label )
+    {
+        return wrapping.disallowsTraverseLabel( label );
+    }
+
+    @Override
+    public boolean allowsTraverseNode( long... labels )
+    {
+        return wrapping.allowsTraverseNode( labels );
+    }
+
+    @Override
+    public boolean allowsTraverseAllRelTypes()
+    {
+        return wrapping.allowsTraverseAllRelTypes();
+    }
+
+    @Override
+    public boolean allowsTraverseRelType( int relType )
+    {
+        return wrapping.allowsTraverseRelType( relType );
+    }
+
+    @Override
+    public boolean allowsReadPropertyAllLabels( int propertyKey )
+    {
+        return wrapping.allowsReadPropertyAllLabels( propertyKey );
+    }
+
+    @Override
+    public boolean disallowsReadPropertyForSomeLabel( int propertyKey )
+    {
+        return wrapping.disallowsReadPropertyForSomeLabel( propertyKey );
+    }
+
+    @Override
+    public boolean allowsReadNodeProperty( Supplier<TokenSet> labels, int propertyKey )
+    {
+        return wrapping.allowsReadNodeProperty( labels, propertyKey );
+    }
+
+    @Override
+    public boolean allowsReadPropertyAllRelTypes( int propertyKey )
+    {
+        return wrapping.allowsReadPropertyAllRelTypes( propertyKey );
+    }
+
+    @Override
+    public boolean allowsReadRelationshipProperty( IntSupplier relType, int propertyKey )
+    {
+        return wrapping.allowsReadRelationshipProperty( relType, propertyKey );
+    }
+
+    @Override
+    public boolean allowsSeePropertyKeyToken( int propertyKey )
+    {
+        return wrapping.allowsSeePropertyKeyToken( propertyKey );
+    }
+
+    @Override
+    public boolean shouldBoostAccessForProcedureWith( String[] allowed )
     {
         return false;
+    }
+
+    @Override
+    public boolean allowsSetLabel( long labelId )
+    {
+        return wrapping.allowsSetLabel( labelId );
+    }
+
+    @Override
+    public boolean allowsRemoveLabel( long labelId )
+    {
+        return wrapping.allowsRemoveLabel( labelId );
+    }
+
+    @Override
+    public boolean allowsCreateNode( int[] labelIds )
+    {
+        return wrapping.allowsCreateNode( labelIds );
+    }
+
+    @Override
+    public boolean allowsDeleteNode( Supplier<TokenSet> labelSupplier )
+    {
+        return wrapping.allowsDeleteNode( labelSupplier );
+    }
+
+    @Override
+    public boolean allowsCreateRelationship( int relType )
+    {
+        return wrapping.allowsCreateRelationship( relType );
+    }
+
+    @Override
+    public boolean allowsDeleteRelationship( int relType )
+    {
+        return wrapping.allowsDeleteRelationship( relType );
+    }
+
+    @Override
+    public boolean allowsSetProperty( Supplier<TokenSet> labels, int propertyKey )
+    {
+        return wrapping.allowsSetProperty( labels, propertyKey );
+    }
+
+    @Override
+    public boolean allowsSetProperty( IntSupplier relType, int propertyKey )
+    {
+        return wrapping.allowsSetProperty( relType, propertyKey);
     }
 
     @Override

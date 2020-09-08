@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,10 +19,10 @@
  */
 package org.neo4j.codegen.bytecode;
 
-import java.lang.reflect.Modifier;
-
 import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
+
+import java.lang.reflect.Modifier;
 
 import org.neo4j.codegen.Expression;
 import org.neo4j.codegen.ExpressionVisitor;
@@ -31,18 +31,27 @@ import org.neo4j.codegen.LocalVariable;
 import org.neo4j.codegen.MethodReference;
 import org.neo4j.codegen.TypeReference;
 
+import static org.neo4j.codegen.ByteCodeUtils.assertMethodExists;
 import static org.neo4j.codegen.ByteCodeUtils.byteCodeName;
 import static org.neo4j.codegen.ByteCodeUtils.desc;
 import static org.neo4j.codegen.ByteCodeUtils.typeName;
+import static org.neo4j.util.FeatureToggles.flag;
+import static org.objectweb.asm.Opcodes.AALOAD;
 import static org.objectweb.asm.Opcodes.AASTORE;
 import static org.objectweb.asm.Opcodes.ACONST_NULL;
 import static org.objectweb.asm.Opcodes.ALOAD;
 import static org.objectweb.asm.Opcodes.ANEWARRAY;
+import static org.objectweb.asm.Opcodes.ARRAYLENGTH;
+import static org.objectweb.asm.Opcodes.BALOAD;
 import static org.objectweb.asm.Opcodes.BASTORE;
 import static org.objectweb.asm.Opcodes.BIPUSH;
+import static org.objectweb.asm.Opcodes.CALOAD;
 import static org.objectweb.asm.Opcodes.CASTORE;
 import static org.objectweb.asm.Opcodes.CHECKCAST;
+import static org.objectweb.asm.Opcodes.D2I;
+import static org.objectweb.asm.Opcodes.D2L;
 import static org.objectweb.asm.Opcodes.DADD;
+import static org.objectweb.asm.Opcodes.DALOAD;
 import static org.objectweb.asm.Opcodes.DASTORE;
 import static org.objectweb.asm.Opcodes.DCMPG;
 import static org.objectweb.asm.Opcodes.DCMPL;
@@ -50,7 +59,10 @@ import static org.objectweb.asm.Opcodes.DLOAD;
 import static org.objectweb.asm.Opcodes.DMUL;
 import static org.objectweb.asm.Opcodes.DSUB;
 import static org.objectweb.asm.Opcodes.DUP;
+import static org.objectweb.asm.Opcodes.F2I;
+import static org.objectweb.asm.Opcodes.F2L;
 import static org.objectweb.asm.Opcodes.FADD;
+import static org.objectweb.asm.Opcodes.FALOAD;
 import static org.objectweb.asm.Opcodes.FASTORE;
 import static org.objectweb.asm.Opcodes.FCMPG;
 import static org.objectweb.asm.Opcodes.FCMPL;
@@ -60,7 +72,9 @@ import static org.objectweb.asm.Opcodes.FSUB;
 import static org.objectweb.asm.Opcodes.GETFIELD;
 import static org.objectweb.asm.Opcodes.GETSTATIC;
 import static org.objectweb.asm.Opcodes.GOTO;
+import static org.objectweb.asm.Opcodes.I2L;
 import static org.objectweb.asm.Opcodes.IADD;
+import static org.objectweb.asm.Opcodes.IALOAD;
 import static org.objectweb.asm.Opcodes.IASTORE;
 import static org.objectweb.asm.Opcodes.ICONST_0;
 import static org.objectweb.asm.Opcodes.ICONST_1;
@@ -82,13 +96,16 @@ import static org.objectweb.asm.Opcodes.IF_ICMPLT;
 import static org.objectweb.asm.Opcodes.IF_ICMPNE;
 import static org.objectweb.asm.Opcodes.ILOAD;
 import static org.objectweb.asm.Opcodes.IMUL;
+import static org.objectweb.asm.Opcodes.INSTANCEOF;
 import static org.objectweb.asm.Opcodes.INVOKEINTERFACE;
 import static org.objectweb.asm.Opcodes.INVOKESPECIAL;
 import static org.objectweb.asm.Opcodes.INVOKESTATIC;
 import static org.objectweb.asm.Opcodes.INVOKEVIRTUAL;
 import static org.objectweb.asm.Opcodes.ISUB;
 import static org.objectweb.asm.Opcodes.L2D;
+import static org.objectweb.asm.Opcodes.L2I;
 import static org.objectweb.asm.Opcodes.LADD;
+import static org.objectweb.asm.Opcodes.LALOAD;
 import static org.objectweb.asm.Opcodes.LASTORE;
 import static org.objectweb.asm.Opcodes.LCMP;
 import static org.objectweb.asm.Opcodes.LCONST_0;
@@ -100,6 +117,7 @@ import static org.objectweb.asm.Opcodes.NEW;
 import static org.objectweb.asm.Opcodes.NEWARRAY;
 import static org.objectweb.asm.Opcodes.POP;
 import static org.objectweb.asm.Opcodes.POP2;
+import static org.objectweb.asm.Opcodes.SALOAD;
 import static org.objectweb.asm.Opcodes.SASTORE;
 import static org.objectweb.asm.Opcodes.SIPUSH;
 import static org.objectweb.asm.Opcodes.T_BOOLEAN;
@@ -113,6 +131,8 @@ import static org.objectweb.asm.Opcodes.T_SHORT;
 
 class ByteCodeExpressionVisitor implements ExpressionVisitor
 {
+    private static final boolean
+            DEBUG_BYTE_CODE = flag( ByteCodeExpressionVisitor.class, "checkByteCode", false );
     private final MethodVisitor methodVisitor;
 
     ByteCodeExpressionVisitor( MethodVisitor methodVisitor )
@@ -123,6 +143,10 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
     @Override
     public void invoke( Expression target, MethodReference method, Expression[] arguments )
     {
+        if ( DEBUG_BYTE_CODE )
+        {
+            assertMethodExists( method );
+        }
         target.accept( this );
         for ( Expression argument : arguments )
         {
@@ -152,13 +176,17 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
     @Override
     public void invoke( MethodReference method, Expression[] arguments )
     {
+        if ( DEBUG_BYTE_CODE )
+        {
+            assertMethodExists( method );
+        }
         for ( Expression argument : arguments )
         {
             argument.accept( this );
         }
         methodVisitor.visitMethodInsn( INVOKESTATIC,
                 byteCodeName( method.owner() ),
-                method.name(), desc( method ), false );
+                method.name(), desc( method ), Modifier.isInterface( method.owner().modifiers() ) );
     }
 
     @Override
@@ -192,6 +220,63 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
         {
             methodVisitor.visitVarInsn( ALOAD, variable.index() );
         }
+    }
+
+    @Override
+    public void arrayLoad( Expression array, Expression index )
+    {
+        assert array.type().isArray();
+
+        array.accept( this );
+        index.accept( this );
+        switch ( array.type().name() )
+        {
+        case "int":
+            methodVisitor.visitInsn( IALOAD );
+            break;
+        case "byte":
+            methodVisitor.visitInsn( BALOAD );
+            break;
+        case "short":
+            methodVisitor.visitInsn( SALOAD );
+            break;
+        case "char":
+            methodVisitor.visitInsn( CALOAD );
+            break;
+        case "boolean":
+            methodVisitor.visitInsn( BALOAD );
+            break;
+        case "long":
+            methodVisitor.visitInsn( LALOAD );
+            break;
+        case "float":
+            methodVisitor.visitInsn( FALOAD );
+            break;
+        case "double":
+            methodVisitor.visitInsn( DALOAD );
+            break;
+        default:
+            methodVisitor.visitInsn( AALOAD );
+        }
+    }
+
+    @Override
+    public void arraySet( Expression array, Expression index, Expression value )
+    {
+        assert array.type().isArray();
+
+        array.accept( this );
+        index.accept( this );
+        value.accept( this );
+        arrayStore( value.type() );
+    }
+
+    @Override
+    public void arrayLength( Expression array )
+    {
+        assert array.type().isArray();
+        array.accept( this );
+        methodVisitor.visitInsn( ARRAYLENGTH );
     }
 
     @Override
@@ -325,9 +410,10 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
 
     private void equal( Expression lhs, Expression rhs, boolean equal )
     {
-        assertSameType( lhs, rhs, "compare" );
         if ( lhs.type().isPrimitive() )
         {
+            assert rhs.type().isPrimitive();
+
             switch ( lhs.type().name() )
             {
             case "int":
@@ -335,15 +421,19 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
             case "short":
             case "char":
             case "boolean":
+                assertSameType( lhs, rhs, "compare" );
                 compareIntOrReferenceType( lhs, rhs, equal ? IF_ICMPNE : IF_ICMPEQ );
                 break;
             case "long":
+                assertSameType( lhs, rhs, "compare" );
                 compareLongOrFloatType( lhs, rhs, LCMP, equal ? IFNE : IFEQ );
                 break;
             case "float":
+                assertSameType( lhs, rhs, "compare" );
                 compareLongOrFloatType( lhs, rhs, FCMPL, equal ? IFNE : IFEQ );
                 break;
             case "double":
+                assertSameType( lhs, rhs, "compare" );
                 compareLongOrFloatType( lhs, rhs, DCMPL, equal ? IFNE : IFEQ );
                 break;
             default:
@@ -352,6 +442,7 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
         }
         else
         {
+            assert !(rhs.type().isPrimitive());
             compareIntOrReferenceType( lhs, rhs, equal ? IF_ACMPNE : IF_ACMPEQ );
         }
     }
@@ -359,17 +450,19 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
     @Override
     public void or( Expression... expressions )
     {
-        assert expressions.length == 2 : "only supports or(lhs, rhs)";
-        Expression lhs = expressions[0], rhs = expressions[1];
+        assert expressions.length >= 2;
         /*
          * something like:
          *
-         * LOAD lhs
+         * LOAD expression1
          * IF TRUE GOTO 0
-         * LOAD rhs
+         * LOAD expression2
+         * IF TRUE GOTO 0
+         * ...
+         * LOAD expressionN
          * IF FALSE GOTO 1
-         *
-         * 0:
+         * 0: // The reason we have this extra block for the true case is because we mimic what javac does
+         *    // hoping that it will be nice to the JIT compiler
          *  LOAD TRUE
          *  GOTO 2
          * 1:
@@ -377,15 +470,20 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
          * 2:
          *  ...continue doing stuff
          */
-        lhs.accept( this );
         Label l0 = new Label();
-        methodVisitor.visitJumpInsn( IFNE, l0 );
-        rhs.accept( this );
         Label l1 = new Label();
+        Label l2 = new Label();
+        for ( int i = 0; i < expressions.length; i++ )
+        {
+            expressions[i].accept( this );
+            if ( i < expressions.length - 1 )
+            {
+                methodVisitor.visitJumpInsn( IFNE, l0 );
+            }
+        }
         methodVisitor.visitJumpInsn( IFEQ, l1 );
         methodVisitor.visitLabel( l0 );
         methodVisitor.visitInsn( ICONST_1 );
-        Label l2 = new Label();
         methodVisitor.visitJumpInsn( GOTO, l2 );
         methodVisitor.visitLabel( l1 );
         methodVisitor.visitInsn( ICONST_0 );
@@ -395,29 +493,32 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
     @Override
     public void and( Expression... expressions )
     {
-        assert expressions.length == 2 : "only supports and(lhs, rhs)";
-        Expression lhs = expressions[0], rhs = expressions[1];
+        assert expressions.length >= 2;
         /*
          * something like:
          *
-         * LOAD lhs
+         * LOAD expression1
          * IF FALSE GOTO 0
-         * LOAD rhs
+         * LOAD expression2
          * IF FALSE GOTO 0
          * LOAD TRUE
+         * ...
+         * LOAD expressionN
+         * IF FALSE GOTO 0
          * GOTO 1
          * 0:
          *  LOAD FALSE
          * 1:
          *  ...continue doing stuff
          */
-        lhs.accept( this );
         Label l0 = new Label();
-        methodVisitor.visitJumpInsn( IFEQ, l0 );
-        rhs.accept( this );
-        methodVisitor.visitJumpInsn( IFEQ, l0 );
-        methodVisitor.visitInsn( ICONST_1 );
         Label l1 = new Label();
+        for ( Expression expression : expressions )
+        {
+            expression.accept( this );
+            methodVisitor.visitJumpInsn( IFEQ, l0 );
+        }
+        methodVisitor.visitInsn( ICONST_1 );
         methodVisitor.visitJumpInsn( GOTO, l1 );
         methodVisitor.visitLabel( l0 );
         methodVisitor.visitInsn( ICONST_0 );
@@ -516,11 +617,74 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
     public void cast( TypeReference type, Expression expression )
     {
         expression.accept( this );
-        methodVisitor.visitTypeInsn( CHECKCAST, byteCodeName( type ) );
+        if ( !type.equals( expression.type() ) )
+        {
+            if ( type.isPrimitive() )
+            {
+                if ( !expression.type().isPrimitive() )
+                {
+                    throw new IllegalStateException( "Cannot cast a non-primitive " + expression.type().simpleName() +
+                                                     " to a primitive " + type.simpleName() );
+                }
+                switch ( type.simpleName() )
+                {
+                case "long":
+                    switch ( expression.type().simpleName() )
+                    {
+                    case "int":
+                        methodVisitor.visitInsn( I2L );
+                        break;
+                    case "float":
+                        methodVisitor.visitInsn( F2L );
+                        break;
+                    case "double":
+                        methodVisitor.visitInsn( D2L );
+                        break;
+                    default:
+                        throw new IllegalStateException( "Do not know how to cast a primitive " + expression.type().simpleName() +
+                                " to a primitive " + type.simpleName() );
+                    }
+                    break;
+
+                case "int":
+                    switch ( expression.type().simpleName() )
+                    {
+                    case "long":
+                        methodVisitor.visitInsn( L2I );
+                        break;
+                    case "float":
+                        methodVisitor.visitInsn( F2I );
+                        break;
+                    case "double":
+                        methodVisitor.visitInsn( D2I );
+                        break;
+                    default:
+                        throw new IllegalStateException( "Do not know how to cast a primitive " + expression.type().simpleName() +
+                                " to a primitive " + type.simpleName() );
+                    }
+                    break;
+
+                default:
+                    throw new IllegalStateException( "Do not know how to cast a primitive " + expression.type().simpleName() +
+                            " to a primitive " + type.simpleName() );
+                }
+            }
+            else
+            {
+                methodVisitor.visitTypeInsn( CHECKCAST, byteCodeName( type ) );
+            }
+        }
     }
 
     @Override
-    public void newArray( TypeReference type, Expression... exprs )
+    public void instanceOf( TypeReference type, Expression expression )
+    {
+        expression.accept( this );
+        methodVisitor.visitTypeInsn( INSTANCEOF, byteCodeName( type ) );
+    }
+
+    @Override
+    public void newInitializedArray( TypeReference type, Expression... exprs )
     {
         pushInteger( exprs.length );
         createArray( type );
@@ -531,6 +695,13 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
             exprs[i].accept( this );
             arrayStore( type );
         }
+    }
+
+    @Override
+    public void newArray( TypeReference type, int size )
+    {
+        pushInteger( size );
+        createArray( type );
     }
 
     @Override
@@ -629,13 +800,13 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
         }
     }
 
-    private void compareIntOrReferenceType( Expression lhs, Expression rhs, int opcode )
+    private void compareIntOrReferenceType( Expression lhs, Expression rhs, int inverseOpcode )
     {
         lhs.accept( this );
         rhs.accept( this );
 
         Label l0 = new Label();
-        methodVisitor.visitJumpInsn( opcode, l0 );
+        methodVisitor.visitJumpInsn( inverseOpcode, l0 );
         methodVisitor.visitInsn( ICONST_1 );
         Label l1 = new Label();
         methodVisitor.visitJumpInsn( GOTO, l1 );
@@ -644,12 +815,12 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
         methodVisitor.visitLabel( l1 );
     }
 
-    private void compareLongOrFloatType( Expression lhs, Expression rhs, int opcode, int compare )
+    private void compareLongOrFloatType( Expression lhs, Expression rhs, int inverseOpcode, int compare )
     {
         lhs.accept( this );
         rhs.accept( this );
 
-        methodVisitor.visitInsn( opcode );
+        methodVisitor.visitInsn( inverseOpcode );
         Label l0 = new Label();
         methodVisitor.visitJumpInsn( compare, l0 );
         methodVisitor.visitInsn( ICONST_1 );
@@ -819,8 +990,9 @@ class ByteCodeExpressionVisitor implements ExpressionVisitor
     {
         if ( !lhs.type().equals( rhs.type() ) )
         {
-            throw new IllegalArgumentException( String.format( "Can only %s values of the same type", operation ) );
+            throw new IllegalArgumentException(
+                    String.format( "Can only %s values of the same type (lhs: %s, rhs: %s)", operation, lhs.type(), rhs.type() )
+            );
         }
     }
-
 }

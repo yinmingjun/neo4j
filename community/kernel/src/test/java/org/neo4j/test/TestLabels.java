@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,9 +21,9 @@ package org.neo4j.test;
 
 import org.neo4j.graphdb.Label;
 
-public enum TestLabels implements Label
+public interface TestLabels
 {
-    LABEL_ONE,
-    LABEL_TWO,
-    LABEL_THREE;
+    Label LABEL_ONE = Label.label( "LABEL_ONE" );
+    Label LABEL_TWO = Label.label( "LABEL_TWO" );
+    Label LABEL_THREE = Label.label( "LABEL_THREE" );
 }

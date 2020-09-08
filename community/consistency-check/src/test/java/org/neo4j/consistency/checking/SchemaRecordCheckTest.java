@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,53 +19,56 @@
  */
 package org.neo4j.consistency.checking;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
+
+import org.neo4j.consistency.checking.index.IndexAccessors;
 import org.neo4j.consistency.report.ConsistencyReport;
-import org.neo4j.consistency.store.RecordAccessStub;
-import org.neo4j.kernel.api.exceptions.schema.MalformedSchemaRuleException;
-import org.neo4j.kernel.api.index.SchemaIndexProvider;
-import org.neo4j.kernel.impl.store.SchemaStorage;
-import org.neo4j.kernel.impl.store.record.ConstraintRule;
-import org.neo4j.kernel.impl.store.record.DynamicRecord;
-import org.neo4j.kernel.impl.store.record.IndexRule;
+import org.neo4j.internal.kernel.api.exceptions.schema.MalformedSchemaRuleException;
+import org.neo4j.internal.recordstorage.SchemaRuleAccess;
+import org.neo4j.internal.schema.ConstraintDescriptor;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.internal.schema.IndexProviderDescriptor;
+import org.neo4j.internal.schema.SchemaRule;
 import org.neo4j.kernel.impl.store.record.LabelTokenRecord;
 import org.neo4j.kernel.impl.store.record.PropertyKeyTokenRecord;
-import org.neo4j.storageengine.api.schema.SchemaRule;
+import org.neo4j.kernel.impl.store.record.RelationshipTypeTokenRecord;
+import org.neo4j.kernel.impl.store.record.SchemaRecord;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+import static org.neo4j.consistency.checking.SchemaRecordCheck.CONSTRAINT_OBLIGATION;
+import static org.neo4j.consistency.checking.SchemaRecordCheck.INDEX_OBLIGATION;
 import static org.neo4j.consistency.checking.SchemaRuleUtil.constraintIndexRule;
 import static org.neo4j.consistency.checking.SchemaRuleUtil.indexRule;
+import static org.neo4j.consistency.checking.SchemaRuleUtil.nodePropertyExistenceConstraintRule;
+import static org.neo4j.consistency.checking.SchemaRuleUtil.relPropertyExistenceConstraintRule;
 import static org.neo4j.consistency.checking.SchemaRuleUtil.uniquenessConstraintRule;
 
-public class SchemaRecordCheckTest
-        extends RecordCheckTestBase<DynamicRecord, ConsistencyReport.SchemaConsistencyReport, SchemaRecordCheck>
+class SchemaRecordCheckTest extends RecordCheckTestBase<SchemaRecord, ConsistencyReport.SchemaConsistencyReport, SchemaRecordCheck>
 {
     private final int labelId = 1;
     private final int propertyKeyId = 2;
 
-    public SchemaRecordCheckTest()
+    SchemaRecordCheckTest()
     {
-        super( new SchemaRecordCheck( configureSchemaStore() ),
+        super( new SchemaRecordCheck( configureSchemaStore(), configureIndexAccessors() ),
                 ConsistencyReport.SchemaConsistencyReport.class, new int[0] );
     }
 
-    public static SchemaStorage configureSchemaStore()
-    {
-        return mock( SchemaStorage.class );
-    }
-
     @Test
-    public void shouldReportMalformedSchemaRule() throws Exception
+    void shouldReportMalformedSchemaRule() throws Exception
     {
         // given
-        DynamicRecord badRecord = inUse( new DynamicRecord( 0 ) );
-        badRecord.setType( RecordAccessStub.SCHEMA_RECORD_TYPE );
+        SchemaRecord badRecord = inUse( new SchemaRecord( 21 ) );
 
-        when( checker().ruleAccess.loadSingleSchemaRule( 0 ) ).thenThrow( new MalformedSchemaRuleException( "Bad Record" ) );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( 21L ), any() ) ).thenThrow( new MalformedSchemaRuleException( "Bad Record" ) );
 
         // when
         ConsistencyReport.SchemaConsistencyReport report = check( badRecord );
@@ -75,18 +78,18 @@ public class SchemaRecordCheckTest
     }
 
     @Test
-    public void shouldReportInvalidLabelReferences() throws Exception
+    void shouldReportInvalidLabelReferences() throws Exception
     {
         // given
-        int schemaRuleId = 0;
+        long schemaRuleId = 21;
 
-        DynamicRecord record = inUse( dynamicRecord( schemaRuleId ) );
-        SchemaIndexProvider.Descriptor providerDescriptor = new SchemaIndexProvider.Descriptor( "in-memory", "1.0" );
-        IndexRule rule = indexRule( schemaRuleId, labelId, propertyKeyId, providerDescriptor );
-        when( checker().ruleAccess.loadSingleSchemaRule( schemaRuleId ) ).thenReturn( rule );
+        SchemaRecord record = inUse( new SchemaRecord( schemaRuleId ) );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
+        IndexDescriptor rule = indexRule( schemaRuleId, labelId, propertyKeyId, providerDescriptor );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( schemaRuleId ), any() ) ).thenReturn( rule );
 
         LabelTokenRecord labelTokenRecord = add( notInUse( new LabelTokenRecord( labelId ) ) );
-        add(inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
+        add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
 
         // when
         ConsistencyReport.SchemaConsistencyReport report = check( record );
@@ -96,15 +99,35 @@ public class SchemaRecordCheckTest
     }
 
     @Test
-    public void shouldReportInvalidPropertyReferenceFromIndexRule() throws Exception
+    void shouldReportInvalidRelationshipTypeReferences() throws Exception
     {
         // given
-        int schemaRuleId = 0;
+        long schemaRuleId = 21;
 
-        DynamicRecord record = inUse( dynamicRecord( schemaRuleId ) );
-        SchemaIndexProvider.Descriptor providerDescriptor = new SchemaIndexProvider.Descriptor( "in-memory", "1.0" );
-        IndexRule rule = indexRule( schemaRuleId, labelId, propertyKeyId, providerDescriptor );
-        when( checker().ruleAccess.loadSingleSchemaRule( schemaRuleId ) ).thenReturn( rule );
+        SchemaRecord record = inUse( new SchemaRecord( schemaRuleId ) );
+        ConstraintDescriptor rule = relPropertyExistenceConstraintRule( schemaRuleId, labelId, propertyKeyId );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( schemaRuleId ), any() ) ).thenReturn( rule );
+
+        RelationshipTypeTokenRecord relTypeTokenRecord = add( notInUse( new RelationshipTypeTokenRecord( labelId ) ) );
+        add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
+
+        // when
+        ConsistencyReport.SchemaConsistencyReport report = check( record );
+
+        // then
+        verify( report ).relationshipTypeNotInUse( relTypeTokenRecord );
+    }
+
+    @Test
+    void shouldReportInvalidPropertyReferenceFromIndexRule() throws Exception
+    {
+        // given
+        long schemaRuleId = 21;
+
+        SchemaRecord record = inUse( new SchemaRecord( schemaRuleId ) );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
+        IndexDescriptor rule = indexRule( schemaRuleId, labelId, propertyKeyId, providerDescriptor );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( schemaRuleId ), any() ) ).thenReturn( rule );
 
         add( inUse( new LabelTokenRecord( labelId ) ) );
         PropertyKeyTokenRecord propertyKeyToken = add( notInUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
@@ -117,17 +140,17 @@ public class SchemaRecordCheckTest
     }
 
     @Test
-    public void shouldReportInvalidPropertyReferenceFromUniquenessConstraintRule() throws Exception
+    void shouldReportInvalidPropertyReferenceFromUniquenessConstraintRule() throws Exception
     {
         // given
-        int schemaRuleId = 0;
+        long schemaRuleId = 21;
         int indexRuleId = 1;
 
-        DynamicRecord record = inUse( dynamicRecord( schemaRuleId ) );
+        SchemaRecord record = inUse( new SchemaRecord( schemaRuleId ) );
 
-        ConstraintRule rule = uniquenessConstraintRule( schemaRuleId, labelId, propertyKeyId, indexRuleId );
+        ConstraintDescriptor rule = uniquenessConstraintRule( schemaRuleId, labelId, propertyKeyId, indexRuleId );
 
-        when( checker().ruleAccess.loadSingleSchemaRule( schemaRuleId ) ).thenReturn( rule );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( schemaRuleId ), any() ) ).thenReturn( rule );
 
         add( inUse( new LabelTokenRecord( labelId ) ) );
         PropertyKeyTokenRecord propertyKeyToken = add( notInUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
@@ -140,22 +163,22 @@ public class SchemaRecordCheckTest
     }
 
     @Test
-    public void shouldReportUniquenessConstraintNotReferencingBack() throws Exception
+    void shouldReportUniquenessConstraintNotReferencingBack() throws Exception
     {
         // given
-        int ruleId1 = 0;
-        int ruleId2 = 1;
+        long ruleId1 = 1;
+        long ruleId2 = 2;
 
-        DynamicRecord record1 = inUse( dynamicRecord( ruleId1 ) );
-        DynamicRecord record2 = inUse( dynamicRecord( ruleId2 ) );
+        SchemaRecord record1 = inUse( new SchemaRecord( ruleId1 ) );
+        SchemaRecord record2 = inUse( new SchemaRecord( ruleId2 ) );
 
-        SchemaIndexProvider.Descriptor providerDescriptor = new SchemaIndexProvider.Descriptor( "in-memory", "1.0" );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
 
-        IndexRule rule1 = constraintIndexRule( ruleId1, labelId, propertyKeyId, providerDescriptor, (long) ruleId2 );
-        ConstraintRule rule2 = uniquenessConstraintRule( ruleId2, labelId, propertyKeyId, ruleId2 );
+        IndexDescriptor rule1 = constraintIndexRule( ruleId1, labelId, propertyKeyId, providerDescriptor, ruleId2 );
+        ConstraintDescriptor rule2 = uniquenessConstraintRule( ruleId2, labelId, propertyKeyId, ruleId2 );
 
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId1 ) ).thenReturn( rule1 );
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId2 ) ).thenReturn( rule2 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId1 ), any() ) ).thenReturn( rule1 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId2 ), any() ) ).thenReturn( rule2 );
 
         add( inUse( new LabelTokenRecord( labelId ) ) );
         add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
@@ -172,18 +195,18 @@ public class SchemaRecordCheckTest
     }
 
     @Test
-    public void shouldNotReportConstraintIndexRuleWithoutBackReference() throws Exception
+    void shouldNotReportConstraintIndexRuleWithoutBackReference() throws Exception
     {
         // given
-        int ruleId = 1;
+        long ruleId = 1;
 
-        DynamicRecord record = inUse( dynamicRecord( ruleId ) );
+        SchemaRecord record = inUse( new SchemaRecord( ruleId ) );
 
-        SchemaIndexProvider.Descriptor providerDescriptor = new SchemaIndexProvider.Descriptor( "in-memory", "1.0" );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
 
-        IndexRule rule = constraintIndexRule( ruleId, labelId, propertyKeyId, providerDescriptor );
+        IndexDescriptor rule = constraintIndexRule( ruleId, labelId, propertyKeyId, providerDescriptor );
 
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId ) ).thenReturn( rule );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId ), any() ) ).thenReturn( rule );
 
         add( inUse( new LabelTokenRecord( labelId ) ) );
         add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
@@ -194,24 +217,24 @@ public class SchemaRecordCheckTest
         ConsistencyReport.SchemaConsistencyReport report = check( obligationChecker, record );
 
         // then
-        verifyZeroInteractions( report );
+        verifyNoInteractions( report );
     }
 
     @Test
-    public void shouldReportTwoUniquenessConstraintsReferencingSameIndex() throws Exception
+    void shouldReportTwoUniquenessConstraintsReferencingSameIndex() throws Exception
     {
         // given
-        int ruleId1 = 0;
-        int ruleId2 = 1;
+        long ruleId1 = 1;
+        long ruleId2 = 2;
 
-        DynamicRecord record1 = inUse( dynamicRecord( ruleId1 ) );
-        DynamicRecord record2 = inUse( dynamicRecord( ruleId2 ) );
+        SchemaRecord record1 = inUse( new SchemaRecord( ruleId1 ) );
+        SchemaRecord record2 = inUse( new SchemaRecord( ruleId2 ) );
 
-        ConstraintRule rule1 = uniquenessConstraintRule( ruleId1, labelId, propertyKeyId, ruleId2 );
-        ConstraintRule rule2 = uniquenessConstraintRule( ruleId2, labelId, propertyKeyId, ruleId2 );
+        ConstraintDescriptor rule1 = uniquenessConstraintRule( ruleId1, labelId, propertyKeyId, ruleId2 );
+        ConstraintDescriptor rule2 = uniquenessConstraintRule( ruleId2, labelId, propertyKeyId, ruleId2 );
 
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId1 ) ).thenReturn( rule1 );
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId2 ) ).thenReturn( rule2 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId1 ), any() ) ).thenReturn( rule1 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId2 ), any() ) ).thenReturn( rule2 );
 
         add( inUse( new LabelTokenRecord( labelId ) ) );
         add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
@@ -225,16 +248,16 @@ public class SchemaRecordCheckTest
     }
 
     @Test
-    public void shouldReportUnreferencedUniquenessConstraint() throws Exception
+    void shouldReportUnreferencedUniquenessConstraint() throws Exception
     {
         // given
-        int ruleId = 0;
+        long ruleId = 1;
 
-        DynamicRecord record = inUse( dynamicRecord( ruleId ) );
+        SchemaRecord record = inUse( new SchemaRecord( ruleId ) );
 
-        ConstraintRule rule = uniquenessConstraintRule( ruleId, labelId, propertyKeyId, ruleId );
+        ConstraintDescriptor rule = uniquenessConstraintRule( ruleId, labelId, propertyKeyId, ruleId );
 
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId ) ).thenReturn( rule );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId ), any() ) ).thenReturn( rule );
 
         add( inUse( new LabelTokenRecord( labelId ) ) );
         add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
@@ -245,26 +268,26 @@ public class SchemaRecordCheckTest
         ConsistencyReport.SchemaConsistencyReport report = check( obligationChecker, record );
 
         // then
-        verify( report ).missingObligation( SchemaRule.Kind.CONSTRAINT_INDEX_RULE );
+        verify( report ).missingObligation( INDEX_OBLIGATION );
     }
 
     @Test
-    public void shouldReportConstraintIndexNotReferencingBack() throws Exception
+    void shouldReportConstraintIndexNotReferencingBack() throws Exception
     {
         // given
-        int ruleId1 = 0;
-        int ruleId2 = 1;
+        long ruleId1 = 0;
+        long ruleId2 = 1;
 
-        DynamicRecord record1 = inUse( dynamicRecord( ruleId1 ) );
-        DynamicRecord record2 = inUse( dynamicRecord( ruleId2) );
+        SchemaRecord record1 = inUse( new SchemaRecord( ruleId1 ) );
+        SchemaRecord record2 = inUse( new SchemaRecord( ruleId2 ) );
 
-        SchemaIndexProvider.Descriptor providerDescriptor = new SchemaIndexProvider.Descriptor( "in-memory", "1.0" );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
 
-        IndexRule rule1 = constraintIndexRule( ruleId1, labelId, propertyKeyId, providerDescriptor, (long) ruleId1 );
-        ConstraintRule rule2 = uniquenessConstraintRule( ruleId2, labelId, propertyKeyId, ruleId1 );
+        IndexDescriptor rule1 = constraintIndexRule( ruleId1, labelId, propertyKeyId, providerDescriptor, ruleId1 );
+        ConstraintDescriptor rule2 = uniquenessConstraintRule( ruleId2, labelId, propertyKeyId, ruleId1 );
 
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId1 ) ).thenReturn( rule1 );
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId2 ) ).thenReturn( rule2 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId1 ), any() ) ).thenReturn( rule1 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId2 ), any() ) ).thenReturn( rule2 );
 
         add( inUse( new LabelTokenRecord( labelId ) ) );
         add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
@@ -281,22 +304,22 @@ public class SchemaRecordCheckTest
     }
 
     @Test
-    public void shouldReportTwoConstraintIndexesReferencingSameConstraint() throws Exception
+    void shouldReportTwoConstraintIndexesReferencingSameConstraint() throws Exception
     {
         // given
-        int ruleId1 = 0;
-        int ruleId2 = 1;
+        long ruleId1 = 0;
+        long ruleId2 = 1;
 
-        DynamicRecord record1 = inUse( dynamicRecord( ruleId1 ) );
-        DynamicRecord record2 = inUse( dynamicRecord( ruleId2 ) );
+        SchemaRecord record1 = inUse( new SchemaRecord( ruleId1 ) );
+        SchemaRecord record2 = inUse( new SchemaRecord( ruleId2 ) );
 
-        SchemaIndexProvider.Descriptor providerDescriptor = new SchemaIndexProvider.Descriptor( "in-memory", "1.0" );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
 
-        IndexRule rule1 = constraintIndexRule( ruleId1, labelId, propertyKeyId, providerDescriptor, (long) ruleId1 );
-        IndexRule rule2 = constraintIndexRule( ruleId2, labelId, propertyKeyId, providerDescriptor, (long) ruleId1 );
+        IndexDescriptor rule1 = constraintIndexRule( ruleId1, labelId, propertyKeyId, providerDescriptor, ruleId1 );
+        IndexDescriptor rule2 = constraintIndexRule( ruleId2, labelId, propertyKeyId, providerDescriptor, ruleId1 );
 
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId1 ) ).thenReturn( rule1 );
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId2 ) ).thenReturn( rule2 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId1 ), any() ) ).thenReturn( rule1 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId2 ), any() ) ).thenReturn( rule2 );
 
         add( inUse( new LabelTokenRecord( labelId ) ) );
         add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
@@ -310,18 +333,18 @@ public class SchemaRecordCheckTest
     }
 
     @Test
-    public void shouldReportUnreferencedConstraintIndex() throws Exception
+    void shouldReportUnreferencedConstraintIndex() throws Exception
     {
         // given
-        int ruleId = 0;
+        long ruleId = 0;
 
-        DynamicRecord record = inUse( dynamicRecord( ruleId ) );
+        SchemaRecord record = inUse( new SchemaRecord( ruleId ) );
 
-        SchemaIndexProvider.Descriptor providerDescriptor = new SchemaIndexProvider.Descriptor( "in-memory", "1.0" );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
 
-        IndexRule rule = constraintIndexRule( ruleId, labelId, propertyKeyId, providerDescriptor, (long) ruleId );
+        IndexDescriptor rule = constraintIndexRule( ruleId, labelId, propertyKeyId, providerDescriptor, ruleId );
 
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId ) ).thenReturn( rule );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId ), any() ) ).thenReturn( rule );
 
         add( inUse( new LabelTokenRecord( labelId ) ) );
         add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
@@ -332,26 +355,26 @@ public class SchemaRecordCheckTest
         ConsistencyReport.SchemaConsistencyReport report = check( obligationChecker, record );
 
         // then
-        verify( report ).missingObligation( SchemaRule.Kind.UNIQUENESS_CONSTRAINT );
+        verify( report ).missingObligation( CONSTRAINT_OBLIGATION );
     }
 
     @Test
-    public void shouldReportTwoIndexRulesWithDuplicateContent() throws Exception
+    void shouldReportTwoIndexRulesWithDuplicateContent() throws Exception
     {
         // given
-        int ruleId1 = 0;
-        int ruleId2 = 1;
+        long ruleId1 = 0;
+        long ruleId2 = 1;
 
-        DynamicRecord record1 = inUse( dynamicRecord( ruleId1 ) );
-        DynamicRecord record2 = inUse( dynamicRecord( ruleId2 ) );
+        SchemaRecord record1 = inUse( new SchemaRecord( ruleId1 ) );
+        SchemaRecord record2 = inUse( new SchemaRecord( ruleId2 ) );
 
-        SchemaIndexProvider.Descriptor providerDescriptor = new SchemaIndexProvider.Descriptor( "in-memory", "1.0" );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
 
-        IndexRule rule1 = constraintIndexRule( ruleId1, labelId, propertyKeyId, providerDescriptor, (long) ruleId1 );
-        IndexRule rule2 = constraintIndexRule( ruleId2, labelId, propertyKeyId, providerDescriptor, (long) ruleId2 );
+        IndexDescriptor rule1 = constraintIndexRule( ruleId1, labelId, propertyKeyId, providerDescriptor, ruleId1 );
+        IndexDescriptor rule2 = constraintIndexRule( ruleId2, labelId, propertyKeyId, providerDescriptor, ruleId2 );
 
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId1 ) ).thenReturn( rule1 );
-        when( checker().ruleAccess.loadSingleSchemaRule( ruleId2 ) ).thenReturn( rule2 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId1 ), any() ) ).thenReturn( rule1 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId2 ), any() ) ).thenReturn( rule2 );
 
         add( inUse( new LabelTokenRecord( labelId ) ) );
         add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
@@ -364,10 +387,201 @@ public class SchemaRecordCheckTest
         verify( report ).duplicateRuleContent( record1 );
     }
 
-    private DynamicRecord dynamicRecord( long id )
+    @Test
+    void shouldReportTwoIndexRulesWithSameName() throws Exception
     {
-        DynamicRecord record = new DynamicRecord( id );
-        record.setType( RecordAccessStub.SCHEMA_RECORD_TYPE );
-        return record;
+        // given
+        long ruleId1 = 0;
+        long ruleId2 = 1;
+
+        SchemaRecord record1 = inUse( new SchemaRecord( ruleId1 ) );
+        SchemaRecord record2 = inUse( new SchemaRecord( ruleId2 ) );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
+
+        IndexDescriptor rule1 = indexRule( ruleId1, labelId, propertyKeyId, providerDescriptor ).withName( "a" );
+        IndexDescriptor rule2 = indexRule( ruleId2, labelId, propertyKeyId + 1, providerDescriptor ).withName( "a" );
+
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId1 ), any() ) ).thenReturn( rule1 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId2 ), any() ) ).thenReturn( rule2 );
+
+        add( inUse( new LabelTokenRecord( labelId ) ) );
+        add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
+        add( inUse( new PropertyKeyTokenRecord( propertyKeyId + 1 ) ) );
+
+        // when
+        check( record1 );
+        ConsistencyReport.SchemaConsistencyReport report = check( record2 );
+
+        // then
+        verify( report ).duplicateRuleName( record1, "a" );
+    }
+
+    @Test
+    void shouldReportTwoConstraintRulesWithSameName() throws Exception
+    {
+        // given
+        long ruleId1 = 0;
+        long ruleId2 = 1;
+
+        SchemaRecord record1 = inUse( new SchemaRecord( ruleId1 ) );
+        SchemaRecord record2 = inUse( new SchemaRecord( ruleId2 ) );
+
+        ConstraintDescriptor rule1 = nodePropertyExistenceConstraintRule( ruleId1, labelId, propertyKeyId ).withName( "a" );
+        ConstraintDescriptor rule2 = nodePropertyExistenceConstraintRule( ruleId2, labelId, propertyKeyId + 1 ).withName( "a" );
+
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId1 ), any() ) ).thenReturn( rule1 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId2 ), any() ) ).thenReturn( rule2 );
+
+        add( inUse( new LabelTokenRecord( labelId ) ) );
+        add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
+        add( inUse( new PropertyKeyTokenRecord( propertyKeyId + 1 ) ) );
+
+        // when
+        check( record1 );
+        ConsistencyReport.SchemaConsistencyReport report = check( record2 );
+
+        // then
+        verify( report ).duplicateRuleName( record1, "a" );
+    }
+
+    @Test
+    void shouldReportUnrelatedIndexAndConstraintWithSameName() throws Exception
+    {
+        // given
+        long ruleId1 = 0;
+        long ruleId2 = 1;
+
+        SchemaRecord record1 = inUse( new SchemaRecord( ruleId1 ) );
+        SchemaRecord record2 = inUse( new SchemaRecord( ruleId2 ) );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
+
+        IndexDescriptor rule1 = indexRule( ruleId1, labelId, propertyKeyId, providerDescriptor ).withName( "a" );
+        ConstraintDescriptor rule2 = nodePropertyExistenceConstraintRule( ruleId2, labelId, propertyKeyId + 1 ).withName( "a" );
+
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId1 ), any() ) ).thenReturn( rule1 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId2 ), any() ) ).thenReturn( rule2 );
+
+        add( inUse( new LabelTokenRecord( labelId ) ) );
+        add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
+        add( inUse( new PropertyKeyTokenRecord( propertyKeyId + 1 ) ) );
+
+        // when
+        check( record1 );
+        ConsistencyReport.SchemaConsistencyReport report = check( record2 );
+
+        // then
+        verify( report ).duplicateRuleName( record1, "a" );
+    }
+
+    @Test
+    void shouldNotReportRelatedIndexAndConstraintWithSameName() throws Exception
+    {
+        // given
+        long ruleId1 = 0;
+        long ruleId2 = 1;
+
+        SchemaRecord record1 = inUse( new SchemaRecord( ruleId1 ) );
+        SchemaRecord record2 = inUse( new SchemaRecord( ruleId2 ) );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
+
+        IndexDescriptor rule1 = constraintIndexRule( ruleId1, labelId, propertyKeyId, providerDescriptor, ruleId2 ).withName( "a" );
+        ConstraintDescriptor rule2 = uniquenessConstraintRule( ruleId2, labelId, propertyKeyId, ruleId1 ).withName( "a" );
+
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId1 ), any() ) ).thenReturn( rule1 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId2 ), any() ) ).thenReturn( rule2 );
+
+        add( inUse( new LabelTokenRecord( labelId ) ) );
+        add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
+
+        // when
+        check( record1 );
+        ConsistencyReport.SchemaConsistencyReport report = check( record2 );
+
+        // then
+        verifyNoMoreInteractions( report );
+    }
+
+    @Test
+    void shouldReportWhenIndexIsNotNamedAfterItsConstraint() throws Exception
+    {
+        // given
+        long ruleId1 = 0;
+        long ruleId2 = 1;
+
+        SchemaRecord record1 = inUse( new SchemaRecord( ruleId1 ) );
+        SchemaRecord record2 = inUse( new SchemaRecord( ruleId2 ) );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
+
+        IndexDescriptor rule1 = constraintIndexRule( ruleId1, labelId, propertyKeyId, providerDescriptor, ruleId2 ).withName( "a" );
+        ConstraintDescriptor rule2 = uniquenessConstraintRule( ruleId2, labelId, propertyKeyId, ruleId1 ).withName( "b" );
+
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId1 ), any() ) ).thenReturn( rule1 );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( ruleId2 ), any() ) ).thenReturn( rule2 );
+
+        add( inUse( new LabelTokenRecord( labelId ) ) );
+        add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
+
+        // when
+        check( record1 );
+        check( record2 );
+        SchemaRecordCheck obligationChecker = checker().forObligationChecking();
+        ConsistencyReport.SchemaConsistencyReport report = check( obligationChecker, record1 );
+
+        // then
+        verify( report ).constraintIndexNameDoesNotMatchConstraintName( record1, "a", "b" );
+    }
+
+    @Test
+    void shouldReportUnsupportedSchemaRuleKind() throws Exception
+    {
+        // given
+        long schemaRuleId = 21;
+
+        SchemaRecord record = inUse( new SchemaRecord( schemaRuleId ) );
+        SchemaRule rule = mock( SchemaRule.class );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( schemaRuleId ), any() ) ).thenReturn( rule );
+
+        // when
+        ConsistencyReport.SchemaConsistencyReport report = check( record );
+
+        // then
+        verify( report ).unsupportedSchemaRuleType( rule.getClass() );
+    }
+
+    @Test
+    void shouldReportNotOnlineIndexesMeantToBackConstraints() throws Exception
+    {
+        // given
+        long indexRuleId = 21;
+        long constraintRuleId = 22;
+
+        SchemaRecord badRecord = inUse( new SchemaRecord( indexRuleId ) );
+        IndexProviderDescriptor providerDescriptor = new IndexProviderDescriptor( "in-memory", "1.0" );
+        IndexDescriptor indexRule = constraintIndexRule( indexRuleId, labelId, propertyKeyId, providerDescriptor, constraintRuleId );
+        ConstraintDescriptor constraintRule = uniquenessConstraintRule( constraintRuleId, labelId, propertyKeyId, indexRuleId );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( indexRuleId ), any() ) ).thenReturn( indexRule );
+        when( checker().ruleAccess.loadSingleSchemaRule( eq( constraintRuleId ), any() ) ).thenReturn( constraintRule );
+        when( checker().indexAccessors.notOnlineRules() ).thenReturn( Collections.singleton( indexRule ) );
+
+        add( inUse( new LabelTokenRecord( labelId ) ) );
+        add( inUse( new PropertyKeyTokenRecord( propertyKeyId ) ) );
+
+        // when
+        check( badRecord );
+        SchemaRecordCheck obligationChecker = checker().forObligationChecking();
+        ConsistencyReport.SchemaConsistencyReport report = check( obligationChecker, badRecord );
+
+        // then
+        verify( report ).schemaRuleNotOnline( indexRule );
+    }
+
+    static IndexAccessors configureIndexAccessors()
+    {
+        return mock( IndexAccessors.class );
+    }
+
+    static SchemaRuleAccess configureSchemaStore()
+    {
+        return mock( SchemaRuleAccess.class );
     }
 }

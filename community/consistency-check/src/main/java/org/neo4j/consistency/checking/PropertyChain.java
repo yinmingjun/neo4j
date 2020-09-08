@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,14 +19,18 @@
  */
 package org.neo4j.consistency.checking;
 
+import org.eclipse.collections.api.set.primitive.MutableIntSet;
+import org.eclipse.collections.api.set.primitive.MutableLongSet;
+import org.eclipse.collections.impl.set.mutable.primitive.IntHashSet;
+import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
+
 import java.util.Iterator;
 import java.util.function.Function;
 
-import org.neo4j.collection.primitive.Primitive;
-import org.neo4j.collection.primitive.PrimitiveIntSet;
 import org.neo4j.consistency.checking.full.MandatoryProperties;
 import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.store.RecordAccess;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.record.PrimitiveRecord;
 import org.neo4j.kernel.impl.store.record.PropertyRecord;
 import org.neo4j.kernel.impl.store.record.Record;
@@ -42,36 +46,45 @@ public class PropertyChain<RECORD extends PrimitiveRecord, REPORT extends Consis
     }
 
     @Override
-    public void checkConsistency( RECORD record, CheckerEngine<RECORD, REPORT> engine,
-                                  RecordAccess records )
+    public void checkConsistency( RECORD record, CheckerEngine<RECORD,REPORT> engine, RecordAccess records, PageCursorTracer cursorTracer )
     {
         if ( !Record.NO_NEXT_PROPERTY.is( record.getNextProp() ) )
         {
             // Check the whole chain here instead of scattered during multiple checks.
             // This type of check obviously favors chains with good locality, performance-wise.
-            Iterator<PropertyRecord> props = records.rawPropertyChain( record.getNextProp() );
+            Iterator<PropertyRecord> props = records.rawPropertyChain( record.getNextProp(), cursorTracer );
             PropertyRecord firstProp = props.next();
             if ( !Record.NO_PREVIOUS_PROPERTY.is( firstProp.getPrevProp() ) )
             {
                 engine.report().propertyNotFirstInChain( firstProp );
             }
 
-            try ( PrimitiveIntSet keys = Primitive.intSet();
-                  MandatoryProperties.Check<RECORD,REPORT> mandatory = mandatoryProperties.apply( record ) )
+            final MutableIntSet keys = new IntHashSet();
+            final MutableLongSet propertyRecordIds = new LongHashSet( 8 );
+            propertyRecordIds.add( firstProp.getId() );
+            try ( MandatoryProperties.Check<RECORD,REPORT> mandatory = mandatoryProperties.apply( record ) )
             {
                 checkChainItem( firstProp, engine, keys, mandatory );
 
                 // Check the whole chain here. We also take the opportunity to check mandatory property constraints.
+                PropertyRecord prop = firstProp;
                 while ( props.hasNext() )
                 {
-                    checkChainItem( props.next(), engine, keys, mandatory );
+                    PropertyRecord nextProp = props.next();
+                    if ( !propertyRecordIds.add( nextProp.getId() ) )
+                    {
+                        engine.report().propertyChainContainsCircularReference( prop );
+                        break;
+                    }
+                    checkChainItem( nextProp, engine, keys, mandatory );
+                    prop = nextProp;
                 }
             }
         }
     }
 
     private void checkChainItem( PropertyRecord property, CheckerEngine<RECORD,REPORT> engine,
-            PrimitiveIntSet keys, MandatoryProperties.Check<RECORD,REPORT> mandatory )
+            MutableIntSet keys, MandatoryProperties.Check<RECORD,REPORT> mandatory )
     {
         if ( !property.inUse() )
         {
@@ -101,8 +114,8 @@ public class PropertyChain<RECORD extends PrimitiveRecord, REPORT extends Consis
     }
 
     @Override
-    public void checkReference( RECORD record, PropertyRecord property, CheckerEngine<RECORD, REPORT> engine,
-                                RecordAccess records )
+    public void checkReference( RECORD record, PropertyRecord property, CheckerEngine<RECORD,REPORT> engine, RecordAccess records,
+            PageCursorTracer cursorTracer )
     {
         if ( !property.inUse() )
         {
@@ -114,7 +127,7 @@ public class PropertyChain<RECORD extends PrimitiveRecord, REPORT extends Consis
             {
                 engine.report().propertyNotFirstInChain( property );
             }
-            new ChainCheck<RECORD, REPORT>().checkReference( record, property, engine, records );
+            new ChainCheck<RECORD, REPORT>().checkReference( record, property, engine, records, cursorTracer );
         }
     }
 }

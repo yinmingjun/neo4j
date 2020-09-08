@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,46 +22,32 @@ package org.neo4j.kernel.impl.api.scan;
 import org.apache.commons.lang3.ArrayUtils;
 
 import java.io.IOException;
-import java.util.function.Supplier;
 
-import org.neo4j.helpers.collection.Visitor;
-import org.neo4j.kernel.api.labelscan.LabelScanWriter;
-import org.neo4j.kernel.api.labelscan.NodeLabelUpdate;
+import org.neo4j.internal.helpers.collection.Visitor;
+import org.neo4j.internal.index.label.FullStoreChangeStream;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.api.index.IndexStoreView;
 import org.neo4j.kernel.impl.api.index.StoreScan;
+import org.neo4j.memory.MemoryTracker;
+import org.neo4j.storageengine.api.EntityTokenUpdate;
 
 import static org.neo4j.function.Predicates.ALWAYS_TRUE_INT;
 
 /**
- * {@link FullStoreChangeStream} using a {@link IndexStoreView} to get its data.
+ * {@link FullStoreChangeStream} that scan the node store using a {@link IndexStoreView} to get its data.
  */
-public class FullLabelStream implements FullStoreChangeStream, Visitor<NodeLabelUpdate,IOException>
+public class FullLabelStream extends FullTokenStream
 {
-    private final Supplier<IndexStoreView> lazyIndexStoreView;
-    private LabelScanWriter writer;
-    private long count;
-
-    public FullLabelStream( Supplier<IndexStoreView> lazyIndexStoreView )
+    public FullLabelStream( IndexStoreView indexStoreView )
     {
-        this.lazyIndexStoreView = lazyIndexStoreView;
+        super( indexStoreView );
     }
 
     @Override
-    public long applyTo( LabelScanWriter writer ) throws IOException
+    StoreScan<IOException> getStoreScan( IndexStoreView indexStoreView, Visitor<EntityTokenUpdate,IOException> tokenUpdateVisitor,
+            PageCursorTracer cursorTracer, MemoryTracker memoryTracker )
     {
-        // Keep the write for using it in visit
-        this.writer = writer;
-        IndexStoreView view = lazyIndexStoreView.get();
-        StoreScan<IOException> scan = view.visitNodes( ArrayUtils.EMPTY_INT_ARRAY, ALWAYS_TRUE_INT, null, this, true );
-        scan.run();
-        return count;
-    }
-
-    @Override
-    public boolean visit( NodeLabelUpdate update ) throws IOException
-    {
-        writer.write( update );
-        count++;
-        return false;
+        return indexStoreView.visitNodes( ArrayUtils.EMPTY_INT_ARRAY, ALWAYS_TRUE_INT, null, tokenUpdateVisitor, true,
+                cursorTracer, memoryTracker );
     }
 }

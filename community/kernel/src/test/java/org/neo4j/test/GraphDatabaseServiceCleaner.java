@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -43,16 +43,16 @@ public class GraphDatabaseServiceCleaner
     {
         try ( Transaction tx = db.beginTx() )
         {
-            for ( ConstraintDefinition constraint : db.schema().getConstraints() )
+            for ( ConstraintDefinition constraint : tx.schema().getConstraints() )
             {
                 constraint.drop();
             }
 
-            for ( IndexDefinition index : db.schema().getIndexes() )
+            for ( IndexDefinition index : tx.schema().getIndexes() )
             {
                 index.drop();
             }
-            tx.success();
+            tx.commit();
         }
     }
 
@@ -60,16 +60,16 @@ public class GraphDatabaseServiceCleaner
     {
         try ( Transaction tx = db.beginTx() )
         {
-            for ( Relationship relationship : db.getAllRelationships() )
+            for ( Relationship relationship : tx.getAllRelationships() )
             {
                 relationship.delete();
             }
 
-            for ( Node node : db.getAllNodes() )
+            for ( Node node : tx.getAllNodes() )
             {
                 node.delete();
             }
-            tx.success();
+            tx.commit();
         }
     }
 }

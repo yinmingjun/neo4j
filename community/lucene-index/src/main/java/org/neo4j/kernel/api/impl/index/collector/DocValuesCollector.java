@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,41 +19,43 @@
  */
 package org.neo4j.kernel.api.impl.index.collector;
 
-import org.apache.lucene.document.Document;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.FieldInfo;
-import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NumericDocValues;
 import org.apache.lucene.index.ReaderUtil;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.search.Collector;
 import org.apache.lucene.search.ConstantScoreScorer;
-import org.apache.lucene.search.DocIdSet;
 import org.apache.lucene.search.DocIdSetIterator;
+import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.LeafCollector;
+import org.apache.lucene.search.Scorable;
 import org.apache.lucene.search.ScoreDoc;
+import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.SimpleCollector;
-import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.search.TopFieldCollector;
 import org.apache.lucene.search.TopScoreDocCollector;
+import org.apache.lucene.search.TotalHits;
+import org.apache.lucene.search.Weight;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.DocIdSetBuilder;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
-import org.neo4j.graphdb.index.IndexHits;
-import org.neo4j.helpers.collection.ArrayIterator;
-import org.neo4j.helpers.collection.PrefetchingIterator;
-import org.neo4j.index.impl.lucene.legacy.AbstractIndexHits;
-import org.neo4j.index.impl.lucene.legacy.EmptyIndexHits;
+import org.neo4j.internal.helpers.collection.ArrayIterator;
+import org.neo4j.internal.helpers.collection.PrefetchingIterator;
+import org.neo4j.kernel.api.index.IndexProgressor;
+import org.neo4j.util.VisibleForTesting;
+import org.neo4j.values.storable.Value;
 
 /**
  * Collector to record per-segment {@code DocIdSet}s and {@code LeafReaderContext}s for every
@@ -65,12 +67,10 @@ import org.neo4j.index.impl.lucene.legacy.EmptyIndexHits;
  */
 public class DocValuesCollector extends SimpleCollector
 {
-    private static final EmptyIndexHits<Document> EMPTY_INDEX_HITS = new EmptyIndexHits<>();
-
     private LeafReaderContext context;
     private int segmentHits;
     private int totalHits;
-    private Scorer scorer;
+    private Scorable scorer;
     private float[] scores;
     private final boolean keepScores;
     private final List<MatchingDocs> matchingDocs = new ArrayList<>();
@@ -92,68 +92,32 @@ public class DocValuesCollector extends SimpleCollector
         this.keepScores = keepScores;
     }
 
-    /**
-     * @param field the field that contains the values
-     * @return an iterator over all NumericDocValues from the given field
-     */
-    public LongValuesIterator getValuesIterator( String field )
+    public IndexProgressor getIndexProgressor( String field, IndexProgressor.EntityValueClient client )
     {
-        return new LongValuesIterator( getMatchingDocs(), getTotalHits(), field );
+        return new LongValuesIndexProgressor( getMatchingDocs(), getTotalHits(), field, client );
     }
 
     /**
      * @param field the field that contains the values
-     * @param sort how the results should be sorted
-     * @return an iterator over all NumericDocValues from the given field with respect to the given sort
-     * @throws IOException
+     * @return an iterator over all NumericDocValues from the given field, in highest-to-lowest relevance order.
+     * @throws IOException if an exception occurs while querying the index.
      */
-    public ValuesIterator getSortedValuesIterator( String field, Sort sort ) throws IOException
+    public ValuesIterator getValuesSortedByRelevance( String field ) throws IOException
     {
-        if ( sort == null || sort == Sort.INDEXORDER )
-        {
-            return getValuesIterator( field );
-        }
         int size = getTotalHits();
         if ( size == 0 )
         {
             return ValuesIterator.EMPTY;
         }
-        TopDocs topDocs = getTopDocs( sort, size );
+        TopDocs topDocs = getTopDocsByRelevance( size );
         LeafReaderContext[] contexts = getLeafReaderContexts( getMatchingDocs() );
         return new TopDocsValuesIterator( topDocs, contexts, field );
     }
 
     /**
-     * Replay the search and collect every hit into TopDocs. One {@code ScoreDoc} is allocated
-     * for every hit and the {@code Document} instance is loaded lazily with on every iteration step.
-     *
-     * @param sort how to sort the iterator. If this is null, results will be in index-order.
-     * @return an indexhits iterator over all matches
-     * @throws IOException
-     */
-    public IndexHits<Document> getIndexHits( Sort sort ) throws IOException
-    {
-        List<MatchingDocs> matchingDocs = getMatchingDocs();
-        int size = getTotalHits();
-        if ( size == 0 )
-        {
-            return EMPTY_INDEX_HITS;
-        }
-
-        if ( sort == null || sort == Sort.INDEXORDER )
-        {
-            return new DocsInIndexOrderIterator( matchingDocs, size, isKeepScores() );
-        }
-
-        TopDocs topDocs = getTopDocs( sort, size );
-        LeafReaderContext[] contexts = getLeafReaderContexts( matchingDocs );
-        return new TopDocsIterator( topDocs, contexts );
-    }
-
-    /**
      * @return the total number of hits across all segments.
      */
-    public int getTotalHits()
+    int getTotalHits()
     {
         return totalHits;
     }
@@ -161,7 +125,7 @@ public class DocValuesCollector extends SimpleCollector
     /**
      * @return true if scores were saved.
      */
-    public boolean isKeepScores()
+    private boolean isKeepScores()
     {
         return keepScores;
     }
@@ -185,13 +149,13 @@ public class DocValuesCollector extends SimpleCollector
     }
 
     @Override
-    public boolean needsScores()
+    public ScoreMode scoreMode()
     {
-        return keepScores;
+        return keepScores ? ScoreMode.COMPLETE : ScoreMode.COMPLETE_NO_SCORES;
     }
 
     @Override
-    public void setScorer( Scorer scorer ) throws IOException
+    public void setScorer( Scorable scorer )
     {
         this.scorer = scorer;
     }
@@ -217,17 +181,28 @@ public class DocValuesCollector extends SimpleCollector
     /**
      * @return the documents matched by the query, one {@link MatchingDocs} per visited segment that contains a hit.
      */
-    public List<MatchingDocs> getMatchingDocs()
+    @VisibleForTesting
+    List<MatchingDocs> getMatchingDocs()
     {
         if ( docs != null && segmentHits > 0 )
         {
-            createMatchingDocs();
-            docs = null;
-            scores = null;
-            context = null;
+            try
+            {
+                createMatchingDocs();
+            }
+            catch ( IOException e )
+            {
+                throw new UncheckedIOException( e );
+            }
+            finally
+            {
+                docs = null;
+                scores = null;
+                context = null;
+            }
         }
 
-        return Collections.unmodifiableList( matchingDocs );
+        return matchingDocs;
     }
 
     /**
@@ -238,7 +213,7 @@ public class DocValuesCollector extends SimpleCollector
         return new Docs( maxDoc );
     }
 
-    private void createMatchingDocs()
+    private void createMatchingDocs() throws IOException
     {
         if ( scores == null || scores.length == segmentHits )
         {
@@ -257,22 +232,11 @@ public class DocValuesCollector extends SimpleCollector
         }
     }
 
-    private TopDocs getTopDocs( Sort sort, int size ) throws IOException
+    private TopDocs getTopDocsByRelevance( int size ) throws IOException
     {
-        TopDocs topDocs;
-        if ( sort == Sort.RELEVANCE )
-        {
-            TopScoreDocCollector collector = TopScoreDocCollector.create( size );
-            replayTo( collector );
-            topDocs = collector.topDocs();
-        }
-        else
-        {
-            TopFieldCollector collector = TopFieldCollector.create( sort, size, false, true, false );
-            replayTo( collector );
-            topDocs = collector.topDocs();
-        }
-        return topDocs;
+        TopScoreDocCollector collector = TopScoreDocCollector.create( size, size );
+        replayTo( collector );
+        return collector.topDocs();
     }
 
     private static LeafReaderContext[] getLeafReaderContexts( List<MatchingDocs> matchingDocs )
@@ -293,14 +257,39 @@ public class DocValuesCollector extends SimpleCollector
         {
             LeafCollector leafCollector = collector.getLeafCollector( docs.context );
             Scorer scorer;
-            DocIdSetIterator idIterator = docs.docIdSet.iterator();
+            DocIdSetIterator idIterator = docs.docIdSet;
+            Weight weight = new Weight( null )
+            {
+                @Override
+                public void extractTerms( Set<Term> terms )
+                {
+                }
+
+                @Override
+                public Explanation explain( LeafReaderContext context, int doc )
+                {
+                    return null;
+                }
+
+                @Override
+                public Scorer scorer( LeafReaderContext context )
+                {
+                    return null;
+                }
+
+                @Override
+                public boolean isCacheable( LeafReaderContext ctx )
+                {
+                    return false;
+                }
+            };
             if ( isKeepScores() )
             {
-                scorer = new ReplayingScorer( docs.scores );
+                scorer = new ReplayingScorer( weight, docs.scores );
             }
             else
             {
-                scorer = new ConstantScoreScorer( null, Float.NaN, idIterator );
+                scorer = new ConstantScoreScorer( weight, Float.NaN, scoreMode(), idIterator );
             }
             leafCollector.setScorer( scorer );
             int doc;
@@ -312,70 +301,55 @@ public class DocValuesCollector extends SimpleCollector
     }
 
     /**
-     * Iterates over all per-segment {@link DocValuesCollector.MatchingDocs}. Supports two kinds of lookups.
-     * One, iterate over all long values of the given field (constructor argument).
-     * Two, lookup a value for the current doc in a sidecar {@code NumericDocValues} field.
-     * That is, this iterator has a main field, that drives the iteration and allow for lookups
-     * in other, secondary fields based on the current document of the main iteration.
-     *
-     * Lookups from this class are not thread-safe. Races can happen when the segment barrier
-     * is crossed; one thread might think it is reading from one segment while another thread has
-     * already advanced this Iterator to the next segment, having raced the first thread.
+     * Iterates over all per-segment {@link DocValuesCollector.MatchingDocs}.
+     * Provides base functionality for extracting entity ids and other values from documents.
      */
-    public static class LongValuesIterator extends ValuesIterator
+    private abstract static class LongValuesSource
     {
         private final Iterator<DocValuesCollector.MatchingDocs> matchingDocs;
         private final String field;
-        private DocIdSetIterator currentIdIterator;
-        private NumericDocValues currentDocValues;
-        private DocValuesCollector.MatchingDocs currentDocs;
-        private final Map<String,NumericDocValues> docValuesCache;
+        final int totalHits;
 
-        /**
-         * @param allMatchingDocs all {@link DocValuesCollector.MatchingDocs} across all segments
-         * @param totalHits the total number of hits across all segments
-         * @param field the main field, whose values drive the iteration
-         */
-        public LongValuesIterator( Iterable<DocValuesCollector.MatchingDocs> allMatchingDocs, int totalHits, String field )
+        DocIdSetIterator currentIdIterator;
+        NumericDocValues currentDocValues;
+        DocValuesCollector.MatchingDocs currentDocs;
+        float score;
+        int index;
+        long next;
+
+        LongValuesSource( Iterable<DocValuesCollector.MatchingDocs> allMatchingDocs, int totalHits, String field )
         {
-            super( totalHits );
+            this.totalHits = totalHits;
             this.field = field;
             matchingDocs = allMatchingDocs.iterator();
-            docValuesCache = new HashMap<>();
+            score = Float.NaN;
         }
 
-        @Override
-        public long current()
+        /**
+         * @return true if it was able to make sure, that currentDisi is valid
+         */
+        boolean ensureValidDisi()
         {
-            return next;
-        }
-
-        @Override
-        public long getValue( String field )
-        {
-            if ( ensureValidDisi() )
+            while ( currentIdIterator == null )
             {
-                if ( docValuesCache.containsKey( field ) )
+                if ( matchingDocs.hasNext() )
                 {
-                    return docValuesCache.get( field ).get( currentIdIterator.docID() );
+                    currentDocs = matchingDocs.next();
+                    currentIdIterator = currentDocs.docIdSet;
+                    if ( currentIdIterator != null )
+                    {
+                        currentDocValues = currentDocs.readDocValues( field );
+                    }
                 }
-
-                NumericDocValues docValues = currentDocs.readDocValues( field );
-                docValuesCache.put( field, docValues );
-
-                return docValues.get( currentIdIterator.docID() );
+                else
+                {
+                    return false;
+                }
             }
-            else
-            {
-                // same as DocValues.emptyNumeric()#get
-                // which means, getValue carries over the semantics of NDV
-                // -1 would also be a possibility here.
-                return 0;
-            }
+            return true;
         }
 
-        @Override
-        protected boolean fetchNext()
+        boolean fetchNextEntityId()
         {
             try
             {
@@ -384,13 +358,24 @@ public class DocValuesCollector extends SimpleCollector
                     int nextDoc = currentIdIterator.nextDoc();
                     if ( nextDoc != DocIdSetIterator.NO_MORE_DOCS )
                     {
+                        if ( currentDocs.scores != null )
+                        {
+                            score = currentDocs.scores[index];
+                        }
                         index++;
-                        return next( currentDocValues.get( nextDoc ) );
+                        int valueDoc = currentDocValues.advance( nextDoc );
+                        if ( valueDoc != nextDoc )
+                        {
+                            throw new RuntimeException( "Document id and document value iterators are out of sync. Id iterator gave me document " + nextDoc +
+                                    ", while the value iterator gave me document " + valueDoc + "." );
+                        }
+                        next = currentDocValues.longValue();
+                        return true;
                     }
                     else
                     {
                         currentIdIterator = null;
-                        return fetchNext();
+                        return fetchNextEntityId();
                     }
                 }
             }
@@ -401,37 +386,35 @@ public class DocValuesCollector extends SimpleCollector
 
             return false;
         }
+    }
 
-        /**
-         * @return true if it was able to make sure, that currentDisi is valid
-         */
-        private boolean ensureValidDisi()
+    private static class LongValuesIndexProgressor extends LongValuesSource implements IndexProgressor
+    {
+        private final EntityValueClient client;
+
+        LongValuesIndexProgressor( Iterable<MatchingDocs> allMatchingDocs, int totalHits, String field, EntityValueClient client )
         {
-            try
+            super( allMatchingDocs, totalHits, field );
+            this.client = client;
+        }
+
+        @Override
+        public boolean next()
+        {
+            while ( fetchNextEntityId() )
             {
-                while ( currentIdIterator == null )
+                if ( client.acceptEntity( next, score, (Value[]) null ) )
                 {
-                    if ( matchingDocs.hasNext() )
-                    {
-                        currentDocs = matchingDocs.next();
-                        currentIdIterator = currentDocs.docIdSet.iterator();
-                        if ( currentIdIterator != null )
-                        {
-                            docValuesCache.clear();
-                            currentDocValues = currentDocs.readDocValues( field );
-                        }
-                    }
-                    else
-                    {
-                        return false;
-                    }
+                    return true;
                 }
-                return true;
             }
-            catch ( IOException e )
-            {
-                throw new RuntimeException( e );
-            }
+            return false;
+        }
+
+        @Override
+        public void close()
+        {
+            // nothing to close
         }
     }
 
@@ -445,15 +428,15 @@ public class DocValuesCollector extends SimpleCollector
         public final LeafReaderContext context;
 
         /** Which documents were seen. */
-        public final DocIdSet docIdSet;
+        final DocIdSetIterator docIdSet;
 
         /** Non-sparse scores array. Might be null of no scores were required. */
-        public final float[] scores;
+        final float[] scores;
 
         /** Total number of hits */
-        public final int totalHits;
+        final int totalHits;
 
-        MatchingDocs( LeafReaderContext context, DocIdSet docIdSet, int totalHits, float[] scores )
+        MatchingDocs( LeafReaderContext context, DocIdSetIterator docIdSet, int totalHits, float[] scores )
         {
             this.context = context;
             this.docIdSet = docIdSet;
@@ -465,7 +448,7 @@ public class DocValuesCollector extends SimpleCollector
          * @return the {@code NumericDocValues} for a given field
          * @throws IllegalArgumentException if this field is not indexed with numeric doc values
          */
-        public NumericDocValues readDocValues( String field )
+        private NumericDocValues readDocValues( String field )
         {
             try
             {
@@ -505,32 +488,31 @@ public class DocValuesCollector extends SimpleCollector
         }
 
         /** Record the given document. */
-        public void addDoc( int docId )
+        private void addDoc( int docId )
         {
-            bits.add( docId );
+            bits.grow( 1 ).add( docId );
         }
 
         /** Return the {@see DocIdSet} which contains all the recorded docs. */
-        public DocIdSet getDocIdSet()
+        private DocIdSetIterator getDocIdSet() throws IOException
         {
-            return bits.build();
+            return bits.build().iterator();
         }
     }
 
     private static class ReplayingScorer extends Scorer
     {
-
         private final float[] scores;
-        private int index = 0;
+        private int index;
 
-        ReplayingScorer( float[] scores )
+        ReplayingScorer( Weight weight, float[] scores )
         {
-            super( null );
+            super( weight );
             this.scores = scores;
         }
 
         @Override
-        public float score() throws IOException
+        public float score()
         {
             if ( index < scores.length )
             {
@@ -540,13 +522,13 @@ public class DocValuesCollector extends SimpleCollector
         }
 
         @Override
-        public int freq() throws IOException
+        public DocIdSetIterator iterator()
         {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public DocIdSetIterator iterator()
+        public float getMaxScore( int upTo )
         {
             throw new UnsupportedOperationException();
         }
@@ -559,102 +541,12 @@ public class DocValuesCollector extends SimpleCollector
 
     }
 
-    private static final class DocsInIndexOrderIterator extends AbstractIndexHits<Document>
-    {
-        private final Iterator<MatchingDocs> docs;
-        private final int size;
-        private final boolean keepScores;
-        private DocIdSetIterator currentIdIterator;
-        private Scorer currentScorer;
-        private LeafReader currentReader;
-
-        private DocsInIndexOrderIterator( List<MatchingDocs> docs, int size, boolean keepScores )
-        {
-            this.size = size;
-            this.keepScores = keepScores;
-            this.docs = docs.iterator();
-        }
-
-        @Override
-        public int size()
-        {
-            return size;
-        }
-
-        @Override
-        public float currentScore()
-        {
-            try
-            {
-                return currentScorer.score();
-            }
-            catch ( IOException e )
-            {
-                throw new RuntimeException( e );
-            }
-        }
-
-        @Override
-        protected Document fetchNextOrNull()
-        {
-            if ( ensureValidDisi() )
-            {
-                try
-                {
-                    int doc = currentIdIterator.nextDoc();
-                    if ( doc == DocIdSetIterator.NO_MORE_DOCS )
-                    {
-                        currentIdIterator = null;
-                        currentScorer = null;
-                        currentReader = null;
-                        return fetchNextOrNull();
-                    }
-                    return currentReader.document( doc );
-                }
-                catch ( IOException e )
-                {
-                    throw new RuntimeException( e );
-                }
-            }
-            else
-            {
-                return null;
-            }
-        }
-
-        private boolean ensureValidDisi()
-        {
-            while ( currentIdIterator == null && docs.hasNext() )
-            {
-                MatchingDocs matchingDocs = docs.next();
-                try
-                {
-                    currentIdIterator = matchingDocs.docIdSet.iterator();
-                    if ( keepScores )
-                    {
-                        currentScorer = new ReplayingScorer( matchingDocs.scores );
-                    }
-                    else
-                    {
-                        currentScorer = new ConstantScoreScorer( null, Float.NaN, currentIdIterator );
-                    }
-                    currentReader = matchingDocs.context.reader();
-                }
-                catch ( IOException e )
-                {
-                    throw new RuntimeException( e );
-                }
-            }
-            return currentIdIterator != null;
-        }
-    }
-
     private abstract static class ScoreDocsIterator extends PrefetchingIterator<ScoreDoc>
     {
         private final Iterator<ScoreDoc> iterator;
         private final int[] docStarts;
         private final LeafReaderContext[] contexts;
-        protected ScoreDoc currentDoc;
+        private ScoreDoc currentDoc;
 
         private ScoreDocsIterator( TopDocs docs, LeafReaderContext[] contexts )
         {
@@ -671,7 +563,7 @@ public class DocValuesCollector extends SimpleCollector
             docStarts[segments] = lastContext.docBase + lastContext.reader().maxDoc();
         }
 
-        public ScoreDoc getCurrentDoc()
+        private ScoreDoc getCurrentDoc()
         {
             return currentDoc;
         }
@@ -693,85 +585,27 @@ public class DocValuesCollector extends SimpleCollector
         protected abstract void onNextDoc( int localDocID, LeafReaderContext context );
     }
 
-    private static final class TopDocsIterator extends AbstractIndexHits<Document>
-    {
-        private final int size;
-        private final ScoreDocsIterator scoreDocs;
-        private Document currentDoc;
-
-        private TopDocsIterator( TopDocs docs, LeafReaderContext[] contexts )
-        {
-            scoreDocs = new ScoreDocsIterator( docs, contexts )
-            {
-                @Override
-                protected void onNextDoc( int localDocID, LeafReaderContext context )
-                {
-                    updateCurrentDocument( localDocID, context.reader() );
-                }
-            };
-            this.size = docs.scoreDocs.length;
-        }
-
-        @Override
-        public int size()
-        {
-            return size;
-        }
-
-        @Override
-        public float currentScore()
-        {
-            return scoreDocs.getCurrentDoc().score;
-        }
-
-        @Override
-        protected Document fetchNextOrNull()
-        {
-            if ( !scoreDocs.hasNext() )
-            {
-                return null;
-            }
-            scoreDocs.next();
-            return currentDoc;
-        }
-
-        private void updateCurrentDocument( int docID, LeafReader reader )
-        {
-            try
-            {
-                currentDoc = reader.document( docID );
-            }
-            catch ( IOException e )
-            {
-                throw new RuntimeException( e );
-            }
-        }
-    }
-
-    private static final class TopDocsValuesIterator extends ValuesIterator
+    private static final class TopDocsValuesIterator extends ValuesIterator.Adapter
     {
         private final ScoreDocsIterator scoreDocs;
         private final String field;
         private final Map<LeafReaderContext,NumericDocValues> docValuesCache;
-        private final Map<String,NumericDocValues> readerCache;
         private long currentValue;
-        private LeafReaderContext currentContext;
-        private int currentDocID;
 
         TopDocsValuesIterator( TopDocs docs, LeafReaderContext[] contexts, String field )
         {
-            super( docs.totalHits );
+            super( Math.toIntExact( docs.totalHits.value ) );
+            if ( docs.totalHits.relation != TotalHits.Relation.EQUAL_TO )
+            {
+                throw new RuntimeException( "Expected total hits value to be exact (EQUAL_TO), but it was: " + docs.totalHits.relation );
+            }
             this.field = field;
             docValuesCache = new HashMap<>( contexts.length );
-            readerCache = new HashMap<>();
             scoreDocs = new ScoreDocsIterator( docs, contexts )
             {
                 @Override
                 protected void onNextDoc( int localDocID, LeafReaderContext context )
                 {
-                    readerCache.clear();
-                    currentContext = context;
-                    currentDocID = localDocID;
                     loadNextValue( context, localDocID );
                 }
             };
@@ -792,26 +626,13 @@ public class DocValuesCollector extends SimpleCollector
         @Override
         public long current()
         {
-            return index;
+            return currentValue;
         }
 
         @Override
-        public long getValue( String field )
+        public float currentScore()
         {
-            NumericDocValues fieldValues = readerCache.computeIfAbsent( field, this::getDocValues );
-            return fieldValues.get( currentDocID );
-        }
-
-        private NumericDocValues getDocValues( String field )
-        {
-            try
-            {
-                return currentContext.reader().getNumericDocValues( field );
-            }
-            catch ( IOException e )
-            {
-                throw new RuntimeException( "Fail to read numeric doc values field " + field + " from the document.", e );
-            }
+            return scoreDocs.getCurrentDoc().score;
         }
 
         private void loadNextValue( LeafReaderContext context, int docID )
@@ -835,7 +656,20 @@ public class DocValuesCollector extends SimpleCollector
             }
             if ( docValues != null )
             {
-                currentValue = docValues.get( docID );
+                try
+                {
+                    int valueDocId = docValues.advance( docID );
+                    if ( valueDocId != docID )
+                    {
+                        throw new RuntimeException( "Expected doc values and doc scores to iterate together, but score doc id is " + docID +
+                                ", and value doc id is " + valueDocId + "." );
+                    }
+                    currentValue = docValues.longValue();
+                }
+                catch ( IOException e )
+                {
+                    throw new RuntimeException( e );
+                }
             }
             else
             {

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import javax.ws.rs.core.MediaType;
 
+import org.neo4j.annotations.service.ServiceProvider;
 import org.neo4j.server.rest.domain.JsonHelper;
 import org.neo4j.server.rest.domain.JsonParseException;
 import org.neo4j.server.rest.repr.BadInputException;
@@ -39,6 +40,7 @@ import org.neo4j.server.rest.repr.RepresentationFormat;
 import static org.neo4j.server.rest.domain.JsonHelper.assertSupportedPropertyValue;
 import static org.neo4j.server.rest.domain.JsonHelper.readJson;
 
+@ServiceProvider
 public class JsonFormat extends RepresentationFormat
 {
     public JsonFormat()
@@ -49,7 +51,7 @@ public class JsonFormat extends RepresentationFormat
     @Override
     protected ListWriter serializeList( String type )
     {
-        return new ListWrappingWriter( new ArrayList<Object>() );
+        return new ListWrappingWriter( new ArrayList<>() );
     }
 
     @Override
@@ -61,7 +63,7 @@ public class JsonFormat extends RepresentationFormat
     @Override
     protected MappingWriter serializeMapping( String type )
     {
-        return new MapWrappingWriter( new LinkedHashMap<String, Object>() );
+        return new MapWrappingWriter( new LinkedHashMap<>() );
     }
 
     @Override
@@ -86,7 +88,7 @@ public class JsonFormat extends RepresentationFormat
     {
         if ( empty( input ) )
         {
-            return DefaultFormat.validateKeys( Collections.<String,Object>emptyMap(), requiredKeys );
+            return DefaultFormat.validateKeys( Collections.emptyMap(), requiredKeys );
         }
         try
         {
@@ -106,11 +108,7 @@ public class JsonFormat extends RepresentationFormat
         {
             return (List<Object>) JsonHelper.readJson( input );
         }
-        catch ( ClassCastException ex )
-        {
-            throw new BadInputException( ex );
-        }
-        catch ( JsonParseException ex )
+        catch ( ClassCastException | JsonParseException ex )
         {
             throw new BadInputException( ex );
         }
@@ -148,7 +146,7 @@ public class JsonFormat extends RepresentationFormat
 
     private String stripByteOrderMark( String string )
     {
-        if ( string != null && string.length() > 0 && string.charAt( 0 ) == 0xfeff )
+        if ( string != null && !string.isEmpty() && string.charAt( 0 ) == 0xfeff )
         {
             return string.substring( 1 );
         }

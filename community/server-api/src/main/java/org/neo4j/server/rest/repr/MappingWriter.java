@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,21 +21,16 @@ package org.neo4j.server.rest.repr;
 
 public abstract class MappingWriter
 {
-    MappingWriter newMapping( RepresentationType type, String param )
+    public MappingWriter newMapping( RepresentationType type, String param )
     {
         return newMapping( type.valueName, param );
-    }
-
-    protected boolean isInteractive()
-    {
-        return false;
     }
 
     protected abstract MappingWriter newMapping( String type, String key );
 
     ListWriter newList( RepresentationType type, String param )
     {
-        if ( type.valueName == "map" )
+        if ( type.valueName.equals( "map" ) )
         {
             return newList( type.listName, param );
         }
@@ -88,5 +83,5 @@ public abstract class MappingWriter
 
     protected abstract void writeValue( String type, String key, Object value );
 
-    protected abstract void done();
+    public abstract void done();
 }

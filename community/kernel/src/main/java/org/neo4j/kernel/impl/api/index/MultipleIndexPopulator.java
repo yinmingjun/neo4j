@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,160 +19,247 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import java.io.IOException;
-import java.util.Collection;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BooleanSupplier;
 import java.util.function.IntPredicate;
 import java.util.stream.IntStream;
 
-import org.neo4j.collection.primitive.PrimitiveLongSet;
+import org.neo4j.common.EntityType;
+import org.neo4j.common.Subject;
+import org.neo4j.common.TokenNameLookup;
+import org.neo4j.function.Predicates;
 import org.neo4j.function.ThrowingConsumer;
-import org.neo4j.helpers.collection.Pair;
-import org.neo4j.helpers.collection.Visitor;
+import org.neo4j.internal.helpers.Exceptions;
+import org.neo4j.internal.helpers.collection.Pair;
+import org.neo4j.internal.helpers.collection.Visitor;
+import org.neo4j.internal.kernel.api.InternalIndexState;
+import org.neo4j.internal.kernel.api.PopulationProgress;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.internal.schema.SchemaDescriptor;
+import org.neo4j.internal.schema.SchemaDescriptorSupplier;
+import org.neo4j.internal.schema.SchemaState;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.api.exceptions.index.FlipFailedKernelException;
 import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
 import org.neo4j.kernel.api.exceptions.index.IndexPopulationFailedKernelException;
-import org.neo4j.kernel.api.index.IndexEntryUpdate;
 import org.neo4j.kernel.api.index.IndexPopulator;
+import org.neo4j.kernel.api.index.IndexSample;
 import org.neo4j.kernel.api.index.IndexUpdater;
-import org.neo4j.kernel.api.index.PropertyAccessor;
-import org.neo4j.kernel.api.index.SchemaIndexProvider;
-import org.neo4j.kernel.api.index.SchemaIndexProvider.Descriptor;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
-import org.neo4j.kernel.api.schema.LabelSchemaSupplier;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
+import org.neo4j.kernel.impl.api.index.stats.IndexStatisticsStore;
 import org.neo4j.logging.Log;
 import org.neo4j.logging.LogProvider;
-import org.neo4j.storageengine.api.schema.IndexSample;
-import org.neo4j.unsafe.impl.internal.dragons.FeatureToggles;
+import org.neo4j.memory.HeapEstimator;
+import org.neo4j.memory.MemoryTracker;
+import org.neo4j.scheduler.Group;
+import org.neo4j.scheduler.JobHandle;
+import org.neo4j.scheduler.JobMonitoringParams;
+import org.neo4j.scheduler.JobScheduler;
+import org.neo4j.storageengine.api.EntityUpdates;
+import org.neo4j.storageengine.api.IndexEntryUpdate;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
+import org.neo4j.storageengine.api.UpdateMode;
+import org.neo4j.util.FeatureToggles;
+import org.neo4j.util.VisibleForTesting;
+import org.neo4j.values.storable.Value;
 
 import static java.lang.String.format;
-import static org.neo4j.collection.primitive.PrimitiveIntCollections.contains;
+import static java.util.stream.Collectors.joining;
+import static org.eclipse.collections.impl.utility.ArrayIterate.contains;
+import static org.neo4j.io.ByteUnit.mebiBytes;
 import static org.neo4j.kernel.impl.api.index.IndexPopulationFailure.failure;
 
 /**
- * {@link IndexPopulator} that allow population of multiple indexes during one iteration.
- * Performs operations by calling corresponding operations of particular index populators.
- *
  * There are two ways data is fed to this multi-populator:
  * <ul>
- * <li>{@link #indexAllNodes()}, which is a blocking call and will scan the entire store and
- * and generate updates that are fed into the {@link IndexPopulator populators}. Only a single call to this
+ * <li>A {@link StoreScan} is created through {@link #createStoreScan(PageCursorTracer)}. The store scan is started by
+ * {@link StoreScan#run()}, which is a blocking call and will scan the entire store and generate
+ * updates that are fed into the {@link IndexPopulator populators}. Only a single call to this
  * method should be made during the life time of a {@link MultipleIndexPopulator} and should be called by the
  * same thread instantiating this instance.</li>
- * <li>{@link #queue(IndexEntryUpdate)} which queues updates which will be read by the thread currently executing
- * {@link #indexAllNodes()} and incorporated into that data stream. Calls to this method may come from any number
+ * <li>{@link #queueConcurrentUpdate(IndexEntryUpdate)} which queues updates which will be read by the thread currently executing
+ * the store scan and incorporated into that data stream. Calls to this method may come from any number
  * of concurrent threads.</li>
  * </ul>
- *
+ * <p>
  * Usage of this class should be something like:
  * <ol>
  * <li>Instantiation.</li>
- * <li>One or more calls to {@link #addPopulator(IndexPopulator, long, IndexDescriptor, Descriptor,
- * FlippableIndexProxy, FailedIndexProxyFactory, String)}.</li>
- * <li>Call to {@link #create()} to create data structures and files to start accepting updates.</li>
- * <li>Call to {@link #indexAllNodes()} (blocking call).</li>
- * <li>While all nodes are being indexed, calls to {@link #queue(IndexEntryUpdate)} are accepted.</li>
- * <li>Call to {@link #flipAfterPopulation()} after successful population, or {@link #fail(Throwable)} if not</li>
+ * <li>One or more calls to {@link #addPopulator(IndexPopulator, IndexDescriptor, FlippableIndexProxy, FailedIndexProxyFactory, String)}.</li>
+ * <li>Call to {@link #create(PageCursorTracer)} to create data structures and files to start accepting updates.</li>
+ * <li>Call to {@link #createStoreScan(PageCursorTracer)} and {@link StoreScan#run()}(blocking call).</li>
+ * <li>While all nodes are being indexed, calls to {@link #queueConcurrentUpdate(IndexEntryUpdate)} are accepted.</li>
+ * <li>Call to {@link #flipAfterStoreScan(boolean, PageCursorTracer)} after successful population, or {@link #cancel(Throwable, PageCursorTracer)} if not</li>
  * </ol>
+ * <p>
+ * The incoming updates from the {@link StoreScan} are batched in sizes of {@link #BATCH_SIZE_SCAN} and then
+ * flushed separately by different threads using {@link JobScheduler}.
+ * <p>
+ * It is possible for concurrent updates from transactions to arrive while index population is in progress. Such
+ * updates are inserted in the {@link #queueConcurrentUpdate(IndexEntryUpdate) queue}. When store scan notices that
+ * queue size has reached {@link #QUEUE_THRESHOLD} then it drains all batched updates and waits for all job scheduler
+ * tasks to complete and flushes updates from the queue using {@link MultipleIndexUpdater}. If queue size never reaches
+ * {@link #QUEUE_THRESHOLD} than all queued concurrent updates are flushed after the store scan in
+ * {@link MultipleIndexPopulator#flipAfterStoreScan(boolean, PageCursorTracer)}.
+ * <p>
  */
-public class MultipleIndexPopulator implements IndexPopulator
+public class MultipleIndexPopulator
 {
-
+    private static final String MULTIPLE_INDEX_POPULATOR_TAG = "multipleIndexPopulator";
+    private static final String POPULATION_WORK_FLUSH_TAG = "populationWorkFlush";
     public static final String QUEUE_THRESHOLD_NAME = "queue_threshold";
-    private final int QUEUE_THRESHOLD = FeatureToggles.getInteger( getClass(), QUEUE_THRESHOLD_NAME, 20_000 );
+    public static final String BATCH_SIZE_NAME = "batch_size";
+    public static final String BATCH_MAX_BYTE_SIZE_NAME = "batch_max_byte_size";
+    static final String AWAIT_TIMEOUT_MINUTES_NAME = "await_timeout_minutes";
+    private static final String EOL = System.lineSeparator();
+
+    static final int DEFAULT_BATCH_SIZE_SCAN = 10_000;
+    static final int DEFAULT_QUEUE_THRESHOLD = 20_000;
+    static final int DEFAULT_BATCH_MAX_BYTE_SIZE = (int) mebiBytes( 10 );
+    static final int DEFAULT_AWAIT_TIMEOUT_MINUTES = 30;
+
+    private final int QUEUE_THRESHOLD;
+    final int BATCH_SIZE_SCAN;
+    final int BATCH_MAX_BYTE_SIZE_SCAN;
+    private final boolean PRINT_DEBUG = FeatureToggles.flag( MultipleIndexPopulator.class, "print_debug", false );
+    private final int AWAIT_TIMEOUT_MINUTES;
 
     // Concurrency queue since multiple concurrent threads may enqueue updates into it. It is important for this queue
     // to have fast #size() method since it might be drained in batches
-    protected final Queue<IndexEntryUpdate> queue = new LinkedBlockingQueue<>();
+    private final Queue<IndexEntryUpdate<?>> concurrentUpdateQueue = new LinkedBlockingQueue<>();
+    private final AtomicLong concurrentUpdateQueueByteSize = new AtomicLong();
 
-    // Populators are added into this list. The same thread adding populators will later call #indexAllNodes.
+    // Populators are added into this list. The same thread adding populators will later call #createStoreScan.
     // Multiple concurrent threads might fail individual populations.
     // Failed populations are removed from this list while iterating over it.
     private final List<IndexPopulation> populations = new CopyOnWriteArrayList<>();
 
+    private final AtomicLong activeTasks = new AtomicLong();
     private final IndexStoreView storeView;
+    private final NodePropertyAccessor propertyAccessor;
     private final LogProvider logProvider;
-    protected final Log log;
+    private final Log log;
+    private final EntityType type;
+    private final SchemaState schemaState;
+    private final IndexStatisticsStore indexStatisticsStore;
+    private final PhaseTracker phaseTracker;
+    private final JobScheduler jobScheduler;
+    private final PageCursorTracer cursorTracer;
+    private final MemoryTracker memoryTracker;
     private StoreScan<IndexPopulationFailedKernelException> storeScan;
+    private final TokenNameLookup tokenNameLookup;
+    private final PageCacheTracer cacheTracer;
+    private final String databaseName;
+    private final Subject subject;
 
-    public MultipleIndexPopulator( IndexStoreView storeView, LogProvider logProvider )
+    /**
+     * Creates a new multi-threaded populator for the given store view.
+     * @param storeView the view of the store as a visitable of nodes
+     * @param logProvider the log provider
+     * @param type entity type to populate
+     * @param schemaState the schema state
+     * @param jobScheduler the job scheduler
+     * @param tokenNameLookup token lookup
+     */
+    public MultipleIndexPopulator( IndexStoreView storeView, LogProvider logProvider, EntityType type, SchemaState schemaState,
+            IndexStatisticsStore indexStatisticsStore, JobScheduler jobScheduler, TokenNameLookup tokenNameLookup, PageCacheTracer cacheTracer,
+            MemoryTracker memoryTracker, String databaseName, Subject subject )
     {
-        this.storeView = storeView;
-        this.logProvider = logProvider;
-        this.log = logProvider.getLog( IndexPopulationJob.class );
+        this( storeView, logProvider, type, schemaState, indexStatisticsStore, jobScheduler, tokenNameLookup, cacheTracer, memoryTracker, databaseName,
+                subject,
+                FeatureToggles.getInteger( MultipleIndexPopulator.class, QUEUE_THRESHOLD_NAME, DEFAULT_QUEUE_THRESHOLD ),
+                FeatureToggles.getInteger( MultipleIndexPopulator.class, BATCH_SIZE_NAME, DEFAULT_BATCH_SIZE_SCAN ),
+                FeatureToggles.getInteger( MultipleIndexPopulator.class, BATCH_MAX_BYTE_SIZE_NAME, DEFAULT_BATCH_MAX_BYTE_SIZE ),
+                FeatureToggles.getInteger( MultipleIndexPopulator.class, AWAIT_TIMEOUT_MINUTES_NAME, DEFAULT_AWAIT_TIMEOUT_MINUTES ) );
     }
 
-    public IndexPopulation addPopulator(
-            IndexPopulator populator,
-            long indexId,
-            IndexDescriptor descriptor,
-            Descriptor providerDescriptor,
-            FlippableIndexProxy flipper,
-            FailedIndexProxyFactory failedIndexProxyFactory,
-            String indexUserDescription )
+    public MultipleIndexPopulator( IndexStoreView storeView, LogProvider logProvider, EntityType type, SchemaState schemaState,
+            IndexStatisticsStore indexStatisticsStore, JobScheduler jobScheduler, TokenNameLookup tokenNameLookup, PageCacheTracer cacheTracer,
+            MemoryTracker memoryTracker, String databaseName, Subject subject,
+            int queueThreshold, int batchSizeScan, int batchMaxByteSizeScan, int awaitTimeoutMillis )
     {
-        IndexPopulation population = createPopulation( populator, indexId, descriptor, providerDescriptor, flipper,
-                failedIndexProxyFactory, indexUserDescription );
+        this.storeView = storeView;
+        this.cursorTracer = cacheTracer.createPageCursorTracer( MULTIPLE_INDEX_POPULATOR_TAG );
+        this.memoryTracker = memoryTracker;
+        this.propertyAccessor = storeView.newPropertyAccessor( cursorTracer, memoryTracker );
+        this.logProvider = logProvider;
+        this.log = logProvider.getLog( IndexPopulationJob.class );
+        this.type = type;
+        this.schemaState = schemaState;
+        this.indexStatisticsStore = indexStatisticsStore;
+        this.phaseTracker = new LoggingPhaseTracker( logProvider.getLog( IndexPopulationJob.class ) );
+        this.jobScheduler = jobScheduler;
+        this.tokenNameLookup = tokenNameLookup;
+        this.cacheTracer = cacheTracer;
+        this.databaseName = databaseName;
+        this.subject = subject;
+
+        this.QUEUE_THRESHOLD = queueThreshold;
+        this.BATCH_SIZE_SCAN = batchSizeScan;
+        this.BATCH_MAX_BYTE_SIZE_SCAN = batchMaxByteSizeScan;
+        this.AWAIT_TIMEOUT_MINUTES = awaitTimeoutMillis;
+    }
+
+    IndexPopulation addPopulator( IndexPopulator populator, IndexDescriptor indexDescriptor, FlippableIndexProxy flipper,
+            FailedIndexProxyFactory failedIndexProxyFactory, String indexUserDescription )
+    {
+        IndexPopulation population = createPopulation( populator, indexDescriptor, flipper, failedIndexProxyFactory, indexUserDescription );
         populations.add( population );
         return population;
     }
 
-    protected IndexPopulation createPopulation( IndexPopulator populator, long indexId, IndexDescriptor descriptor,
-            Descriptor providerDescriptor, FlippableIndexProxy flipper,
+    private IndexPopulation createPopulation( IndexPopulator populator, IndexDescriptor indexDescriptor, FlippableIndexProxy flipper,
             FailedIndexProxyFactory failedIndexProxyFactory, String indexUserDescription )
     {
-        return new IndexPopulation( populator, indexId, descriptor, providerDescriptor, flipper, failedIndexProxyFactory,
-                indexUserDescription );
+        return new IndexPopulation( populator, indexDescriptor, flipper, failedIndexProxyFactory, indexUserDescription );
     }
 
-    public boolean hasPopulators()
+    boolean hasPopulators()
     {
         return !populations.isEmpty();
     }
 
-    @Override
-    public void create()
+    public void create( PageCursorTracer cursorTracer )
     {
         forEachPopulation( population ->
         {
             log.info( "Index population started: [%s]", population.indexUserDescription );
-            population.populator.create();
-        } );
+            population.create();
+        }, cursorTracer );
     }
 
-    @Override
-    public void drop() throws IOException
+    StoreScan<IndexPopulationFailedKernelException> createStoreScan( PageCursorTracer cursorTracer )
     {
-        throw new UnsupportedOperationException( "Can't drop indexes from this populator implementation" );
-    }
-
-    @Override
-    public void add( Collection<? extends IndexEntryUpdate<?>> updates )
-    {
-        throw new UnsupportedOperationException( "Can't populate directly using this populator implementation. " );
-    }
-
-    @Override
-    public void add( IndexEntryUpdate<?> update )
-    {
-        throw new UnsupportedOperationException( "Can't populate directly using this populator implementation. " );
-    }
-
-    public StoreScan<IndexPopulationFailedKernelException> indexAllNodes()
-    {
-        int[] labelIds = labelIds();
+        int[] entityTokenIds = entityTokenIds();
         int[] propertyKeyIds = propertyKeyIds();
-        IntPredicate propertyKeyIdFilter = (propertyKeyId) -> contains( propertyKeyIds, propertyKeyId );
+        IntPredicate propertyKeyIdFilter = propertyKeyId -> contains( propertyKeyIds, propertyKeyId );
 
-        storeScan = storeView.visitNodes( labelIds, propertyKeyIdFilter, new NodePopulationVisitor(), null, false );
-        storeScan.configure( populations );
-        return storeScan;
+        if ( type == EntityType.RELATIONSHIP )
+        {
+            storeScan = storeView.visitRelationships( entityTokenIds, propertyKeyIdFilter, new EntityPopulationVisitor(), null, false, cursorTracer,
+                    memoryTracker );
+        }
+        else
+        {
+            storeScan = storeView.visitNodes( entityTokenIds, propertyKeyIdFilter, new EntityPopulationVisitor(), null, false,
+                    cursorTracer, memoryTracker );
+        }
+        storeScan.setPhaseTracker( phaseTracker );
+        return new BatchingStoreScan<>( storeScan );
     }
 
     /**
@@ -181,32 +268,41 @@ public class MultipleIndexPopulator implements IndexPopulator
      *
      * @param update {@link IndexEntryUpdate} to queue.
      */
-    public void queue( IndexEntryUpdate update )
+    void queueConcurrentUpdate( IndexEntryUpdate<?> update )
     {
-        queue.add( update );
+        concurrentUpdateQueue.add( update );
+        concurrentUpdateQueueByteSize.addAndGet( roughSizeOfUpdate( update ) );
     }
 
     /**
-     * Called if forced failure from the outside
+     * Cancel all {@link IndexPopulation index populations}, putting the indexes in {@link InternalIndexState#FAILED failed state}.
+     * To repopulate them they will need to be dropped and recreated.
+     *
+     * @param failure the cause.
      */
-    public void fail( Throwable failure )
+    public void cancel( Throwable failure, PageCursorTracer cursorTracer )
     {
         for ( IndexPopulation population : populations )
         {
-            fail( population, failure );
+            cancel( population, failure, cursorTracer );
         }
     }
 
-    protected void fail( IndexPopulation population, Throwable failure )
+    /**
+     * Cancel a single {@link IndexPopulation index population}, putting the index in {@link InternalIndexState#FAILED failed state}.
+     * To repopulate the index it needs to be dropped and recreated.
+     *
+     * @param population Index population to cancel.
+     * @param failure the cause.
+     */
+    protected void cancel( IndexPopulation population, Throwable failure, PageCursorTracer cursorTracer )
     {
-        if ( !populations.remove( population ) )
+        if ( !removeFromOngoingPopulations( population ) )
         {
             return;
         }
 
-        // If the cause of index population failure is a conflict in a (unique) index, the conflict is the
-        // failure
-        // TODO do we need this?
+        // If the cause of index population failure is a conflict in a (unique) index, the conflict is the failure
         if ( failure instanceof IndexPopulationFailedKernelException )
         {
             Throwable cause = failure.getCause();
@@ -216,11 +312,7 @@ public class MultipleIndexPopulator implements IndexPopulator
             }
         }
 
-        // Index conflicts are expected (for unique indexes) so we don't need to log them.
-        if ( !(failure instanceof IndexEntryConflictException) /*TODO: && this is a unique index...*/ )
-        {
-            log.error( format( "Failed to populate index: [%s]", population.indexUserDescription ), failure );
-        }
+        log.error( format( "Failed to populate index: [%s]", population.indexUserDescription ), failure );
 
         // The flipper will have already flipped to a failed index context here, but
         // it will not include the cause of failure, so we do another flip to a failed
@@ -229,11 +321,12 @@ public class MultipleIndexPopulator implements IndexPopulator
         // The reason for having the flipper transition to the failed index context in the first
         // place is that we would otherwise introduce a race condition where updates could come
         // in to the old context, if something failed in the job we send to the flipper.
-        population.flipToFailed( failure );
+        IndexPopulationFailure indexPopulationFailure = failure( failure );
+        population.cancel( indexPopulationFailure );
         try
         {
-            population.populator.markAsFailed( failure( failure ).asString() );
-            population.populator.close( false );
+            population.populator.markAsFailed( indexPopulationFailure.asString() );
+            population.populator.close( false, cursorTracer );
         }
         catch ( Throwable e )
         {
@@ -242,72 +335,68 @@ public class MultipleIndexPopulator implements IndexPopulator
         }
     }
 
-    @Override
-    public void verifyDeferredConstraints( PropertyAccessor accessor ) throws IndexEntryConflictException, IOException
+    @VisibleForTesting
+    MultipleIndexUpdater newPopulatingUpdater( NodePropertyAccessor accessor, PageCursorTracer cursorTracer )
     {
-        throw new UnsupportedOperationException( "Should not be called directly" );
-    }
-
-    @Override
-    public MultipleIndexUpdater newPopulatingUpdater( PropertyAccessor accessor )
-    {
-        Map<LabelSchemaDescriptor,Pair<IndexPopulation,IndexUpdater>> updaters = new HashMap<>();
+        Map<SchemaDescriptor,Pair<IndexPopulation,IndexUpdater>> updaters = new HashMap<>();
         forEachPopulation( population ->
         {
-            IndexUpdater updater = population.populator.newPopulatingUpdater( accessor );
-            updaters.put( population.descriptor.schema(), Pair.of( population, updater ) );
-        } );
-        return new MultipleIndexUpdater( this, updaters, logProvider );
+            IndexUpdater updater = population.populator.newPopulatingUpdater( accessor, cursorTracer );
+            updaters.put( population.schema(), Pair.of( population, updater ) );
+        }, cursorTracer );
+        return new MultipleIndexUpdater( this, updaters, logProvider, cursorTracer );
     }
 
-    @Override
-    public void close( boolean populationCompletedSuccessfully )
+    /**
+     * Close this {@link MultipleIndexPopulator multiple index populator}.
+     * This means population job has finished, successfully or unsuccessfully and resources can be released.
+     *
+     * Note that {@link IndexPopulation index populations} cannot be closed. Instead, the underlying
+     * {@link IndexPopulator index populator} is closed by {@link #flipAfterStoreScan(boolean, PageCursorTracer)},
+     * {@link #cancel(IndexPopulation, Throwable, PageCursorTracer)} or {@link #stop(IndexPopulation, PageCursorTracer)}.
+     */
+    public void close()
     {
-        forEachPopulation( population -> population.populator.close( populationCompletedSuccessfully ) );
+        phaseTracker.stop();
+        propertyAccessor.close();
+        cursorTracer.close();
     }
 
-    @Override
-    public void markAsFailed( String failure ) throws IOException
+    void resetIndexCounts( PageCursorTracer cursorTracer )
     {
-        throw new UnsupportedOperationException( "Multiple index populator can't be marked as failed." );
+        forEachPopulation( this::resetIndexCountsForPopulation, cursorTracer );
     }
 
-    @Override
-    public void includeSample( IndexEntryUpdate update )
+    private void resetIndexCountsForPopulation( IndexPopulation indexPopulation )
     {
-        throw new UnsupportedOperationException( "Multiple index populator can't perform index sampling." );
+        indexStatisticsStore.replaceStats( indexPopulation.indexId, new IndexSample( 0, 0, 0 ) );
     }
 
-    @Override
-    public void configureSampling( boolean onlineSampling )
-    {
-        throw new UnsupportedOperationException( "Multiple index populator can't be configured." );
-    }
-
-    @Override
-    public IndexSample sampleResult()
-    {
-        throw new UnsupportedOperationException( "Multiple index populator can't perform index sampling." );
-    }
-
-    public void replaceIndexCounts( long uniqueElements, long maxUniqueElements, long indexSize )
-    {
-        forEachPopulation( population ->
-                storeView.replaceIndexCounts( population.indexId, uniqueElements, maxUniqueElements, indexSize ) );
-    }
-
-    public void flipAfterPopulation()
+    /**
+     * This concludes a successful index population.
+     *
+     * The last updates will be applied to every index,
+     * tell {@link IndexPopulator index populators} that scan has been completed,
+     * {@link IndexStatisticsStore index statistics store} will be updated with {@link IndexSample index samples},
+     * {@link SchemaState schema cache} will be cleared,
+     * {@link IndexPopulator index populators} will be closed and
+     * {@link IndexProxy index proxy} will be {@link FlippableIndexProxy#flip(Callable, FailedIndexProxyFactory) flipped}
+     * to {@link OnlineIndexProxy online}, given that nothing goes wrong.
+     *
+     * @param verifyBeforeFlipping Whether to verify deferred constraints before flipping index proxy. This is used by batch inserter.
+     */
+    void flipAfterStoreScan( boolean verifyBeforeFlipping, PageCursorTracer cursorTracer )
     {
         for ( IndexPopulation population : populations )
         {
             try
             {
-                population.flip();
-                populations.remove( population );
+                population.scanCompleted( cursorTracer );
+                population.flip( verifyBeforeFlipping, cursorTracer );
             }
             catch ( Throwable t )
             {
-                fail( population, t );
+                cancel( population, t, cursorTracer );
             }
         }
     }
@@ -322,53 +411,142 @@ public class MultipleIndexPopulator implements IndexPopulator
         return IntStream.of( population.schema().getPropertyIds() );
     }
 
-    private int[] labelIds()
+    private int[] entityTokenIds()
     {
-        return populations.stream().mapToInt( population -> population.schema().getLabelId() ).toArray();
+        return populations.stream().flatMapToInt( population -> Arrays.stream( population.schema().getEntityTokenIds() ) ).toArray();
     }
 
-    public void cancel()
+    /**
+     * Stop all {@link IndexPopulation index populations}, closing backing {@link IndexPopulator index populators},
+     * keeping them in {@link InternalIndexState#POPULATING populating state}.
+     */
+    public void stop( PageCursorTracer cursorTracer )
     {
-        replaceIndexCounts( 0, 0, 0 );
-        close( false );
+        forEachPopulation( population -> this.stop( population, cursorTracer ), cursorTracer );
     }
 
-    void populateFromQueueBatched( long currentlyIndexedNodeId )
+    /**
+     * Close specific {@link IndexPopulation index population}, closing backing {@link IndexPopulator index populator},
+     * keeping it in {@link InternalIndexState#POPULATING populating state}.
+     * @param indexPopulation {@link IndexPopulation} to stop.
+     */
+    void stop( IndexPopulation indexPopulation, PageCursorTracer cursorTracer )
     {
-        if ( isQueueThresholdReached() )
+        indexPopulation.disconnectAndStop( cursorTracer );
+    }
+
+    /**
+     * Stop population of given {@link IndexPopulation} and drop the index.
+     * @param indexPopulation {@link IndexPopulation} to drop.
+     */
+    void dropIndexPopulation( IndexPopulation indexPopulation )
+    {
+        indexPopulation.disconnectAndDrop();
+    }
+
+    private boolean removeFromOngoingPopulations( IndexPopulation indexPopulation )
+    {
+        return populations.remove( indexPopulation );
+    }
+
+    boolean applyConcurrentUpdateQueueBatched( long currentlyIndexedNodeId )
+    {
+        return applyConcurrentUpdateQueue( QUEUE_THRESHOLD, currentlyIndexedNodeId );
+    }
+
+    private void flushAll()
+    {
+        populations.forEach( this::flush );
+        awaitCompletion();
+    }
+
+    private void flush( IndexPopulation population )
+    {
+        phaseTracker.enterPhase( PhaseTracker.Phase.WRITE );
+        activeTasks.incrementAndGet();
+        List<IndexEntryUpdate<?>> batch = population.takeCurrentBatchFromScan();
+
+        jobScheduler.schedule( Group.INDEX_POPULATION_WORK,
+                new JobMonitoringParams( subject, databaseName, "Index scan batch for '" + population.indexDescriptor.getName() + "'" ),
+                () ->
+                {
+                    try ( var cursorTracer = cacheTracer.createPageCursorTracer( POPULATION_WORK_FLUSH_TAG ) )
+                    {
+                        String batchDescription = "EMPTY";
+                        if ( PRINT_DEBUG )
+                        {
+                            if ( !batch.isEmpty() )
+                            {
+                                batchDescription =
+                                        format( "[%d, %d - %d]", batch.size(), batch.get( 0 ).getEntityId(), batch.get( batch.size() - 1 ).getEntityId() );
+                            }
+                            log.info( "Applying scan batch %s", batchDescription );
+                        }
+                        population.populator.add( batch, cursorTracer );
+                        if ( PRINT_DEBUG )
+                        {
+                            log.info( "Applied scan batch %s", batchDescription );
+                        }
+                    }
+                    catch ( Throwable failure )
+                    {
+                        cancel( population, failure, cursorTracer );
+                    }
+                    finally
+                    {
+                        activeTasks.decrementAndGet();
+                    }
+                } );
+    }
+
+    /**
+     * Populates external updates from the update queue if there are {@code queueThreshold} or more queued updates.
+     *
+     * @return whether or not there were external updates applied.
+     */
+    private boolean applyConcurrentUpdateQueue( int queueThreshold, long currentlyIndexedNodeId )
+    {
+        int queueSize = concurrentUpdateQueue.size();
+        if ( (queueSize > 0 && queueSize >= queueThreshold) || concurrentUpdateQueueByteSize.get() >= BATCH_MAX_BYTE_SIZE_SCAN )
         {
-            populateFromQueue( currentlyIndexedNodeId );
-        }
-    }
+            if ( PRINT_DEBUG )
+            {
+                log.info( "Populating from queue at %d", currentlyIndexedNodeId );
+            }
+            // Before applying updates from the updates queue any pending scan updates needs to be applied, i.e. flushed.
+            // This is because 'currentlyIndexedNodeId' is based on how far the scan has come.
+            flushAll();
 
-    private boolean isQueueThresholdReached()
-    {
-        return queue.size() >= QUEUE_THRESHOLD;
-    }
-
-    protected void populateFromQueue( long currentlyIndexedNodeId )
-    {
-        populateFromQueueIfAvailable( currentlyIndexedNodeId );
-    }
-
-    private void populateFromQueueIfAvailable( long currentlyIndexedNodeId )
-    {
-        if ( !queue.isEmpty() )
-        {
-            try ( MultipleIndexUpdater updater = newPopulatingUpdater( storeView ) )
+            long updateByteSizeDrained = 0;
+            try ( MultipleIndexUpdater updater = newPopulatingUpdater( propertyAccessor, cursorTracer ) )
             {
                 do
                 {
                     // no need to check for null as nobody else is emptying this queue
-                    IndexEntryUpdate update = queue.poll();
+                    IndexEntryUpdate<?> update = concurrentUpdateQueue.poll();
+                    // Since updates can be added concurrently with us draining the queue simply setting the value to 0
+                    // after drained will not be 100% synchronized with the queue contents and could potentially cause a large
+                    // drift over time. Therefore each update polled from the queue will subtract its size instead.
+                    updateByteSizeDrained += update != null ? roughSizeOfUpdate( update ) : 0;
                     storeScan.acceptUpdate( updater, update, currentlyIndexedNodeId );
+                    if ( PRINT_DEBUG )
+                    {
+                        log.info( "Applied %s from queue" + (update == null ? null : update.describe( tokenNameLookup ) ) );
+                    }
                 }
-                while ( !queue.isEmpty() );
+                while ( !concurrentUpdateQueue.isEmpty() );
+                concurrentUpdateQueueByteSize.addAndGet( -updateByteSizeDrained );
             }
+            if ( PRINT_DEBUG )
+            {
+                log.info( "Done applying updates from queue" );
+            }
+            return true;
         }
+        return false;
     }
 
-    private void forEachPopulation( ThrowingConsumer<IndexPopulation,Exception> action )
+    private void forEachPopulation( ThrowingConsumer<IndexPopulation,Exception> action, PageCursorTracer cursorTracer )
     {
         for ( IndexPopulation population : populations )
         {
@@ -378,33 +556,84 @@ public class MultipleIndexPopulator implements IndexPopulator
             }
             catch ( Throwable failure )
             {
-                fail( population, failure );
+                cancel( population, failure, cursorTracer );
             }
         }
     }
 
+    /**
+     * Awaits {@link #AWAIT_TIMEOUT_MINUTES} minutes for all previously submitted batch-flush tasks to complete.
+     * Restores the interrupted status and exits normally when interrupted during waiting.
+     *
+     * @throws IllegalStateException if tasks did not complete in {@link #AWAIT_TIMEOUT_MINUTES} minutes.
+     */
+    private void awaitCompletion()
+    {
+        try
+        {
+            log.debug( "Waiting " + AWAIT_TIMEOUT_MINUTES + " minutes for all submitted and active " +
+                    "flush tasks to complete." + EOL + this );
+
+            BooleanSupplier allSubmittedTasksCompleted = () -> activeTasks.get() == 0;
+            Predicates.await( allSubmittedTasksCompleted, AWAIT_TIMEOUT_MINUTES, TimeUnit.MINUTES );
+        }
+        catch ( TimeoutException e )
+        {
+            handleTimeout();
+        }
+    }
+
+    private void handleTimeout()
+    {
+        throw new IllegalStateException( "Index population tasks were not able to complete in " +
+                AWAIT_TIMEOUT_MINUTES + " minutes." + EOL + this + EOL + allStackTraces() );
+    }
+
+    /**
+     * Finds all threads and corresponding stack traces which can potentially cause the
+     * {@link ExecutorService executor} to not terminate in {@link #AWAIT_TIMEOUT_MINUTES} minutes.
+     *
+     * @return thread dump as string.
+     */
+    private static String allStackTraces()
+    {
+        return Thread.getAllStackTraces()
+                .entrySet()
+                .stream()
+                .map( entry -> Exceptions.stringify( entry.getKey(), entry.getValue() ) )
+                .collect( joining() );
+    }
+
+    @Override
+    public String toString()
+    {
+        String updatesString = populations
+                .stream()
+                .map( population -> population.batchedUpdatesFromScan.size() + " updates" )
+                .collect( joining( ", ", "[", "]" ) );
+
+        return "MultipleIndexPopulator{activeTasks=" + activeTasks + ", " +
+                "batchedUpdatesFromScan = " + updatesString + ", concurrentUpdateQueue = " + concurrentUpdateQueue.size() + "}";
+    }
+
     public static class MultipleIndexUpdater implements IndexUpdater
     {
-        private final Map<LabelSchemaDescriptor,Pair<IndexPopulation,IndexUpdater>> populationsWithUpdaters;
+        private final Map<SchemaDescriptor,Pair<IndexPopulation,IndexUpdater>> populationsWithUpdaters;
         private final MultipleIndexPopulator multipleIndexPopulator;
         private final Log log;
+        private final PageCursorTracer cursorTracer;
 
         MultipleIndexUpdater( MultipleIndexPopulator multipleIndexPopulator,
-                Map<LabelSchemaDescriptor,Pair<IndexPopulation,IndexUpdater>> populationsWithUpdaters, LogProvider logProvider )
+                Map<SchemaDescriptor,Pair<IndexPopulation,IndexUpdater>> populationsWithUpdaters, LogProvider logProvider, PageCursorTracer cursorTracer )
         {
             this.multipleIndexPopulator = multipleIndexPopulator;
             this.populationsWithUpdaters = populationsWithUpdaters;
             this.log = logProvider.getLog( getClass() );
+            this.cursorTracer = cursorTracer;
         }
 
         @Override
-        public void remove( PrimitiveLongSet nodeIds )
-        {
-            throw new UnsupportedOperationException( "Index populators don't do removal" );
-        }
-
-        @Override
-        public void process( IndexEntryUpdate update )
+        public void process( IndexEntryUpdate<?> update )
         {
             Pair<IndexPopulation,IndexUpdater> pair = populationsWithUpdaters.get( update.indexKey().schema() );
             if ( pair != null )
@@ -414,6 +643,7 @@ public class MultipleIndexPopulator implements IndexPopulator
 
                 try
                 {
+                    population.populator.includeSample( update );
                     updater.process( update );
                 }
                 catch ( Throwable t )
@@ -427,7 +657,7 @@ public class MultipleIndexPopulator implements IndexPopulator
                         log.error( format( "Failed to close index updater: [%s]", updater ), ce );
                     }
                     populationsWithUpdaters.remove( update.indexKey().schema() );
-                    multipleIndexPopulator.fail( population, t );
+                    multipleIndexPopulator.cancel( population, t, cursorTracer );
                 }
             }
         }
@@ -446,110 +676,315 @@ public class MultipleIndexPopulator implements IndexPopulator
                 }
                 catch ( Throwable t )
                 {
-                    multipleIndexPopulator.fail( population, t );
+                    multipleIndexPopulator.cancel( population, t, cursorTracer );
                 }
             }
             populationsWithUpdaters.clear();
         }
     }
 
-    public class IndexPopulation implements LabelSchemaSupplier
+    public class IndexPopulation implements SchemaDescriptorSupplier
     {
         public final IndexPopulator populator;
-        final long indexId;
-        final IndexDescriptor descriptor;
-        final SchemaIndexProvider.Descriptor providerDescriptor;
-        final IndexCountsRemover indexCountsRemover;
         final FlippableIndexProxy flipper;
-        final FailedIndexProxyFactory failedIndexProxyFactory;
-        final String indexUserDescription;
+        private final long indexId;
+        private final IndexDescriptor indexDescriptor;
+        private final FailedIndexProxyFactory failedIndexProxyFactory;
+        private final String indexUserDescription;
+        private boolean populationOngoing = true;
+        private final ReentrantLock populatorLock = new ReentrantLock();
 
-        IndexPopulation(
-                IndexPopulator populator,
-                long indexId,
-                IndexDescriptor descriptor,
-                Descriptor providerDescriptor,
-                FlippableIndexProxy flipper,
-                FailedIndexProxyFactory failedIndexProxyFactory,
-                String indexUserDescription )
+        List<IndexEntryUpdate<?>> batchedUpdatesFromScan;
+        private long sizeOfBatchedUpdates;
+
+        IndexPopulation( IndexPopulator populator, IndexDescriptor indexDescriptor, FlippableIndexProxy flipper,
+                FailedIndexProxyFactory failedIndexProxyFactory, String indexUserDescription )
         {
             this.populator = populator;
-            this.indexId = indexId;
-            this.descriptor = descriptor;
-            this.providerDescriptor = providerDescriptor;
+            this.indexDescriptor = indexDescriptor;
+            this.indexId = indexDescriptor.getId();
             this.flipper = flipper;
             this.failedIndexProxyFactory = failedIndexProxyFactory;
             this.indexUserDescription = indexUserDescription;
-            this.indexCountsRemover = new IndexCountsRemover( storeView, indexId );
+            this.batchedUpdatesFromScan = new ArrayList<>( BATCH_SIZE_SCAN );
         }
 
-        private void flipToFailed( Throwable t )
+        private void cancel( IndexPopulationFailure failure )
         {
-            flipper.flipTo( new FailedIndexProxy( descriptor,
-                    providerDescriptor, indexUserDescription,
-                    populator, failure( t ), indexCountsRemover, logProvider ) );
+            flipper.flipTo( new FailedIndexProxy( indexDescriptor, indexUserDescription, populator, failure, indexStatisticsStore, logProvider ) );
         }
 
-        private void onUpdate( IndexEntryUpdate update )
-                throws IndexEntryConflictException, IOException
+        void create()
+        {
+            populatorLock.lock();
+            try
+            {
+                if ( populationOngoing )
+                {
+                    populator.create();
+                }
+            }
+            finally
+            {
+                populatorLock.unlock();
+            }
+        }
+
+        /**
+         * Disconnect this single {@link IndexPopulation index population} from ongoing multiple index population
+         * and close {@link IndexPopulator index populator}, leaving it in {@link InternalIndexState#POPULATING populating state}.
+         */
+        void disconnectAndStop( PageCursorTracer cursorTracer )
+        {
+            disconnect( () -> populator.close( false, cursorTracer ) );
+        }
+
+        /**
+         * Disconnect this single {@link IndexPopulation index population} from ongoing multiple index population
+         * and {@link IndexPopulator#drop() drop} the index.
+         */
+        void disconnectAndDrop()
+        {
+            disconnect( populator::drop );
+        }
+
+        private void disconnect( Runnable specificPopulatorOperation )
+        {
+            populatorLock.lock();
+            try
+            {
+                if ( populationOngoing )
+                {
+                    // First of all remove this population from the list of ongoing populations so that it won't receive more updates.
+                    // This is good because closing the populator may wait for an opportunity to perform the close, among the incoming writes to it.
+                    removeFromOngoingPopulations( this );
+                    specificPopulatorOperation.run();
+                    resetIndexCountsForPopulation( this );
+                    populationOngoing = false;
+                }
+            }
+            finally
+            {
+                populatorLock.unlock();
+            }
+        }
+
+        private void onUpdateFromScan( IndexEntryUpdate<?> update )
         {
             populator.includeSample( update );
-            add( update );
+            if ( addToBatchFromScan( update ) )
+            {
+                flush( this );
+            }
         }
 
-        void add( IndexEntryUpdate update )
-                throws IOException, IndexEntryConflictException
+        void flip( boolean verifyBeforeFlipping, PageCursorTracer cursorTracer ) throws FlipFailedKernelException
         {
-            populator.add( update );
-        }
-
-        private void flip() throws FlipFailedKernelException
-        {
+            phaseTracker.enterPhase( PhaseTracker.Phase.FLIP );
             flipper.flip( () ->
             {
-                populateFromQueueIfAvailable( Long.MAX_VALUE );
-                IndexSample sample = populator.sampleResult();
-                storeView.replaceIndexCounts( indexId, sample.uniqueValues(), sample.sampleSize(),
-                        sample.indexSize() );
-                populator.close( true );
-                return null;
+                populatorLock.lock();
+                try
+                {
+                    if ( populationOngoing )
+                    {
+                        populator.add( takeCurrentBatchFromScan(), cursorTracer );
+                        applyConcurrentUpdateQueue( 0, Long.MAX_VALUE );
+                        if ( populations.contains( IndexPopulation.this ) )
+                        {
+                            if ( verifyBeforeFlipping )
+                            {
+                                populator.verifyDeferredConstraints( propertyAccessor );
+                            }
+                            IndexSample sample = populator.sample( cursorTracer );
+                            indexStatisticsStore.replaceStats( indexId, sample );
+                            populator.close( true, cursorTracer );
+                            schemaState.clear();
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+                finally
+                {
+                    logCompletionMessage();
+                    populationOngoing = false;
+                    populatorLock.unlock();
+                }
             }, failedIndexProxyFactory );
-            log.info( "Index population completed. Index is now online: [%s]", indexUserDescription );
+            removeFromOngoingPopulations( this );
+        }
+
+        private void logCompletionMessage()
+        {
+            log.info( "Index creation finished for index [%s].", indexUserDescription );
         }
 
         @Override
-        public LabelSchemaDescriptor schema()
+        public SchemaDescriptor schema()
         {
-            return descriptor.schema();
+            return indexDescriptor.schema();
+        }
+
+        @Override
+        public String userDescription( TokenNameLookup tokenNameLookup )
+        {
+            return indexUserDescription;
+        }
+
+        boolean addToBatchFromScan( IndexEntryUpdate<?> update )
+        {
+            batchedUpdatesFromScan.add( update );
+            sizeOfBatchedUpdates += roughSizeOfUpdate( update );
+            return batchedUpdatesFromScan.size() >= BATCH_SIZE_SCAN || sizeOfBatchedUpdates >= BATCH_MAX_BYTE_SIZE_SCAN;
+        }
+
+        List<IndexEntryUpdate<?>> takeCurrentBatchFromScan()
+        {
+            if ( batchedUpdatesFromScan.isEmpty() )
+            {
+                return Collections.emptyList();
+            }
+            List<IndexEntryUpdate<?>> batch = batchedUpdatesFromScan;
+            batchedUpdatesFromScan = new ArrayList<>( BATCH_SIZE_SCAN );
+            sizeOfBatchedUpdates = 0;
+            return batch;
+        }
+
+        void scanCompleted( PageCursorTracer cursorTracer ) throws IndexEntryConflictException
+        {
+            IndexPopulator.PopulationWorkScheduler populationWorkScheduler = new IndexPopulator.PopulationWorkScheduler()
+            {
+
+                @Override
+                public <T> JobHandle<T> schedule( IndexPopulator.JobDescriptionSupplier descriptionSupplier, Callable<T> job )
+                {
+                    var description = descriptionSupplier.getJobDescription( indexDescriptor.getName() );
+                    var jobMonitoringParams = new JobMonitoringParams( subject, databaseName, description );
+                    return jobScheduler.schedule( Group.INDEX_POPULATION_WORK, jobMonitoringParams, job );
+                }
+            };
+
+            populator.scanCompleted( phaseTracker, populationWorkScheduler, cursorTracer );
+        }
+
+        PopulationProgress progress( PopulationProgress storeScanProgress )
+        {
+            return populator.progress( storeScanProgress );
         }
     }
 
-    private class NodePopulationVisitor implements Visitor<NodeUpdates,
+    private static long roughSizeOfUpdate( IndexEntryUpdate<?> update )
+    {
+        return heapSizeOf( update.values() ) + (update.updateMode() == UpdateMode.CHANGED ? heapSizeOf( update.beforeValues() ) : 0);
+    }
+
+    private static long heapSizeOf( Value[] values )
+    {
+        long size = 0;
+        if ( values != null )
+        {
+            for ( Value value : values )
+            {
+                if ( value != null )
+                {
+                    size += heapSizeOf( value );
+                }
+            }
+        }
+        return size;
+    }
+
+    private static long heapSizeOf( Value value )
+    {
+        return HeapEstimator.sizeOf( value.asObject() );
+    }
+
+    private class EntityPopulationVisitor implements Visitor<EntityUpdates,
             IndexPopulationFailedKernelException>
     {
         @Override
-        public boolean visit( NodeUpdates updates ) throws IndexPopulationFailedKernelException
+        public boolean visit( EntityUpdates updates )
         {
-            add( updates );
-            populateFromQueueBatched( updates.getNodeId() );
-            return false;
+            addFromScan( updates );
+            if ( PRINT_DEBUG )
+            {
+                log.info( "Added scan updates for entity %d", updates.getEntityId() );
+            }
+            return applyConcurrentUpdateQueueBatched( updates.getEntityId() );
         }
 
-        private void add( NodeUpdates updates )
+        private void addFromScan( EntityUpdates updates )
         {
             // This is called from a full store node scan, meaning that all node properties are included in the
-            // NodeUpdates object. Therefore no additional properties need to be loaded.
+            // EntityUpdates object. Therefore no additional properties need to be loaded.
             for ( IndexEntryUpdate<IndexPopulation> indexUpdate : updates.forIndexKeys( populations ) )
             {
-                try
-                {
-                    indexUpdate.indexKey().onUpdate( indexUpdate );
-                }
-                catch ( Throwable failure )
-                {
-                    fail( indexUpdate.indexKey(), failure );
-                }
+                indexUpdate.indexKey().onUpdateFromScan( indexUpdate );
             }
+        }
+    }
+
+    protected static class DelegatingStoreScan<E extends Exception> implements StoreScan<E>
+    {
+        private final StoreScan<E> delegate;
+
+        DelegatingStoreScan( StoreScan<E> delegate )
+        {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void run() throws E
+        {
+            delegate.run();
+        }
+
+        @Override
+        public void stop()
+        {
+            delegate.stop();
+        }
+
+        @Override
+        public void acceptUpdate( MultipleIndexUpdater updater, IndexEntryUpdate<?> update, long currentlyIndexedNodeId )
+        {
+            delegate.acceptUpdate( updater, update, currentlyIndexedNodeId );
+        }
+
+        @Override
+        public PopulationProgress getProgress()
+        {
+            return delegate.getProgress();
+        }
+
+        @Override
+        public void setPhaseTracker( PhaseTracker phaseTracker )
+        {
+            delegate.setPhaseTracker( phaseTracker );
+        }
+    }
+
+    /**
+     * A delegating {@link StoreScan} implementation that flushes all pending updates and terminates the executor after
+     * the delegate store scan completes.
+     *
+     * @param <E> type of the exception this store scan might get.
+     */
+    private class BatchingStoreScan<E extends Exception> extends DelegatingStoreScan<E>
+    {
+        BatchingStoreScan( StoreScan<E> delegate )
+        {
+            super( delegate );
+        }
+
+        @Override
+        public void run() throws E
+        {
+            super.run();
+            log.info( "Completed node store scan. " +
+                      "Flushing all pending updates." + EOL + MultipleIndexPopulator.this );
+            flushAll();
         }
     }
 }

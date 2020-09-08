@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,6 +21,7 @@ package org.neo4j.kernel.impl.util.watcher;
 
 import org.neo4j.io.fs.watcher.FileWatcher;
 import org.neo4j.kernel.lifecycle.Lifecycle;
+import org.neo4j.kernel.lifecycle.LifecycleAdapter;
 
 /**
  * Interface to be able to recognise file system watcher service in the set of discoverable services,
@@ -29,35 +30,16 @@ import org.neo4j.kernel.lifecycle.Lifecycle;
  */
 public interface FileSystemWatcherService extends Lifecycle
 {
-    FileSystemWatcherService EMPTY_WATCHER = new FileSystemWatcherService()
+    FileSystemWatcherService EMPTY_WATCHER = new EmptyWatcherService();
+
+    FileWatcher getFileWatcher();
+
+    class EmptyWatcherService extends LifecycleAdapter implements FileSystemWatcherService
     {
         @Override
         public FileWatcher getFileWatcher()
         {
             return FileWatcher.SILENT_WATCHER;
         }
-
-        @Override
-        public void init() throws Throwable
-        {
-        }
-
-        @Override
-        public void start() throws Throwable
-        {
-        }
-
-        @Override
-        public void stop() throws Throwable
-        {
-        }
-
-        @Override
-        public void shutdown() throws Throwable
-        {
-        }
-    };
-
-    FileWatcher getFileWatcher();
-
+    }
 }

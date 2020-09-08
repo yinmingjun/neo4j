@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,19 +22,24 @@ package org.neo4j.kernel.impl.api.index;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.neo4j.common.TokenNameLookup;
+import org.neo4j.internal.kernel.api.InternalIndexState;
+import org.neo4j.internal.kernel.api.exceptions.schema.ConstraintValidationException;
+import org.neo4j.internal.kernel.api.exceptions.schema.IndexNotFoundKernelException;
+import org.neo4j.internal.schema.SchemaDescriptor;
+import org.neo4j.internal.schema.constraints.ConstraintDescriptorFactory;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
-import org.neo4j.kernel.api.exceptions.index.IndexNotFoundKernelException;
-import org.neo4j.kernel.api.exceptions.schema.ConstraintValidationException;
 import org.neo4j.kernel.api.exceptions.schema.UniquePropertyValueValidationException;
-import org.neo4j.kernel.api.index.IndexEntryUpdate;
+import org.neo4j.kernel.api.index.IndexReader;
 import org.neo4j.kernel.api.index.IndexUpdater;
-import org.neo4j.kernel.api.index.InternalIndexState;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
-import org.neo4j.kernel.api.schema.constaints.ConstraintDescriptorFactory;
 import org.neo4j.kernel.impl.api.index.updater.DelegatingIndexUpdater;
-import org.neo4j.storageengine.api.schema.IndexReader;
+import org.neo4j.kernel.impl.index.schema.DeferredConflictCheckingIndexUpdater;
+import org.neo4j.storageengine.api.IndexEntryUpdate;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
 
 /**
  * What is a tentative constraint index proxy? Well, the way we build uniqueness constraints is as follows:
@@ -60,24 +65,26 @@ public class TentativeConstraintIndexProxy extends AbstractDelegatingIndexProxy
     private final FlippableIndexProxy flipper;
     private final OnlineIndexProxy target;
     private final Collection<IndexEntryConflictException> failures = new CopyOnWriteArrayList<>();
+    private TokenNameLookup tokenNameLookup;
 
-    public TentativeConstraintIndexProxy( FlippableIndexProxy flipper, OnlineIndexProxy target )
+    TentativeConstraintIndexProxy( FlippableIndexProxy flipper, OnlineIndexProxy target, TokenNameLookup tokenNameLookup )
     {
         this.flipper = flipper;
         this.target = target;
+        this.tokenNameLookup = tokenNameLookup;
     }
 
     @Override
-    public IndexUpdater newUpdater( IndexUpdateMode mode )
+    public IndexUpdater newUpdater( IndexUpdateMode mode, PageCursorTracer cursorTracer )
     {
         switch ( mode )
         {
             case ONLINE:
-                return new DelegatingIndexUpdater( target.accessor.newUpdater( mode ) )
+                return new DelegatingIndexUpdater( new DeferredConflictCheckingIndexUpdater(
+                        target.accessor.newUpdater( mode, cursorTracer ), target::newReader, target.getDescriptor(), cursorTracer ) )
                 {
                     @Override
-                    public void process( IndexEntryUpdate update )
-                            throws IOException, IndexEntryConflictException
+                    public void process( IndexEntryUpdate<?> update )
                     {
                         try
                         {
@@ -90,7 +97,7 @@ public class TentativeConstraintIndexProxy extends AbstractDelegatingIndexProxy
                     }
 
                     @Override
-                    public void close() throws IOException, IndexEntryConflictException
+                    public void close()
                     {
                         try
                         {
@@ -104,7 +111,7 @@ public class TentativeConstraintIndexProxy extends AbstractDelegatingIndexProxy
                 };
 
             case RECOVERY:
-                return super.newUpdater( mode );
+                return super.newUpdater( mode, cursorTracer );
 
             default:
                 throw new IllegalArgumentException( "Unsupported update mode: " + mode );
@@ -131,9 +138,25 @@ public class TentativeConstraintIndexProxy extends AbstractDelegatingIndexProxy
     }
 
     @Override
-    protected IndexProxy getDelegate()
+    public IndexProxy getDelegate()
     {
         return target;
+    }
+
+    @Override
+    public void verifyDeferredConstraints( NodePropertyAccessor accessor ) throws IndexEntryConflictException, IOException
+    {
+        // If we've seen constraint violation failures in here when updates came in then fail immediately with those
+        if ( !failures.isEmpty() )
+        {
+            Iterator<IndexEntryConflictException> failureIterator = failures.iterator();
+            IndexEntryConflictException conflict = failureIterator.next();
+            failureIterator.forEachRemaining( conflict::addSuppressed );
+            throw conflict;
+        }
+
+        // Otherwise consolidate the usual verification
+        super.verifyDeferredConstraints( accessor );
     }
 
     @Override
@@ -141,12 +164,11 @@ public class TentativeConstraintIndexProxy extends AbstractDelegatingIndexProxy
     {
         if ( !failures.isEmpty() )
         {
-            LabelSchemaDescriptor descriptor = getDescriptor().schema();
+            SchemaDescriptor descriptor = getDescriptor().schema();
             throw new UniquePropertyValueValidationException(
-                    ConstraintDescriptorFactory.uniqueForLabel( descriptor.getLabelId(), descriptor.getPropertyId() ),
+                    ConstraintDescriptorFactory.uniqueForSchema( descriptor ),
                     ConstraintValidationException.Phase.VERIFICATION,
-                    new HashSet<>( failures )
-                );
+                    new HashSet<>( failures ), tokenNameLookup );
         }
     }
 

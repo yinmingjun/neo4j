@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,58 +19,58 @@
  */
 package org.neo4j.kernel.api.impl.index.storage;
 
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-import java.io.File;
+import java.nio.file.Path;
 
+import org.neo4j.io.fs.EphemeralFileSystemAbstraction;
 import org.neo4j.kernel.api.impl.index.storage.layout.IndexFolderLayout;
-import org.neo4j.test.rule.fs.EphemeralFileSystemRule;
-
-import static org.hamcrest.CoreMatchers.containsString;
+import org.neo4j.test.extension.EphemeralFileSystemExtension;
+import org.neo4j.test.extension.Inject;
 
 import static java.lang.String.format;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class FailureStorageTest
+@ExtendWith( EphemeralFileSystemExtension.class )
+class FailureStorageTest
 {
-    @Rule
-    public final EphemeralFileSystemRule fs = new EphemeralFileSystemRule();
+    @Inject
+    private EphemeralFileSystemAbstraction fs;
     private IndexFolderLayout indexFolderLayout;
-    private final String indexIdentifier = "1";
 
-    @Before
-    public void before()
+    @BeforeEach
+    void before() throws Exception
     {
-        File rootDirectory = new File( "dir" );
-        fs.get().mkdirs( rootDirectory );
-        indexFolderLayout = new IndexFolderLayout( rootDirectory, indexIdentifier );
+        Path rootDirectory = Path.of( "dir" );
+        fs.mkdirs( rootDirectory );
+        indexFolderLayout = new IndexFolderLayout( rootDirectory );
     }
 
     @Test
-    public void shouldReserveFailureFile() throws Exception
+    void shouldReserveFailureFile() throws Exception
     {
         // GIVEN
-        FailureStorage storage = new FailureStorage( fs.get(), indexFolderLayout );
+        FailureStorage storage = new FailureStorage( fs, indexFolderLayout );
 
         // WHEN
         storage.reserveForIndex();
 
         // THEN
-        File failureFile = storage.failureFile();
-        assertTrue( fs.get().fileExists( failureFile ) );
-        assertTrue( fs.get().getFileSize( failureFile ) > 100 );
+        Path failureFile = storage.failureFile();
+        assertTrue( fs.fileExists( failureFile ) );
+        assertTrue( fs.getFileSize( failureFile ) > 100 );
     }
 
     @Test
-    public void shouldStoreFailure() throws Exception
+    void shouldStoreFailure() throws Exception
     {
         // GIVEN
-        FailureStorage storage = new FailureStorage( fs.get(), indexFolderLayout );
+        FailureStorage storage = new FailureStorage( fs, indexFolderLayout );
         storage.reserveForIndex();
         String failure = format( "A failure message%nspanning%nmultiple lines." );
 
@@ -78,36 +78,36 @@ public class FailureStorageTest
         storage.storeIndexFailure( failure );
 
         // THEN
-        File failureFile = storage.failureFile();
-        assertTrue( fs.get().fileExists( failureFile ) );
-        assertTrue( fs.get().getFileSize( failureFile ) > 100 );
+        Path failureFile = storage.failureFile();
+        assertTrue( fs.fileExists( failureFile ) );
+        assertTrue( fs.getFileSize( failureFile ) > 100 );
         assertEquals( failure, storage.loadIndexFailure() );
     }
 
     @Test
-    public void shouldClearFailure() throws Exception
+    void shouldClearFailure() throws Exception
     {
         // GIVEN
-        FailureStorage storage = new FailureStorage( fs.get(), indexFolderLayout );
+        FailureStorage storage = new FailureStorage( fs, indexFolderLayout );
         storage.reserveForIndex();
         String failure = format( "A failure message%nspanning%nmultiple lines." );
         storage.storeIndexFailure( failure );
-        File failureFile = storage.failureFile();
-        assertTrue( fs.get().fileExists( failureFile ) );
-        assertTrue( fs.get().getFileSize( failureFile ) > 100 );
+        Path failureFile = storage.failureFile();
+        assertTrue( fs.fileExists( failureFile ) );
+        assertTrue( fs.getFileSize( failureFile ) > 100 );
 
         // WHEN
         storage.clearForIndex();
 
         // THEN
-        assertFalse( fs.get().fileExists( failureFile ) );
+        assertFalse( fs.fileExists( failureFile ) );
     }
 
     @Test
-    public void shouldAppendFailureIfAlreadyExists() throws Exception
+    void shouldAppendFailureIfAlreadyExists() throws Exception
     {
         // GIVEN
-        FailureStorage storage = new FailureStorage( fs.get(), indexFolderLayout );
+        FailureStorage storage = new FailureStorage( fs, indexFolderLayout );
         storage.reserveForIndex();
         String failure1 = "Once upon a time there was a first failure";
         String failure2 = "Then there was another";
@@ -118,7 +118,7 @@ public class FailureStorageTest
 
         // THEN
         String allFailures = storage.loadIndexFailure();
-        assertThat( allFailures, containsString( failure1 ) );
-        assertThat( allFailures, containsString( failure2 ) );
+        assertThat( allFailures ).contains( failure1 );
+        assertThat( allFailures ).contains( failure2 );
     }
 }

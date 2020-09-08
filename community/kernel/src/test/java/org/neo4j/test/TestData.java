@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,21 +19,22 @@
  */
 package org.neo4j.test;
 
+import org.junit.jupiter.api.extension.AfterEachCallback;
+import org.junit.jupiter.api.extension.BeforeEachCallback;
+import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.rules.TestRule;
 import org.junit.runner.Description;
-import org.junit.runners.model.MultipleFailureException;
 import org.junit.runners.model.Statement;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Objects;
 
-import org.neo4j.kernel.impl.annotations.Documented;
+import org.neo4j.annotations.documented.Documented;
 
-public class TestData<T> implements TestRule
+public class TestData<T> implements TestRule, BeforeEachCallback, AfterEachCallback
 {
     @Target( ElementType.METHOD )
     @Retention( RetentionPolicy.RUNTIME )
@@ -45,14 +46,12 @@ public class TestData<T> implements TestRule
     public interface Producer<T>
     {
         T create( GraphDefinition graph, String title, String documentation );
-
-        void destroy( T product, boolean successful );
     }
 
     public static <T> TestData<T> producedThrough( Producer<T> transformation )
     {
-        transformation.getClass(); // null check
-        return new TestData<T>( transformation );
+        Objects.requireNonNull( transformation );
+        return new TestData<>( transformation );
     }
 
     public T get()
@@ -69,7 +68,7 @@ public class TestData<T> implements TestRule
             productOrFactory = new Factory( graph, title, documentation );
         }
 
-        @SuppressWarnings( "unchecked"/*cast to T*/)
+        @SuppressWarnings( "unchecked" )
         <T> T get( Producer<T> producer, boolean create )
         {
             Object result = productOrFactory;
@@ -107,7 +106,7 @@ public class TestData<T> implements TestRule
     }
 
     private final Producer<T> producer;
-    private final ThreadLocal<Lazy> product = new InheritableThreadLocal<Lazy>();
+    private final ThreadLocal<Lazy> product = new InheritableThreadLocal<>();
 
     private TestData( Producer<T> producer )
     {
@@ -134,33 +133,7 @@ public class TestData<T> implements TestRule
                         description.getMethodName() ) );
                 try
                 {
-                    try
-                    {
-                        base.evaluate();
-                    }
-                    catch ( Throwable err )
-                    {
-                        try
-                        {
-                            destroy( get( false ), false );
-                        }
-                        catch ( Throwable sub )
-                        {
-                            List<Throwable> failures = new ArrayList<Throwable>();
-                            if ( err instanceof MultipleFailureException )
-                            {
-                                failures.addAll( ( (MultipleFailureException) err ).getFailures() );
-                            }
-                            else
-                            {
-                                failures.add( err );
-                            }
-                            failures.add( sub );
-                            throw new MultipleFailureException( failures );
-                        }
-                        throw err;
-                    }
-                    destroy( get( false ), false );
+                    base.evaluate();
                 }
                 finally
                 {
@@ -170,12 +143,26 @@ public class TestData<T> implements TestRule
         };
     }
 
-    private void destroy( @SuppressWarnings( "hiding" ) T product, boolean successful )
+    @Override
+    public void beforeEach( ExtensionContext context )
     {
-        if ( product != null )
+        var method = context.getRequiredTestMethod();
+        final Title title = method.getAnnotation( Title.class );
+        final Documented doc = method.getAnnotation( Documented.class );
+        GraphDescription.Graph g = method.getAnnotation( GraphDescription.Graph.class );
+        if ( g == null )
         {
-            producer.destroy( product, successful );
+            g = context.getRequiredTestClass().getAnnotation( GraphDescription.Graph.class );
         }
+        final GraphDescription graph = GraphDescription.create( g );
+        product.set( create( graph, title == null ? null : title.value(), doc == null ? null : doc.value(),
+                method.getName() ) );
+    }
+
+    @Override
+    public void afterEach( ExtensionContext context )
+    {
+        product.set( null );
     }
 
     private T get( boolean create )
@@ -218,7 +205,8 @@ public class TestData<T> implements TestRule
             }
             String[] lines = doc.split( "\n" );
             int indent = Integer.MAX_VALUE;
-            int start = 0, end = 0;
+            int start = 0;
+            int end = 0;
             for ( int i = 0; i < lines.length; i++ )
             {
                 if ( EMPTY.equals( lines[i].trim() ) )

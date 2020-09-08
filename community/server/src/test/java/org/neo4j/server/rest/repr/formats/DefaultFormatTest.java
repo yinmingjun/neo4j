@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,33 +19,32 @@
  */
 package org.neo4j.server.rest.repr.formats;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import javax.ws.rs.core.MediaType;
 
-import org.neo4j.server.rest.repr.BadInputException;
 import org.neo4j.server.rest.repr.DefaultFormat;
 import org.neo4j.server.rest.repr.MediaTypeNotSupportedException;
 
-import static org.hamcrest.Matchers.hasEntry;
-import static org.hamcrest.Matchers.hasKey;
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class DefaultFormatTest
 {
     private DefaultFormat input;
 
-    @Before
-    public void setUp() throws Exception
+    @BeforeEach
+    public void setUp()
     {
         JsonFormat inner = new JsonFormat();
-        ArrayList<MediaType> supported = new ArrayList<MediaType>();
+        List<MediaType> supported = new ArrayList<>();
         MediaType requested = MediaType.APPLICATION_JSON_TYPE;
         input = new DefaultFormat( inner, supported, requested );
     }
@@ -55,7 +54,7 @@ public class DefaultFormatTest
     {
         Map<String, Object> map = input.readMap( "{}" );
         assertNotNull( map );
-        assertTrue( "map is not empty", map.isEmpty() );
+        assertTrue( map.isEmpty(), "map is not empty" );
     }
 
     @Test
@@ -63,9 +62,9 @@ public class DefaultFormatTest
     {
         Map<String, Object> map = input.readMap( "{\"key1\":\"value1\",     \"key2\":\"value11\"}" );
         assertNotNull( map );
-        assertThat( map, hasEntry( "key1", (Object) "value1" ) );
-        assertThat( map, hasEntry( "key2", (Object) "value11" ) );
-        assertTrue( "map contained extra values", map.size() == 2 );
+        assertThat( map ).containsEntry( "key1", "value1" );
+        assertThat( map ).containsEntry( "key2", "value11" );
+        assertEquals( 2, map.size(), "map contained extra values" );
     }
 
     @Test
@@ -73,30 +72,30 @@ public class DefaultFormatTest
     {
         Map<String, Object> map = input.readMap( "{\"nested\": {\"key\": \"valuable\"}}" );
         assertNotNull( map );
-        assertThat( map, hasKey( "nested" ) );
-        assertTrue( "map contained extra values", map.size() == 1 );
+        assertThat( map ).containsKey( "nested" );
+        assertEquals( 1, map.size(), "map contained extra values" );
         Object nested = map.get( "nested" );
-        assertThat( nested, instanceOf( Map.class ) );
+        assertThat( nested ).isInstanceOf( Map.class );
         @SuppressWarnings( "unchecked" )
         Map<String, String> nestedMap = (Map<String, String>) nested;
-        assertThat( nestedMap, hasEntry( "key", "valuable" ) );
+        assertThat( nestedMap ).containsEntry( "key", "valuable" );
     }
 
-    @Test( expected = MediaTypeNotSupportedException.class )
-    public void failsWithTheCorrectExceptionWhenGettingTheWrongInput() throws BadInputException
+    @Test
+    public void failsWithTheCorrectExceptionWhenGettingTheWrongInput()
     {
-        input.readValue( "<xml />" );
+        assertThrows( MediaTypeNotSupportedException.class, () -> input.readValue( "<xml />" ) );
     }
 
-    @Test( expected = MediaTypeNotSupportedException.class )
-    public void failsWithTheCorrectExceptionWhenGettingTheWrongInput2() throws BadInputException
+    @Test
+    public void failsWithTheCorrectExceptionWhenGettingTheWrongInput2()
     {
-        input.readMap( "<xml />" );
+        assertThrows( MediaTypeNotSupportedException.class, () -> input.readMap( "<xml />" ) );
     }
 
-    @Test( expected = MediaTypeNotSupportedException.class )
-    public void failsWithTheCorrectExceptionWhenGettingTheWrongInput3() throws BadInputException
+    @Test
+    public void failsWithTheCorrectExceptionWhenGettingTheWrongInput3()
     {
-        input.readUri( "<xml />" );
+        assertThrows( MediaTypeNotSupportedException.class, () -> input.readUri( "<xml />" ) );
     }
 }

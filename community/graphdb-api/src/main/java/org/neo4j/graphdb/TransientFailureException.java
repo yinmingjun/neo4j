@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,13 +19,15 @@
  */
 package org.neo4j.graphdb;
 
+import org.neo4j.kernel.api.exceptions.Status;
+
 /**
  * Indicates a type of failure that is intermediate and, in a way benign.
  *
  * A proper response to a caught exception of this type is to cancel the unit of work that produced
  * this exception and retry the unit of work again, as a whole.
  */
-public abstract class TransientFailureException extends RuntimeException
+public abstract class TransientFailureException extends RuntimeException implements Status.HasStatus
 {
     protected TransientFailureException( String message, Throwable cause )
     {

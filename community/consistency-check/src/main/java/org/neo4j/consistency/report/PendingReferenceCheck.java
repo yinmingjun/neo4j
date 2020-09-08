@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,6 +22,7 @@ package org.neo4j.consistency.report;
 import org.neo4j.consistency.checking.CheckerEngine;
 import org.neo4j.consistency.checking.ComparativeRecordChecker;
 import org.neo4j.consistency.store.RecordAccess;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
 
 public class PendingReferenceCheck<REFERENCED extends AbstractBaseRecord>
@@ -48,14 +49,14 @@ public class PendingReferenceCheck<REFERENCED extends AbstractBaseRecord>
         }
     }
 
-    public void checkReference( REFERENCED referenced, RecordAccess records )
+    public void checkReference( REFERENCED referenced, RecordAccess records, PageCursorTracer cursorTracer )
     {
-        ConsistencyReporter.dispatchReference( engine(), checker, referenced, records );
+        ConsistencyReporter.dispatchReference( engine(), checker, referenced, records, cursorTracer );
     }
 
-    public void checkDiffReference( REFERENCED oldReferenced, REFERENCED newReferenced, RecordAccess records )
+    public void checkDiffReference( REFERENCED oldReferenced, REFERENCED newReferenced, RecordAccess records, PageCursorTracer cursorTracer )
     {
-        ConsistencyReporter.dispatchChangeReference( engine(), checker, oldReferenced, newReferenced, records );
+        ConsistencyReporter.dispatchChangeReference( engine(), checker, oldReferenced, newReferenced, records, cursorTracer );
     }
 
     public synchronized void skip()

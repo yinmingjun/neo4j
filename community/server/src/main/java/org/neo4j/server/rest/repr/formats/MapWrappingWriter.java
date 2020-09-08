@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -30,39 +30,26 @@ import org.neo4j.server.rest.repr.MappingWriter;
 public class MapWrappingWriter extends MappingWriter
 {
     final Map<String, Object> data;
-    final boolean interactive;
 
     public MapWrappingWriter( Map<String, Object> data )
     {
-        this( data, false );
-    }
-
-    public MapWrappingWriter( Map<String, Object> data, boolean interactive )
-    {
         this.data = data;
-        this.interactive = interactive;
-    }
-
-    @Override
-    protected final boolean isInteractive()
-    {
-        return interactive;
     }
 
     @Override
     protected ListWriter newList( String type, String key )
     {
-        List<Object> list = new ArrayList<Object>();
+        List<Object> list = new ArrayList<>();
         data.put( key, list );
-        return new ListWrappingWriter( list, interactive );
+        return new ListWrappingWriter( list );
     }
 
     @Override
     protected MappingWriter newMapping( String type, String key )
     {
-        Map<String, Object> map = new HashMap<String, Object>();
+        Map<String, Object> map = new HashMap<>();
         data.put( key, map );
-        return new MapWrappingWriter( map, interactive );
+        return new MapWrappingWriter( map );
     }
 
     @Override
@@ -72,7 +59,7 @@ public class MapWrappingWriter extends MappingWriter
     }
 
     @Override
-    protected void done()
+    public void done()
     {
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,7 +21,7 @@ package org.neo4j.kernel.impl.util.dbstructure;
 
 import java.util.Iterator;
 
-import org.neo4j.helpers.collection.Pair;
+import org.neo4j.internal.helpers.collection.Pair;
 
 public interface DbStructureLookup
 {
@@ -29,15 +29,16 @@ public interface DbStructureLookup
     Iterator<Pair<Integer, String>> properties();
     Iterator<Pair<Integer, String>> relationshipTypes();
 
-    Iterator<Pair<String, String[]>> knownIndices();
-    Iterator<Pair<String, String[]>> knownUniqueIndices();
+    Iterator<Pair<String[], String[]>> knownIndices();
+    Iterator<Pair<String[], String[]>> knownUniqueIndices();
     Iterator<Pair<String, String[]>> knownUniqueConstraints();
     Iterator<Pair<String, String[]>> knownNodePropertyExistenceConstraints();
     Iterator<Pair<String, String[]>> knownRelationshipPropertyExistenceConstraints();
     Iterator<Pair<String, String[]>> knownNodeKeyConstraints();
 
+    long nodesAllCardinality();
     long nodesWithLabelCardinality( int labelId );
     long cardinalityByLabelsAndRelationshipType( int fromLabelId, int relTypeId, int toLabelId );
-    double indexSelectivity( int labelId, int... propertyKeyIds );
+    double indexUniqueValueSelectivity( int labelId, int... propertyKeyIds );
     double indexPropertyExistsSelectivity( int labelId, int... propertyKeyIds );
 }

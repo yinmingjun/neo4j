@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,6 +19,8 @@
  */
 package org.neo4j.kernel.impl.coreapi.schema;
 
+import org.neo4j.internal.schema.ConstraintDescriptor;
+
 import static java.util.Collections.singleton;
 import static java.util.Objects.requireNonNull;
 
@@ -26,9 +28,9 @@ abstract class SinglePropertyConstraintDefinition extends PropertyConstraintDefi
 {
     protected final String propertyKey;
 
-    protected SinglePropertyConstraintDefinition( InternalSchemaActions actions, String propertyKey )
+    SinglePropertyConstraintDefinition( InternalSchemaActions actions, ConstraintDescriptor constraint, String propertyKey )
     {
-        super( actions );
+        super( actions, constraint );
         this.propertyKey = requireNonNull( propertyKey );
     }
 

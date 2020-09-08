@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,26 +19,44 @@
  */
 package org.neo4j.kernel.api.exceptions.schema;
 
-import org.neo4j.kernel.api.TokenNameLookup;
+import org.neo4j.common.TokenNameLookup;
+import org.neo4j.internal.kernel.api.exceptions.schema.SchemaKernelException;
+import org.neo4j.internal.schema.SchemaDescriptor;
 import org.neo4j.kernel.api.exceptions.Status;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
 
 import static java.lang.String.format;
 
 public class IndexBelongsToConstraintException extends SchemaKernelException
 {
-    private final LabelSchemaDescriptor descriptor;
-    private static final String message = "Index belongs to constraint: %s";
+    private final SchemaDescriptor descriptor;
+    private final String indexName;
+    private static final String MESSAGE_SCHEMA = "Index belongs to constraint: %s";
+    private static final String MESSAGE_NAME = "Index belongs to constraint: `%s`";
 
-    public IndexBelongsToConstraintException( LabelSchemaDescriptor descriptor )
+    public IndexBelongsToConstraintException( SchemaDescriptor descriptor )
     {
-        super( Status.Schema.ForbiddenOnConstraintIndex, format( "Index belongs to constraint: %s", descriptor ) );
+        super( Status.Schema.ForbiddenOnConstraintIndex, format( MESSAGE_SCHEMA, descriptor ) );
         this.descriptor = descriptor;
+        this.indexName = null;
+    }
+
+    public IndexBelongsToConstraintException( String indexName, SchemaDescriptor descriptor )
+    {
+        super( Status.Schema.ForbiddenOnConstraintIndex, format( MESSAGE_NAME, indexName ) );
+        this.descriptor = descriptor;
+        this.indexName = indexName;
     }
 
     @Override
     public String getUserMessage( TokenNameLookup tokenNameLookup )
     {
-        return format( message, descriptor.userDescription( tokenNameLookup ) );
+        if ( indexName == null )
+        {
+            return format( MESSAGE_SCHEMA, descriptor.userDescription( tokenNameLookup ) );
+        }
+        else
+        {
+            return format( MESSAGE_NAME, indexName );
+        }
     }
 }

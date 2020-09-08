@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -34,6 +34,11 @@ import static org.neo4j.index.internal.gbptree.PageCursorUtil.checkOutOfBounds;
  */
 class TreeStatePair
 {
+
+    private TreeStatePair()
+    {
+    }
+
     /**
      * Initialize state pages because new pages are expected to be allocated directly after
      * the existing highest allocated page. Otherwise there'd be a hole between meta and root pages

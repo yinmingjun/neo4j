@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -24,28 +24,29 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.neo4j.kernel.impl.transaction.CommittedTransactionRepresentation;
-import org.neo4j.kernel.impl.transaction.log.entry.CheckPoint;
 import org.neo4j.kernel.impl.transaction.log.entry.LogEntry;
 import org.neo4j.kernel.impl.transaction.log.entry.LogEntryCommand;
 import org.neo4j.kernel.impl.transaction.log.entry.LogEntryCommit;
+import org.neo4j.kernel.impl.transaction.log.entry.LogEntryInlinedCheckPoint;
 import org.neo4j.kernel.impl.transaction.log.entry.LogEntryReader;
 import org.neo4j.kernel.impl.transaction.log.entry.LogEntryStart;
 import org.neo4j.storageengine.api.StorageCommand;
 
-public class PhysicalTransactionCursor<T extends ReadableClosablePositionAwareChannel>
-        implements TransactionCursor
+import static org.neo4j.internal.kernel.api.security.AuthSubject.ANONYMOUS;
+
+public class PhysicalTransactionCursor implements TransactionCursor
 {
-    private final T channel;
+    private final ReadableClosablePositionAwareChecksumChannel channel;
     private final LogEntryCursor logEntryCursor;
     private final LogPositionMarker lastGoodPositionMarker = new LogPositionMarker();
 
     private CommittedTransactionRepresentation current;
 
-    public PhysicalTransactionCursor( T channel, LogEntryReader<T> entryReader ) throws IOException
+    public PhysicalTransactionCursor( ReadableClosablePositionAwareChecksumChannel channel, LogEntryReader entryReader ) throws IOException
     {
         this.channel = channel;
-        this.logEntryCursor =
-                new LogEntryCursor( (LogEntryReader<ReadableClosablePositionAwareChannel>) entryReader, channel );
+        channel.getCurrentPosition( lastGoodPositionMarker );
+        this.logEntryCursor = new LogEntryCursor( entryReader, channel );
     }
 
     @Override
@@ -57,6 +58,10 @@ public class PhysicalTransactionCursor<T extends ReadableClosablePositionAwareCh
     @Override
     public boolean next() throws IOException
     {
+        // Clear the previous deserialized transaction so that it won't have to be kept in heap while deserializing
+        // the next one. Could be problematic if both are really big.
+        current = null;
+
         while ( true )
         {
             if ( !logEntryCursor.next() )
@@ -65,7 +70,7 @@ public class PhysicalTransactionCursor<T extends ReadableClosablePositionAwareCh
             }
 
             LogEntry entry = logEntryCursor.get();
-            if ( entry instanceof CheckPoint )
+            if ( entry instanceof LogEntryInlinedCheckPoint )
             {
                 // this is a good position anyhow
                 channel.getCurrentPosition( lastGoodPositionMarker );
@@ -73,7 +78,7 @@ public class PhysicalTransactionCursor<T extends ReadableClosablePositionAwareCh
             }
 
             assert entry instanceof LogEntryStart : "Expected Start entry, read " + entry + " instead";
-            LogEntryStart startEntry = entry.as();
+            LogEntryStart startEntry = (LogEntryStart) entry;
             LogEntryCommit commitEntry;
 
             List<StorageCommand> entries = new ArrayList<>();
@@ -87,18 +92,17 @@ public class PhysicalTransactionCursor<T extends ReadableClosablePositionAwareCh
                 entry = logEntryCursor.get();
                 if ( entry instanceof LogEntryCommit )
                 {
-                    commitEntry = entry.as();
+                    commitEntry = (LogEntryCommit) entry;
                     break;
                 }
 
-                LogEntryCommand command = entry.as();
-                entries.add( command.getXaCommand() );
+                LogEntryCommand command = (LogEntryCommand) entry;
+                entries.add( command.getCommand() );
             }
 
             PhysicalTransactionRepresentation transaction = new PhysicalTransactionRepresentation( entries );
-            transaction.setHeader( startEntry.getAdditionalHeader(), startEntry.getMasterId(),
-                    startEntry.getLocalId(), startEntry.getTimeWritten(),
-                    startEntry.getLastCommittedTxWhenTransactionStarted(), commitEntry.getTimeWritten(), -1 );
+            transaction.setHeader( startEntry.getAdditionalHeader(), startEntry.getTimeWritten(),
+                    startEntry.getLastCommittedTxWhenTransactionStarted(), commitEntry.getTimeWritten(), -1, ANONYMOUS );
             current = new CommittedTransactionRepresentation( startEntry, transaction, commitEntry );
             channel.getCurrentPosition( lastGoodPositionMarker );
             return true;
@@ -112,7 +116,7 @@ public class PhysicalTransactionCursor<T extends ReadableClosablePositionAwareCh
     }
 
     /**
-     * @return last known good position, which is a {@link LogPosition} after a {@link CheckPoint} or
+     * @return last known good position, which is a {@link LogPosition} after a {@link LogEntryInlinedCheckPoint} or
      * a {@link LogEntryCommit}.
      */
     @Override

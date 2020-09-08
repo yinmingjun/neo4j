@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,6 +21,7 @@ package org.neo4j.consistency.checking;
 
 import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.store.RecordAccess;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.RecordStore;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
 import org.neo4j.kernel.impl.store.record.Record;
@@ -41,7 +42,7 @@ public class DynamicRecordCheck
     @Override
     public void check( DynamicRecord record,
                        CheckerEngine<DynamicRecord, ConsistencyReport.DynamicConsistencyReport> engine,
-                       RecordAccess records )
+                       RecordAccess records, PageCursorTracer cursorTracer )
     {
         if ( !record.inUse() )
         {
@@ -51,19 +52,15 @@ public class DynamicRecordCheck
         {
             engine.report().emptyBlock();
         }
-        else if ( record.getLength() < 0 )
-        {
-            engine.report().invalidLength();
-        }
         if ( !Record.NO_NEXT_BLOCK.is( record.getNextBlock() ) )
         {
             if ( record.getNextBlock() == record.getId() )
             {
-                engine.report().selfReferentialNext();
+                engine.report().circularReferenceNext( record );
             }
             else
             {
-                engine.comparativeCheck( dereference.lookup( records, record.getNextBlock() ), this );
+                engine.comparativeCheck( dereference.lookup( records, record.getNextBlock(), cursorTracer ), this );
             }
             if ( record.getLength() < blockSize )
             {
@@ -73,9 +70,8 @@ public class DynamicRecordCheck
     }
 
     @Override
-    public void checkReference( DynamicRecord record, DynamicRecord next,
-                                CheckerEngine<DynamicRecord, ConsistencyReport.DynamicConsistencyReport> engine,
-                                RecordAccess records )
+    public void checkReference( DynamicRecord record, DynamicRecord next, CheckerEngine<DynamicRecord,ConsistencyReport.DynamicConsistencyReport> engine,
+            RecordAccess records, PageCursorTracer cursorTracer )
     {
         if ( !next.inUse() )
         {

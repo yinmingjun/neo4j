@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,38 +19,43 @@
  */
 package org.neo4j.kernel.impl.pagecache;
 
-import com.google.common.jimfs.Configuration;
-import com.google.common.jimfs.Jimfs;
-import org.apache.commons.lang3.SystemUtils;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.FileSystems;
-import java.util.ArrayList;
-import java.util.List;
+import java.nio.file.Path;
 
-import org.neo4j.io.fs.DelegateFileSystemAbstraction;
+import org.neo4j.io.fs.DefaultFileSystemAbstraction;
 import org.neo4j.io.fs.FileSystemAbstraction;
 import org.neo4j.io.pagecache.PageCache;
 import org.neo4j.io.pagecache.PageCursor;
 import org.neo4j.io.pagecache.PagedFile;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.scheduler.JobScheduler;
+import org.neo4j.test.extension.Inject;
+import org.neo4j.test.extension.testdirectory.TestDirectoryExtension;
+import org.neo4j.test.rule.TestDirectory;
+import org.neo4j.test.scheduler.ThreadPoolJobScheduler;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class ConfigurableStandalonePageCacheFactoryTest
+@TestDirectoryExtension
+class ConfigurableStandalonePageCacheFactoryTest
 {
-    @Test( timeout = 10000 )
-    public void mustAutomaticallyStartEvictionThread() throws IOException
-    {
-        try ( FileSystemAbstraction fs = new DelegateFileSystemAbstraction( Jimfs.newFileSystem( jimConfig() ) ) )
-        {
-            File file = new File( "/a" ).getCanonicalFile();
-            fs.create( file ).close();
+    @Inject
+    private TestDirectory testDirectory;
 
-            try ( PageCache cache = ConfigurableStandalonePageCacheFactory.createPageCache( fs );
+    @Test
+    void mustAutomaticallyStartEvictionThread() throws Exception
+    {
+        try ( FileSystemAbstraction fs = new DefaultFileSystemAbstraction();
+              JobScheduler jobScheduler = new ThreadPoolJobScheduler() )
+        {
+            Path file = testDirectory.homePath().resolve( "a" ).normalize();
+            fs.write( file ).close();
+
+            try ( PageCache cache = ConfigurableStandalonePageCacheFactory.createPageCache( fs, jobScheduler, PageCacheTracer.NULL );
                     PagedFile pf = cache.map( file, 4096 );
-                    PageCursor cursor = pf.io( 0, PagedFile.PF_SHARED_WRITE_LOCK ) )
+                    PageCursor cursor = pf.io( 0, PagedFile.PF_SHARED_WRITE_LOCK, PageCursorTracer.NULL ) )
             {
                 // The default size is currently 8MBs.
                 // It should be possible to write more than that.
@@ -62,28 +67,5 @@ public class ConfigurableStandalonePageCacheFactoryTest
                 }
             }
         }
-    }
-
-    private Configuration jimConfig()
-    {
-        if ( SystemUtils.IS_OS_WINDOWS )
-        {
-            List<String> rootList = new ArrayList<>();
-            FileSystems.getDefault().getRootDirectories().forEach( path -> rootList.add( path.toString() ) );
-            Configuration.Builder builder = Configuration.windows().toBuilder();
-            if ( rootList.size() > 1 )
-            {
-                builder.setRoots( rootList.get( 0 ), rootList.subList( 1, rootList.size() ).toArray(new String[0] ) );
-            }
-            else
-            {
-                builder.setRoots( rootList.get( 0 ) );
-            }
-        }
-        else if ( SystemUtils.IS_OS_MAC_OSX )
-        {
-            return Configuration.osX();
-        }
-        return Configuration.unix();
     }
 }

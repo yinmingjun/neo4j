@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,22 +19,22 @@
  */
 package org.neo4j.kernel.impl.util.dbstructure;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import org.neo4j.helpers.collection.Iterators;
-import org.neo4j.helpers.collection.Pair;
-import org.neo4j.kernel.api.schema.constaints.ConstraintDescriptorFactory;
-import org.neo4j.kernel.api.schema.index.IndexDescriptorFactory;
+import org.neo4j.internal.helpers.collection.Iterators;
+import org.neo4j.internal.helpers.collection.Pair;
+import org.neo4j.internal.schema.constraints.ConstraintDescriptorFactory;
+import org.neo4j.kernel.api.schema.index.TestIndexDescriptorFactory;
 
 import static java.util.Arrays.asList;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.neo4j.helpers.collection.Pair.of;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.neo4j.internal.helpers.collection.Pair.of;
 
-public class DbStructureCollectorTest
+class DbStructureCollectorTest
 {
     @Test
-    public void collectsDbStructure()
+    void collectsDbStructure()
     {
         // GIVEN
         DbStructureCollector collector = new DbStructureCollector();
@@ -44,10 +44,10 @@ public class DbStructureCollectorTest
         collector.visitPropertyKey( 2, "income" );
         collector.visitRelationshipType( 1, "LIVES_IN" );
         collector.visitRelationshipType( 2, "FRIEND" );
-        collector.visitIndex( IndexDescriptorFactory.uniqueForLabel( 1, 1 ), ":Person(name)", 1.0d, 1L );
+        collector.visitIndex( TestIndexDescriptorFactory.uniqueForLabel( 1, 1 ), ":Person(name)", 1.0d, 1L );
         collector.visitUniqueConstraint( ConstraintDescriptorFactory.uniqueForLabel( 2, 1 ), ":City(name)" );
         collector.visitNodeKeyConstraint( ConstraintDescriptorFactory.nodeKeyForLabel( 2, 1 ), ":City(name)" );
-        collector.visitIndex( IndexDescriptorFactory.forLabel( 2, 2 ), ":City(income)", 0.2d, 1L );
+        collector.visitIndex( TestIndexDescriptorFactory.forLabel( 2, 2 ), ":City(income)", 0.2d, 1L );
         collector.visitAllNodesCount( 50 );
         collector.visitNodeCount( 1, "Person", 20 );
         collector.visitNodeCount( 2, "City", 30 );
@@ -61,8 +61,7 @@ public class DbStructureCollectorTest
         assertEquals( asList( of( 1, "name" ), of( 2, "income" ) ), Iterators.asList( lookup.properties() ) );
         assertEquals( asList( of( 1, "LIVES_IN" ), of( 2, "FRIEND" ) ), Iterators.asList( lookup.relationshipTypes() ) );
 
-        assertEquals( asList( "Person" ),
-                Iterators.asList( Iterators.map( Pair::first, lookup.knownUniqueIndices() ) ) );
+        assertArrayEquals( new String[] { "Person" }, lookup.knownUniqueIndices().next().first() );
         assertArrayEquals( new String[]{"name"}, lookup.knownUniqueIndices().next().other() );
 
         assertEquals( asList( "City" ),
@@ -73,19 +72,19 @@ public class DbStructureCollectorTest
                 Iterators.asList( Iterators.map( Pair::first, lookup.knownUniqueConstraints() ) ) );
         assertArrayEquals( new String[]{"name"}, lookup.knownUniqueConstraints().next().other() );
 
-        assertEquals( asList( "City" ), Iterators.asList( Iterators.map( Pair::first, lookup.knownIndices() ) ) );
+        assertArrayEquals( new String[] { "City" }, lookup.knownIndices().next().first() );
         assertArrayEquals( new String[]{"income"}, lookup.knownIndices().next().other() );
 
-        assertEquals( 50, lookup.nodesWithLabelCardinality( -1 ) );
+        assertEquals( 50, lookup.nodesAllCardinality() );
         assertEquals( 20, lookup.nodesWithLabelCardinality( 1 ) );
         assertEquals( 30, lookup.nodesWithLabelCardinality( 2 ) );
         assertEquals( 500, lookup.cardinalityByLabelsAndRelationshipType( 1, 2, -1 ) );
-        assertEquals( 1.0d, lookup.indexSelectivity( 1, 1 ), 0.01d );
-        assertEquals( 0.2d, lookup.indexSelectivity( 2, 2 ), 0.01d );
+        assertEquals( 1.0d, lookup.indexUniqueValueSelectivity( 1, 1 ), 0.01d );
+        assertEquals( 0.2d, lookup.indexUniqueValueSelectivity( 2, 2 ), 0.01d );
     }
 
     @Test
-    public void collectsCompositeDbStructure()
+    void collectsCompositeDbStructure()
     {
         // GIVEN
         DbStructureCollector collector = new DbStructureCollector();
@@ -98,9 +97,9 @@ public class DbStructureCollectorTest
         collector.visitPropertyKey( 5, "area" );
         collector.visitRelationshipType( 1, "LIVES_IN" );
         collector.visitRelationshipType( 2, "FRIEND" );
-        collector.visitIndex( IndexDescriptorFactory.uniqueForLabel( 1, 1, 3 ), ":Person(name, lastName)", 1.0d, 1L );
+        collector.visitIndex( TestIndexDescriptorFactory.uniqueForLabel( 1, 1, 3 ), ":Person(name, lastName)", 1.0d, 1L );
         collector.visitUniqueConstraint( ConstraintDescriptorFactory.uniqueForLabel( 2, 1, 5 ), ":City(name, area)" );
-        collector.visitIndex( IndexDescriptorFactory.forLabel( 2, 2, 4 ), ":City(income, tax)", 0.2d, 1L );
+        collector.visitIndex( TestIndexDescriptorFactory.forLabel( 2, 2, 4 ), ":City(income, tax)", 0.2d, 1L );
         collector.visitAllNodesCount( 50 );
         collector.visitNodeCount( 1, "Person", 20 );
         collector.visitNodeCount( 2, "City", 30 );
@@ -117,20 +116,19 @@ public class DbStructureCollectorTest
         assertEquals( asList( of( 1, "LIVES_IN" ), of( 2, "FRIEND" ) ),
                 Iterators.asList( lookup.relationshipTypes() ) );
 
-        assertEquals( asList( "Person" ),
-                Iterators.asList( Iterators.map( Pair::first, lookup.knownUniqueIndices() ) ) );
+        assertArrayEquals( new String[] { "Person" }, lookup.knownUniqueIndices().next().first() );
         assertArrayEquals( new String[]{"name", "lastName"}, lookup.knownUniqueIndices().next().other() );
         assertEquals( asList( "City" ),
                 Iterators.asList( Iterators.map( Pair::first, lookup.knownUniqueConstraints() ) ) );
         assertArrayEquals( new String[]{"name", "area"}, lookup.knownUniqueConstraints().next().other() );
-        assertEquals( asList( "City" ), Iterators.asList( Iterators.map( Pair::first, lookup.knownIndices() ) ) );
+        assertArrayEquals( new String[] { "City" }, lookup.knownIndices().next().first() );
         assertArrayEquals( new String[]{"income", "tax"}, lookup.knownIndices().next().other() );
 
-        assertEquals( 50, lookup.nodesWithLabelCardinality( -1 ) );
+        assertEquals( 50, lookup.nodesAllCardinality() );
         assertEquals( 20, lookup.nodesWithLabelCardinality( 1 ) );
         assertEquals( 30, lookup.nodesWithLabelCardinality( 2 ) );
         assertEquals( 500, lookup.cardinalityByLabelsAndRelationshipType( 1, 2, -1 ) );
-        assertEquals( 1.0d, lookup.indexSelectivity( 1, 1, 3 ), 0.01d );
-        assertEquals( 0.2d, lookup.indexSelectivity( 2, 2, 4 ), 0.01d );
+        assertEquals( 1.0d, lookup.indexUniqueValueSelectivity( 1, 1, 3 ), 0.01d );
+        assertEquals( 0.2d, lookup.indexUniqueValueSelectivity( 2, 2, 4 ), 0.01d );
     }
 }

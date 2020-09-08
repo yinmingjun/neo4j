@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -36,14 +36,18 @@ public interface LogFileInformation
     long getFirstEntryId( long version ) throws IOException;
 
     /**
-     * @return the last committed entry id for this Log
+     * @return the last committed entry id for this log.
      */
     long getLastEntryId();
 
     /**
+     * @return the committing entry id for this log.
+     */
+    long committingEntryId();
+
+    /**
      * @param version the log version to get first entry timestamp for.
-     * @return the timestamp for the start record for the first encountered entry
-     * in the log {@code version}.
+     * @return the timestamp for the start record for the first encountered entry in the log {@code version}.
      */
     long getFirstStartRecordTimestamp( long version ) throws IOException;
 }

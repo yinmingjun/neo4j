@@ -1,5 +1,5 @@
-# Copyright (c) 2002-2016 "Neo Technology,"
-# Network Engine for Objects in Lund AB [http://neotechnology.com]
+# Copyright (c) 2002-2020 "Neo4j,"
+# Neo4j Sweden AB [http://neo4j.com]
 #
 # This file is part of Neo4j.
 #
@@ -41,14 +41,14 @@ Get-Neo4jSetting -Neo4jServer $ServerObject | Format-Table
 Retrieves all settings for the Neo4j installation at $ServerObject
 
 .EXAMPLE
-Get-Neo4jSetting -Neo4jServer $ServerObject -Name 'dbms.active_database'
+Get-Neo4jSetting -Neo4jServer $ServerObject -Name 'dbms.default_database'
 
-Retrieves all settings with the name 'dbms.active_database' from the Neo4j installation at $ServerObject
+Retrieves all settings with the name 'dbms.default_database' from the Neo4j installation at $ServerObject
 
 .EXAMPLE
-Get-Neo4jSetting -Neo4jServer $ServerObject -Name 'dbms.active_database' -ConfigurationFile 'neo4j.conf'
+Get-Neo4jSetting -Neo4jServer $ServerObject -Name 'dbms.default_database' -ConfigurationFile 'neo4j.conf'
 
-Retrieves all settings with the name 'dbms.active_database' from the Neo4j installation at $ServerObject in 'neo4j.conf'
+Retrieves all settings with the name 'dbms.default_database' from the Neo4j installation at $ServerObject in 'neo4j.conf'
 
 .OUTPUTS
 System.Management.Automation.PSCustomObject
@@ -67,25 +67,25 @@ Get-Neo4jServer
 This function is private to the powershell module
 
 #>
-Function Get-Neo4jSetting
+function Get-Neo4jSetting
 {
-  [cmdletBinding(SupportsShouldProcess=$false,ConfirmImpact='Low')]
-  param (
-    [Parameter(Mandatory=$true,ValueFromPipeline=$true)]
-    [PSCustomObject]$Neo4jServer
+  [CmdletBinding(SupportsShouldProcess = $false,ConfirmImpact = 'Low')]
+  param(
+    [Parameter(Mandatory = $true,ValueFromPipeline = $true)]
+    [pscustomobject]$Neo4jServer
 
-    ,[Parameter(Mandatory=$false)]
+    ,[Parameter(Mandatory = $false)]
     [string[]]$ConfigurationFile = $null
 
-    ,[Parameter(Mandatory=$false)]
+    ,[Parameter(Mandatory = $false)]
     [string]$Name = ''
   )
-  
-  Begin
+
+  begin
   {
   }
 
-  Process
+  process
   {
     # Get the Neo4j Server information
     if ($Neo4jServer -eq $null) { return }
@@ -95,27 +95,27 @@ Function Get-Neo4jSetting
     {
       $ConfigurationFile = ('neo4j.conf','neo4j-wrapper.conf')
     }
-   
+
     $ConfigurationFile | ForEach-Object -Process `
-    {
+       {
       $filename = $_
       $filePath = Join-Path -Path $Neo4jServer.ConfDir -ChildPath $filename
       if (Test-Path -Path $filePath)
       {
-        $keyPairsFromFile = Get-KeyValuePairsFromConfFile -filename $filePath        
+        $keyPairsFromFile = Get-KeyValuePairsFromConfFile -FileName $filePath
       }
       else
       {
         $keyPairsFromFile = $null
       }
-      
+
       if ($keyPairsFromFile -ne $null)
       {
         $keyPairsFromFile.GetEnumerator() | Where-Object { ($Name -eq '') -or ($_.Name -eq $Name) } | ForEach-Object -Process `
-        {
+           {
           $properties = @{
             'Name' = $_.Name;
-            'Value' = $_.Value;
+            'Value' = $_.value;
             'ConfigurationFile' = $filename;
             'IsDefault' = $false;
             'Neo4jHome' = $Neo4jServer.Home;
@@ -126,8 +126,8 @@ Function Get-Neo4jSetting
       }
     }
   }
-  
-  End
+
+  end
   {
   }
 }

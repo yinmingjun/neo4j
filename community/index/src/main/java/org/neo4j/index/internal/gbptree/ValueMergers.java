@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -24,16 +24,20 @@ package org.neo4j.index.internal.gbptree;
  */
 public class ValueMergers
 {
-    private static final ValueMerger OVERWRITE = ( existingValue, newValue ) -> newValue;
+    private static final ValueMerger OVERWRITE = ( existingKey, newKey, existingValue, newValue ) -> ValueMerger.MergeResult.REPLACED;
 
-    private static final ValueMerger KEEP_EXISTING = ( existingValue, newValue ) -> null;
+    private static final ValueMerger KEEP_EXISTING = ( existingKey, newKey, existingValue, newValue ) -> ValueMerger.MergeResult.UNCHANGED;
+
+    private ValueMergers()
+    {
+    }
 
     /**
      * @return {@link ValueMerger} which overwrites value for existing key when inserting.
      * This merger guarantees unique keys in index.
      */
     @SuppressWarnings( "unchecked" )
-    public static <VALUE> ValueMerger<VALUE> overwrite()
+    public static <KEY,VALUE> ValueMerger<KEY,VALUE> overwrite()
     {
         return OVERWRITE;
     }
@@ -43,7 +47,7 @@ public class ValueMergers
      * This merger guarantees unique keys in index.
      */
     @SuppressWarnings( "unchecked" )
-    public static <VALUE> ValueMerger<VALUE> keepExisting()
+    public static <KEY,VALUE> ValueMerger<KEY,VALUE> keepExisting()
     {
         return KEEP_EXISTING;
     }

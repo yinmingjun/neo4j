@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,7 +19,7 @@
  */
 package org.neo4j.consistency.checking.full;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -28,7 +28,7 @@ import java.util.List;
 import org.neo4j.consistency.checking.CheckerEngine;
 import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.store.RecordAccessStub;
-import org.neo4j.consistency.store.synthetic.LabelScanDocument;
+import org.neo4j.consistency.store.synthetic.TokenScanDocument;
 import org.neo4j.kernel.impl.store.DynamicArrayStore;
 import org.neo4j.kernel.impl.store.InlineNodeLabels;
 import org.neo4j.kernel.impl.store.allocator.ReusableRecordsAllocator;
@@ -41,70 +41,74 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.neo4j.consistency.checking.RecordCheckTestBase.inUse;
 import static org.neo4j.consistency.checking.RecordCheckTestBase.notInUse;
+import static org.neo4j.internal.schema.PropertySchemaType.COMPLETE_ALL_TOKENS;
+import static org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer.NULL;
 import static org.neo4j.kernel.impl.store.DynamicNodeLabels.dynamicPointer;
 import static org.neo4j.kernel.impl.store.LabelIdArray.prependNodeId;
+import static org.neo4j.memory.EmptyMemoryTracker.INSTANCE;
 
-public class NodeInUseWithCorrectLabelsCheckTest
+class NodeInUseWithCorrectLabelsCheckTest
 {
     @Test
-    public void shouldReportNodeNotInUse() throws Exception
+    void shouldReportNodeNotInUse()
     {
         // given
         int nodeId = 42;
+        long labelId = 7;
 
         ConsistencyReport.LabelScanConsistencyReport report =
                 mock( ConsistencyReport.LabelScanConsistencyReport.class );
-        NodeRecord node = notInUse( new NodeRecord( nodeId, false, 0, 0 ) );
+        NodeRecord node = notInUse( new NodeRecord( nodeId ).initialize( false, 0, false, 0, 0 ) );
 
         // when
-        checker( new long[]{}, true ).checkReference( null, node, engineFor( report ), null );
+        checker( new long[]{labelId}, true ).checkReference( null, node, engineFor( report ), null, NULL );
 
         // then
         verify( report ).nodeNotInUse( node );
     }
 
     @Test
-    public void shouldReportNodeWithoutExpectedLabelWhenLabelsAreInlineBothDirections() throws Exception
+    void shouldReportNodeWithoutExpectedLabelWhenLabelsAreInlineBothDirections()
     {
         // given
         int nodeId = 42;
         long[] storeLabelIds = new long[] {7, 9};
         long[] indexLabelIds = new long[] {   9, 10};
 
-        NodeRecord node = inUse( withInlineLabels( new NodeRecord( nodeId, false, 0, 0 ), storeLabelIds ) );
+        NodeRecord node = inUse( withInlineLabels( new NodeRecord( nodeId ).initialize( false, 0, false, 0, 0 ), storeLabelIds ) );
 
         ConsistencyReport.LabelScanConsistencyReport report =
                 mock( ConsistencyReport.LabelScanConsistencyReport.class );
 
         // when
-        checker( indexLabelIds, true ).checkReference( null, node, engineFor( report ), null );
+        checker( indexLabelIds, true ).checkReference( null, node, engineFor( report ), null, NULL );
 
         // then
         verify( report ).nodeDoesNotHaveExpectedLabel( node, 10 );
     }
 
     @Test
-    public void shouldReportNodeWithoutExpectedLabelWhenLabelsAreInlineIndexToStore() throws Exception
+    void shouldReportNodeWithoutExpectedLabelWhenLabelsAreInlineIndexToStore()
     {
         // given
         int nodeId = 42;
         long[] storeLabelIds = new long[] {7, 9};
         long[] indexLabelIds = new long[] {   9, 10};
 
-        NodeRecord node = inUse( withInlineLabels( new NodeRecord( nodeId, false, 0, 0 ), storeLabelIds ) );
+        NodeRecord node = inUse( withInlineLabels( new NodeRecord( nodeId ).initialize( false, 0, false, 0, 0 ), storeLabelIds ) );
 
         ConsistencyReport.LabelScanConsistencyReport report =
                 mock( ConsistencyReport.LabelScanConsistencyReport.class );
 
         // when
-        checker( indexLabelIds, false ).checkReference( null, node, engineFor( report ), null );
+        checker( indexLabelIds, false ).checkReference( null, node, engineFor( report ), null, NULL );
 
         // then
         verify( report ).nodeDoesNotHaveExpectedLabel( node, 10 );
     }
 
     @Test
-    public void shouldReportNodeWithoutExpectedLabelWhenLabelsAreDynamicBothDirections() throws Exception
+    void shouldReportNodeWithoutExpectedLabelWhenLabelsAreDynamicBothDirections()
     {
         // given
         int nodeId = 42;
@@ -112,14 +116,14 @@ public class NodeInUseWithCorrectLabelsCheckTest
         long[] storeLabelIds = {1, 2, 3, 4, 5, 6,    8, 9, 10, 11};
 
         RecordAccessStub recordAccess = new RecordAccessStub();
-        NodeRecord node = inUse( withDynamicLabels( recordAccess, new NodeRecord( nodeId, false, 0, 0 ), storeLabelIds ) );
+        NodeRecord node = inUse( withDynamicLabels( recordAccess, new NodeRecord( nodeId ).initialize( false, 0, false, 0, 0 ), storeLabelIds ) );
 
         ConsistencyReport.LabelScanConsistencyReport report =
                 mock( ConsistencyReport.LabelScanConsistencyReport.class );
 
         // when
-        CheckerEngine<LabelScanDocument, ConsistencyReport.LabelScanConsistencyReport> engine = recordAccess.engine( null, report );
-        checker( indexLabelIds, true ).checkReference( null, node, engine, recordAccess );
+        CheckerEngine<TokenScanDocument, ConsistencyReport.LabelScanConsistencyReport> engine = recordAccess.engine( null, report );
+        checker( indexLabelIds, true ).checkReference( null, node, engine, recordAccess, NULL );
         recordAccess.checkDeferred();
 
         // then
@@ -128,7 +132,7 @@ public class NodeInUseWithCorrectLabelsCheckTest
     }
 
     @Test
-    public void shouldReportNodeWithoutExpectedLabelWhenLabelsAreDynamicIndexToStore() throws Exception
+    void shouldReportNodeWithoutExpectedLabelWhenLabelsAreDynamicIndexToStore()
     {
         // given
         int nodeId = 42;
@@ -137,14 +141,14 @@ public class NodeInUseWithCorrectLabelsCheckTest
         long missingLabelId = 7;
 
         RecordAccessStub recordAccess = new RecordAccessStub();
-        NodeRecord node = inUse( withDynamicLabels( recordAccess, new NodeRecord( nodeId, false, 0, 0 ), storeLabelIds ) );
+        NodeRecord node = inUse( withDynamicLabels( recordAccess, new NodeRecord( nodeId ).initialize( false, 0, false, 0, 0 ), storeLabelIds ) );
 
         ConsistencyReport.LabelScanConsistencyReport report =
                 mock( ConsistencyReport.LabelScanConsistencyReport.class );
 
         // when
-        CheckerEngine<LabelScanDocument, ConsistencyReport.LabelScanConsistencyReport> engine = recordAccess.engine( null, report );
-        checker( indexLabelIds, true ).checkReference( null, node, engine, recordAccess );
+        CheckerEngine<TokenScanDocument, ConsistencyReport.LabelScanConsistencyReport> engine = recordAccess.engine( null, report );
+        checker( indexLabelIds, true ).checkReference( null, node, engine, recordAccess, NULL );
         recordAccess.checkDeferred();
 
         // then
@@ -152,7 +156,7 @@ public class NodeInUseWithCorrectLabelsCheckTest
     }
 
     @Test
-    public void reportNodeWithoutLabelsWhenLabelsAreInlined()
+    void reportNodeWithoutLabelsWhenLabelsAreInlined()
     {
         int nodeId = 42;
         long[] indexLabelIds = {3};
@@ -160,13 +164,13 @@ public class NodeInUseWithCorrectLabelsCheckTest
         long missingLabelId = 3;
 
         RecordAccessStub recordAccess = new RecordAccessStub();
-        NodeRecord node = inUse( withInlineLabels( new NodeRecord( nodeId, false, 0, 0 ), storeLabelIds ) );
+        NodeRecord node = inUse( withInlineLabels( new NodeRecord( nodeId ).initialize( false, 0, false, 0, 0 ), storeLabelIds ) );
 
         ConsistencyReport.LabelScanConsistencyReport report = mock( ConsistencyReport.LabelScanConsistencyReport.class );
 
         // when
-        CheckerEngine<LabelScanDocument, ConsistencyReport.LabelScanConsistencyReport> engine = recordAccess.engine( null, report );
-        checker( indexLabelIds, true ).checkReference( null, node, engine, recordAccess );
+        CheckerEngine<TokenScanDocument, ConsistencyReport.LabelScanConsistencyReport> engine = recordAccess.engine( null, report );
+        checker( indexLabelIds, true ).checkReference( null, node, engine, recordAccess, NULL );
         recordAccess.checkDeferred();
 
         // then
@@ -174,7 +178,7 @@ public class NodeInUseWithCorrectLabelsCheckTest
     }
 
     @Test
-    public void reportNodeWithoutLabelsWhenLabelsAreDynamic()
+    void reportNodeWithoutLabelsWhenLabelsAreDynamic()
     {
         int nodeId = 42;
         long[] indexLabelIds = {3, 7, 9, 10};
@@ -182,14 +186,14 @@ public class NodeInUseWithCorrectLabelsCheckTest
         long[] missingLabelIds = {3, 7, 9, 10};
 
         RecordAccessStub recordAccess = new RecordAccessStub();
-        NodeRecord node = inUse( withDynamicLabels( recordAccess, new NodeRecord( nodeId, false, 0, 0 ), storeLabelIds ) );
+        NodeRecord node = inUse( withDynamicLabels( recordAccess, new NodeRecord( nodeId ).initialize( false, 0, false, 0, 0 ), storeLabelIds ) );
 
         ConsistencyReport.LabelScanConsistencyReport report =
                 mock( ConsistencyReport.LabelScanConsistencyReport.class );
 
         // when
-        CheckerEngine<LabelScanDocument, ConsistencyReport.LabelScanConsistencyReport> engine = recordAccess.engine( null, report );
-        checker( indexLabelIds, true ).checkReference( null, node, engine, recordAccess );
+        CheckerEngine<TokenScanDocument, ConsistencyReport.LabelScanConsistencyReport> engine = recordAccess.engine( null, report );
+        checker( indexLabelIds, true ).checkReference( null, node, engine, recordAccess, NULL );
         recordAccess.checkDeferred();
 
         // then
@@ -200,31 +204,31 @@ public class NodeInUseWithCorrectLabelsCheckTest
     }
 
     @Test
-    public void shouldRemainSilentWhenEverythingIsInOrder() throws Exception
+    void shouldRemainSilentWhenEverythingIsInOrder()
     {
         // given
         int nodeId = 42;
         int labelId = 7;
 
-        NodeRecord node = withInlineLabels( inUse( new NodeRecord( nodeId, false, 0, 0 ) ), labelId );
+        NodeRecord node = withInlineLabels( inUse( new NodeRecord( nodeId ).initialize( false, 0, false, 0, 0 ) ), labelId );
 
         ConsistencyReport.LabelScanConsistencyReport report =
                 mock( ConsistencyReport.LabelScanConsistencyReport.class );
 
         // when
-        checker( new long[]{labelId}, true ).checkReference( null, node, engineFor( report ), null );
+        checker( new long[]{labelId}, true ).checkReference( null, node, engineFor( report ), null, NULL );
 
         // then
         verifyNoMoreInteractions( report );
     }
 
-    private NodeRecord withInlineLabels( NodeRecord nodeRecord, long... labelIds )
+    private static NodeRecord withInlineLabels( NodeRecord nodeRecord, long... labelIds )
     {
-        new InlineNodeLabels( nodeRecord ).put( labelIds, null, null );
+        new InlineNodeLabels( nodeRecord ).put( labelIds, null, null, NULL, INSTANCE );
         return nodeRecord;
     }
 
-    private NodeRecord withDynamicLabels( RecordAccessStub recordAccess, NodeRecord nodeRecord, long... labelIds )
+    private static NodeRecord withDynamicLabels( RecordAccessStub recordAccess, NodeRecord nodeRecord, long... labelIds )
     {
         List<DynamicRecord> preAllocatedRecords = new ArrayList<>();
         for ( int i = 0; i < 10; i++ )
@@ -233,7 +237,7 @@ public class NodeInUseWithCorrectLabelsCheckTest
         }
         Collection<DynamicRecord> dynamicRecords = new ArrayList<>();
         DynamicArrayStore.allocateFromNumbers( dynamicRecords, prependNodeId( nodeRecord.getId(), labelIds ),
-                new ReusableRecordsAllocator( 4, preAllocatedRecords ) );
+                new ReusableRecordsAllocator( 4, preAllocatedRecords ), NULL, INSTANCE );
         for ( DynamicRecord dynamicRecord : dynamicRecords )
         {
             recordAccess.addNodeDynamicLabels( dynamicRecord );
@@ -243,19 +247,20 @@ public class NodeInUseWithCorrectLabelsCheckTest
         return nodeRecord;
     }
 
-    private Engine engineFor( ConsistencyReport.LabelScanConsistencyReport report )
+    private static Engine engineFor( ConsistencyReport.LabelScanConsistencyReport report )
     {
         Engine engine = mock( Engine.class );
         when( engine.report() ).thenReturn( report );
         return engine;
     }
 
-    private NodeInUseWithCorrectLabelsCheck<LabelScanDocument, ConsistencyReport.LabelScanConsistencyReport> checker( long[] expectedLabels, boolean checkStoreToIndex )
+    private static NodeInUseWithCorrectLabelsCheck<TokenScanDocument,ConsistencyReport.LabelScanConsistencyReport> checker( long[] expectedLabels,
+            boolean checkStoreToIndex )
     {
-        return new NodeInUseWithCorrectLabelsCheck<>( expectedLabels, checkStoreToIndex );
+        return new NodeInUseWithCorrectLabelsCheck<>( expectedLabels, COMPLETE_ALL_TOKENS, checkStoreToIndex );
     }
 
-    interface Engine extends CheckerEngine<LabelScanDocument, ConsistencyReport.LabelScanConsistencyReport>
+    interface Engine extends CheckerEngine<TokenScanDocument, ConsistencyReport.LabelScanConsistencyReport>
     {
     }
 }

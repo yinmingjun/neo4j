@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,18 +22,25 @@ package org.neo4j.kernel.api.impl.schema.reader;
 import org.apache.lucene.document.Document;
 
 import java.util.Iterator;
+import java.util.function.ToLongFunction;
 
-import org.neo4j.helpers.collection.BoundedIterable;
-
-import static org.neo4j.kernel.api.impl.schema.LuceneDocumentStructure.getNodeId;
+import org.neo4j.internal.helpers.collection.BoundedIterable;
+import org.neo4j.internal.helpers.collection.PrefetchingIterator;
 
 public class LuceneAllEntriesIndexAccessorReader implements BoundedIterable<Long>
 {
     private final BoundedIterable<Document> documents;
+    private final ToLongFunction<Document> entityIdReader;
+    private final long fromIdInclusive;
+    private final long toIdExclusive;
 
-    public LuceneAllEntriesIndexAccessorReader( BoundedIterable<Document> documents )
+    public LuceneAllEntriesIndexAccessorReader( BoundedIterable<Document> documents, ToLongFunction<Document> entityIdReader,
+            long fromIdInclusive, long toIdExclusive )
     {
         this.documents = documents;
+        this.entityIdReader = entityIdReader;
+        this.fromIdInclusive = fromIdInclusive;
+        this.toIdExclusive = toIdExclusive;
     }
 
     @Override
@@ -46,16 +53,24 @@ public class LuceneAllEntriesIndexAccessorReader implements BoundedIterable<Long
     public Iterator<Long> iterator()
     {
         Iterator<Document> iterator = documents.iterator();
-        return new Iterator<Long>()
+        return new PrefetchingIterator<Long>()
         {
-            public boolean hasNext()
+            @Override
+            protected Long fetchNextOrNull()
             {
-                return iterator.hasNext();
-            }
-
-            public Long next()
-            {
-                return getNodeId( iterator.next() );
+                do
+                {
+                    if ( !iterator.hasNext() )
+                    {
+                        return null;
+                    }
+                    long id = entityIdReader.applyAsLong( iterator.next() );
+                    if ( id >= fromIdInclusive && id < toIdExclusive )
+                    {
+                        return id;
+                    }
+                }
+                while ( true );
             }
         };
     }

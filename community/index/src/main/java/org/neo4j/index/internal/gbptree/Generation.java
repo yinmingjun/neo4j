@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -31,6 +31,10 @@ class Generation
 {
     private static final long UNSTABLE_GENERATION_MASK = 0xFFFFFFFFL;
     private static final int STABLE_GENERATION_SHIFT = Integer.SIZE;
+
+    private Generation()
+    {
+    }
 
     /**
      * Takes one stable and one unstable generation (both unsigned ints) and crams them into one {@code long}.

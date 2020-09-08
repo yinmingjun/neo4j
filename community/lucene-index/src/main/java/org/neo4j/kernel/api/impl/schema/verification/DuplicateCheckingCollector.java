@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,36 +22,37 @@ package org.neo4j.kernel.api.impl.schema.verification;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.SimpleCollector;
 
 import java.io.IOException;
-import java.util.Arrays;
 
-import org.neo4j.kernel.api.StatementConstants;
-import org.neo4j.kernel.api.exceptions.KernelException;
+import org.neo4j.exceptions.KernelException;
 import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
 import org.neo4j.kernel.api.impl.schema.LuceneDocumentStructure;
-import org.neo4j.kernel.api.index.PropertyAccessor;
-import org.neo4j.kernel.api.properties.Property;
+import org.neo4j.kernel.api.impl.schema.verification.DuplicateCheckStrategy.BucketsDuplicateCheckStrategy;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
+import org.neo4j.values.storable.Value;
+
+import static org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer.NULL;
 
 public class DuplicateCheckingCollector extends SimpleCollector
 {
-    protected final PropertyAccessor accessor;
+    protected final NodePropertyAccessor accessor;
     private final int propertyKeyId;
-    private EntrySet actualValues;
     protected LeafReader reader;
+    DuplicateCheckStrategy duplicateCheckStrategy;
 
-    public static DuplicateCheckingCollector forProperties( PropertyAccessor accessor, int[] propertyKeyIds )
+    static DuplicateCheckingCollector forProperties( NodePropertyAccessor accessor, int[] propertyKeyIds )
     {
         return (propertyKeyIds.length == 1) ? new DuplicateCheckingCollector( accessor, propertyKeyIds[0] )
                                             : new CompositeDuplicateCheckingCollector( accessor, propertyKeyIds );
     }
 
-    public DuplicateCheckingCollector( PropertyAccessor accessor, int propertyKeyId )
+    DuplicateCheckingCollector( NodePropertyAccessor accessor, int propertyKeyId )
     {
         this.accessor = accessor;
         this.propertyKeyId = propertyKeyId;
-        actualValues = new EntrySet();
     }
 
     @Override
@@ -61,13 +62,13 @@ public class DuplicateCheckingCollector extends SimpleCollector
         {
             doCollect( doc );
         }
-        catch ( KernelException e )
-        {
-            throw new IllegalStateException( "Indexed node should exist and have the indexed property.", e );
-        }
         catch ( IndexEntryConflictException e )
         {
             throw new IOException( e );
+        }
+        catch ( KernelException e )
+        {
+            throw new IllegalStateException( "Indexed node should exist and have the indexed property.", e );
         }
     }
 
@@ -75,72 +76,48 @@ public class DuplicateCheckingCollector extends SimpleCollector
     {
         Document document = reader.document( doc );
         long nodeId = LuceneDocumentStructure.getNodeId( document );
-        Property property = accessor.getProperty( nodeId, propertyKeyId );
-
-        // We either have to find the first conflicting entry set element,
-        // or append one for the property we just fetched:
-        EntrySet current = actualValues;
-        scan:
-        do
-        {
-            for ( int i = 0; i < EntrySet.INCREMENT; i++ )
-            {
-                Object value = current.value[i];
-
-                if ( current.nodeId[i] == StatementConstants.NO_SUCH_NODE )
-                {
-                    current.value[i] = property.value();
-                    current.nodeId[i] = nodeId;
-                    if ( i == EntrySet.INCREMENT - 1 )
-                    {
-                        current.next = new EntrySet();
-                    }
-                    break scan;
-                }
-                else if ( property.valueEquals( value ) )
-                {
-                    throw new IndexEntryConflictException( current.nodeId[i], nodeId, value );
-                }
-            }
-            current = current.next;
-        }
-        while ( current != null );
+        Value value = accessor.getNodePropertyValue( nodeId, propertyKeyId, NULL );
+        duplicateCheckStrategy.checkForDuplicate( value, nodeId );
     }
 
     @Override
-    protected void doSetNextReader( LeafReaderContext context ) throws IOException
+    protected void doSetNextReader( LeafReaderContext context )
     {
         this.reader = context.reader();
     }
 
     @Override
-    public boolean needsScores()
+    public ScoreMode scoreMode()
     {
-        return false;
-    }
-
-    public void reset()
-    {
-        actualValues = new EntrySet();
+        return ScoreMode.COMPLETE_NO_SCORES;
     }
 
     /**
-     * A small struct of arrays of nodeId + property values, with a next pointer.
-     * Should exhibit fairly fast linear iteration, small memory overhead and dynamic growth.
-     * <p>
-     * NOTE: Must always call reset() before use!
+     * Initialise collector for unknown number of entries that are suspected to be duplicates.
      */
-    private static class EntrySet
+    public void init()
     {
-        static final int INCREMENT = 10000;
+        duplicateCheckStrategy = new BucketsDuplicateCheckStrategy();
+    }
 
-        Object[] value = new Object[INCREMENT];
-        long[] nodeId = new long[INCREMENT];
-        EntrySet next;
-
-        EntrySet()
+    /**
+     * Initialize collector for some known and expected number of entries that are suspected to be duplicates.
+     * @param expectedNumberOfEntries expected number entries
+     */
+    public void init( int expectedNumberOfEntries )
+    {
+        if ( useFastCheck( expectedNumberOfEntries ) )
         {
-            Arrays.fill( nodeId, StatementConstants.NO_SUCH_NODE );
+            duplicateCheckStrategy = new DuplicateCheckStrategy.MapDuplicateCheckStrategy( expectedNumberOfEntries );
         }
+        else
+        {
+            duplicateCheckStrategy = new BucketsDuplicateCheckStrategy( expectedNumberOfEntries );
+        }
+    }
+
+    private boolean useFastCheck( int expectedNumberOfEntries )
+    {
+        return expectedNumberOfEntries <= BucketsDuplicateCheckStrategy.BUCKET_STRATEGY_ENTRIES_THRESHOLD;
     }
 }

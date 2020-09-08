@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,23 +19,23 @@
  */
 package org.neo4j.kernel.impl.api;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.kernel.impl.api.TransactionQueue.Applier;
 import org.neo4j.kernel.impl.transaction.TransactionRepresentation;
 
-import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.any;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer.NULL;
 
-public class TransactionQueueTest
+class TransactionQueueTest
 {
     @Test
-    public void shouldEmptyIfTooMany() throws Exception
+    void shouldEmptyIfTooMany() throws Exception
     {
         // GIVEN
         Applier applier = mock( Applier.class );
@@ -49,7 +49,7 @@ public class TransactionQueueTest
             verifyNoMoreInteractions( applier );
         }
         queue.queue( mock( TransactionToApply.class ) );
-        verify( applier, times( 1 ) ).apply( any(), any() );
+        verify( applier ).apply( any(), any() );
         reset( applier );
 
         // THEN
@@ -62,11 +62,11 @@ public class TransactionQueueTest
             verifyNoMoreInteractions( applier );
         }
         queue.empty();
-        verify( applier, times( 1 ) ).apply( any(), any() );
+        verify( applier ).apply( any(), any() );
     }
 
     @Test
-    public void shouldLinkTogetherTransactions() throws Exception
+    void shouldLinkTogetherTransactions() throws Exception
     {
         // GIVEN
         Applier applier = mock( Applier.class );
@@ -77,11 +77,11 @@ public class TransactionQueueTest
         TransactionToApply[] txs = new TransactionToApply[batchSize];
         for ( int i = 0; i < batchSize; i++ )
         {
-            queue.queue( txs[i] = new TransactionToApply( mock( TransactionRepresentation.class ) ) );
+            queue.queue( txs[i] = new TransactionToApply( mock( TransactionRepresentation.class ), NULL ) );
         }
 
         // THEN
-        verify( applier, times( 1 ) ).apply( any(), any() );
+        verify( applier ).apply( any(), any() );
         for ( int i = 0; i < txs.length - 1; i++ )
         {
             assertEquals( txs[i + 1], txs[i].next() );

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,12 +19,11 @@
  */
 package org.neo4j.kernel.api.schema;
 
-import org.neo4j.kernel.api.TokenNameLookup;
+import org.neo4j.common.TokenNameLookup;
 
 import static java.lang.String.format;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.equalTo;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
 
 public class SchemaTestUtil
 {
@@ -34,22 +33,20 @@ public class SchemaTestUtil
 
     public static void assertEquality( Object o1, Object o2 )
     {
-        assertTrue( o1.getClass().getSimpleName() + "s are not equal", o1.equals( o2 ) );
-        assertTrue( o1.getClass().getSimpleName() + "s do not have the same hashcode",
-                o1.hashCode() == o2.hashCode() );
+        assertEquals( o1.getClass().getSimpleName() + "s are not equal", o1, o2 );
+        assertEquals( o1.getClass().getSimpleName() + "s do not have the same hashcode", o1.hashCode(), o2.hashCode() );
     }
 
-    public static void assertArray( int[] values, int... expected )
+    static void assertArray( int[] values, int... expected )
     {
-        assertThat( values.length, equalTo( expected.length ) );
+        assertThat( values.length ).isEqualTo( expected.length );
         for ( int i = 0; i < values.length; i++ )
         {
-            assertTrue( format( "Expected %d, got %d at index %d", expected[i], values[i], i ),
-                    values[i] == expected[i] );
+            assertEquals( format( "Expected %d, got %d at index %d", expected[i], values[i], i ), values[i], expected[i] );
         }
     }
 
-    public static TokenNameLookup simpleNameLookup = new TokenNameLookup()
+    public static final TokenNameLookup SIMPLE_NAME_LOOKUP = new TokenNameLookup()
     {
         @Override
         public String labelGetName( int labelId )

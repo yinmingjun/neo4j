@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,7 +22,6 @@ package org.neo4j.graphdb.impl;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.Map;
 
 import org.neo4j.graphdb.Direction;
@@ -30,9 +29,11 @@ import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Path;
 import org.neo4j.graphdb.Relationship;
 import org.neo4j.graphdb.RelationshipType;
+import org.neo4j.graphdb.ResourceIterator;
 import org.neo4j.graphdb.traversal.BranchState;
-import org.neo4j.helpers.collection.NestingIterator;
-import org.neo4j.helpers.collection.Pair;
+import org.neo4j.internal.helpers.collection.Iterables;
+import org.neo4j.internal.helpers.collection.NestingResourceIterator;
+import org.neo4j.internal.helpers.collection.Pair;
 
 public final class OrderedByTypeExpander extends StandardExpander.RegularExpander
 {
@@ -40,19 +41,19 @@ public final class OrderedByTypeExpander extends StandardExpander.RegularExpande
 
     public OrderedByTypeExpander()
     {
-        this( Collections.<Pair<RelationshipType, Direction>>emptyList() );
+        this( Collections.emptyList() );
     }
 
-    OrderedByTypeExpander( Collection<Pair<RelationshipType, Direction>> orderedTypes )
+    private OrderedByTypeExpander( Collection<Pair<RelationshipType,Direction>> orderedTypes )
     {
-        super( Collections.<Direction, RelationshipType[]>emptyMap() );
+        super( Collections.emptyMap() );
         this.orderedTypes = orderedTypes;
     }
 
     @Override
     public StandardExpander add( RelationshipType type, Direction direction )
     {
-        Collection<Pair<RelationshipType, Direction>> newTypes = new ArrayList<Pair<RelationshipType,Direction>>( orderedTypes );
+        Collection<Pair<RelationshipType, Direction>> newTypes = new ArrayList<>( orderedTypes );
         newTypes.add( Pair.of( type, direction ) );
         return new OrderedByTypeExpander( newTypes );
     }
@@ -60,7 +61,7 @@ public final class OrderedByTypeExpander extends StandardExpander.RegularExpande
     @Override
     public StandardExpander remove( RelationshipType type )
     {
-        Collection<Pair<RelationshipType, Direction>> newTypes = new ArrayList<Pair<RelationshipType,Direction>>();
+        Collection<Pair<RelationshipType, Direction>> newTypes = new ArrayList<>();
         for ( Pair<RelationshipType,Direction> pair : orderedTypes )
         {
             if ( !type.name().equals( pair.first().name() ) )
@@ -74,13 +75,13 @@ public final class OrderedByTypeExpander extends StandardExpander.RegularExpande
     @Override
     void buildString( StringBuilder result )
     {
-        result.append( orderedTypes.toString() );
+        result.append( orderedTypes );
     }
 
     @Override
     public StandardExpander reverse()
     {
-        Collection<Pair<RelationshipType, Direction>> newTypes = new ArrayList<Pair<RelationshipType,Direction>>();
+        Collection<Pair<RelationshipType, Direction>> newTypes = new ArrayList<>( orderedTypes.size() );
         for ( Pair<RelationshipType,Direction> pair : orderedTypes )
         {
             newTypes.add( Pair.of( pair.first(), pair.other().reverse() ) );
@@ -95,20 +96,18 @@ public final class OrderedByTypeExpander extends StandardExpander.RegularExpande
     }
 
     @Override
-    Iterator<Relationship> doExpand( final Path path, BranchState state )
+    ResourceIterator<Relationship> doExpand( final Path path, BranchState state )
     {
         final Node node = path.endNode();
-        return new NestingIterator<Relationship, Pair<RelationshipType, Direction>>(
-                orderedTypes.iterator() )
+        return new NestingResourceIterator<>( orderedTypes.iterator() )
         {
             @Override
-            protected Iterator<Relationship> createNestedIterator(
-                    Pair<RelationshipType, Direction> entry )
+            protected ResourceIterator<Relationship> createNestedIterator( Pair<RelationshipType,Direction> entry )
             {
                 RelationshipType type = entry.first();
                 Direction dir = entry.other();
-                return ( ( dir == Direction.BOTH ) ? node.getRelationships( type ) :
-                        node.getRelationships( type, dir ) ).iterator();
+                Iterable<Relationship> relationshipsIterable = (dir == Direction.BOTH) ? node.getRelationships( type ) : node.getRelationships( dir, type );
+                return Iterables.asResourceIterable( relationshipsIterable ).iterator();
             }
         };
     }

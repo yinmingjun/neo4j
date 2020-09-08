@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,10 +19,12 @@
  */
 package org.neo4j.kernel.impl.locking;
 
+import java.util.concurrent.TimeUnit;
+
+import org.neo4j.configuration.GraphDatabaseSettings;
 import org.neo4j.graphdb.TransactionTerminatedException;
-import org.neo4j.graphdb.factory.GraphDatabaseSettings;
 import org.neo4j.kernel.api.exceptions.Status;
-import org.neo4j.storageengine.api.lock.ResourceType;
+import org.neo4j.lock.ResourceType;
 
 /**
  * Used in lock clients for cases when we unable to acquire a lock for a time that exceed configured
@@ -33,10 +35,10 @@ import org.neo4j.storageengine.api.lock.ResourceType;
  */
 public class LockAcquisitionTimeoutException extends TransactionTerminatedException
 {
-    public LockAcquisitionTimeoutException( ResourceType resourceType, long resourceId, long timeoutMillis )
+    public LockAcquisitionTimeoutException( ResourceType resourceType, long resourceId, long timeoutNano )
     {
         super( Status.Transaction.LockAcquisitionTimeout,
                 String.format( "Unable to acquire lock for resource: %s with id: %d within %d millis.", resourceType,
-                        resourceId, timeoutMillis ) );
+                        resourceId, TimeUnit.NANOSECONDS.toMillis( timeoutNano ) ) );
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,6 +21,9 @@ package org.neo4j.kernel.impl.locking;
 
 import java.util.stream.Stream;
 
+import org.neo4j.kernel.impl.api.LeaseClient;
+import org.neo4j.lock.LockTracer;
+
 /**
  * A {@link StatementLocks} implementation that uses given {@link Locks.Client} for both
  * {@link #optimistic() optimistic} and {@link #pessimistic() pessimistic} locks.
@@ -32,6 +35,12 @@ public class SimpleStatementLocks implements StatementLocks
     public SimpleStatementLocks( Locks.Client client )
     {
         this.client = client;
+    }
+
+    @Override
+    public void initialize( LeaseClient leaseClient, long transactionId )
+    {
+        client.initialize( leaseClient, transactionId );
     }
 
     @Override
@@ -47,9 +56,10 @@ public class SimpleStatementLocks implements StatementLocks
     }
 
     @Override
-    public void prepareForCommit()
+    public void prepareForCommit( LockTracer lockTracer )
     {
         // Locks where grabbed eagerly by client so no need to prepare
+        client.prepare();
     }
 
     @Override
@@ -65,7 +75,7 @@ public class SimpleStatementLocks implements StatementLocks
     }
 
     @Override
-    public Stream<? extends ActiveLock> activeLocks()
+    public Stream<ActiveLock> activeLocks()
     {
         return client.activeLocks();
     }

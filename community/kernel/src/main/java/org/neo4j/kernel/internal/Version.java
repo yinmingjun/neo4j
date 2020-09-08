@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,10 +22,29 @@ package org.neo4j.kernel.internal;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.neo4j.helpers.Service;
+import static java.lang.System.getProperty;
+import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
+import static org.apache.commons.lang3.StringUtils.defaultString;
 
-public class Version extends Service
+public class Version
 {
+    static final String CUSTOM_VERSION_SETTING = "unsupported.neo4j.custom.version";
+    private static final String DEFAULT_DEV_VERSION = "dev";
+    private static final String KERNEL_ARTIFACT_ID = "neo4j-kernel";
+    private static final Version KERNEL_VERSION = new Version( KERNEL_ARTIFACT_ID, selectVersion() );
+
+    static String selectVersion()
+    {
+        var versionString = getProperty( CUSTOM_VERSION_SETTING, Version.class.getPackage().getImplementationVersion() );
+        return defaultString( versionString, DEFAULT_DEV_VERSION );
+    }
+
+    private final String artifactId;
+    private final String title;
+    private final String version;
+    private final String releaseVersion;
+
     public static Version getKernel()
     {
         return KERNEL_VERSION;
@@ -41,12 +60,6 @@ public class Version extends Service
         return getKernel().getReleaseVersion();
     }
 
-    private final String artifactId;
-    private final String title;
-    private final String vendor;
-    private final String version;
-    private final String releaseVersion;
-
     @Override
     public String toString()
     {
@@ -59,13 +72,9 @@ public class Version extends Service
                 result.append( " (" ).append( artifactId ).append( ')' );
             }
         }
-        else if ( artifactId != null )
-        {
-            result.append( artifactId );
-        }
         else
         {
-            result.append( "Unknown Component" );
+            result.append( requireNonNullElse( artifactId, "Unknown Component" ) );
         }
         result.append( ", " );
         if ( title == null )
@@ -95,18 +104,18 @@ public class Version extends Service
 
     protected Version( String artifactId, String version )
     {
-        super( artifactId );
+        requireNonNull( artifactId );
+        requireNonNull( version );
         this.artifactId = artifactId;
         this.title = artifactId;
-        this.vendor = "Neo Technology";
-        this.version = version == null ? "dev" : version;
+        this.version = version;
         this.releaseVersion = parseReleaseVersion( this.version );
     }
 
     /**
      * This reads out the user friendly part of the version, for public display.
      */
-    private String parseReleaseVersion( String fullVersion )
+    private static String parseReleaseVersion( String fullVersion )
     {
         // Generally, a version we extract from the jar manifest will look like:
         //   1.2.3-M01,abcdef-dirty
@@ -115,7 +124,7 @@ public class Version extends Service
                 "(\\d+" +                  // Major version
                 "\\.\\d+" +                // Minor version
                 "(\\.\\d+)?" +             // Optional patch version
-                "(\\-?[^,]+)?)" +          // Optional marker, like M01, GA, SNAPSHOT - anything other than a comma
+                "(-?[^,]+)?)" +          // Optional marker, like M01, GA, SNAPSHOT - anything other than a comma
                 ".*"                       // Anything else, such as git revision
         );
 
@@ -126,24 +135,6 @@ public class Version extends Service
         }
 
         // If we don't recognize the version pattern, do the safe thing and keep it in full
-        return version;
+        return fullVersion;
     }
-
-    /**
-     * A very nice to have main-method for quickly checking the version of a neo4j kernel,
-     * for example given a kernel jar file.
-     */
-    public static void main( String[] args )
-    {
-        Version kernelVersion = getKernel();
-        System.out.println( kernelVersion );
-        System.out.println( "Title: " + kernelVersion.title );
-        System.out.println( "Vendor: " + kernelVersion.vendor );
-        System.out.println( "ArtifactId: " + kernelVersion.artifactId );
-        System.out.println( "Version: " + kernelVersion.getVersion() );
-    }
-
-    static final String KERNEL_ARTIFACT_ID = "neo4j-kernel";
-    private static final Version KERNEL_VERSION = new Version( KERNEL_ARTIFACT_ID,
-            Version.class.getPackage().getImplementationVersion() );
 }

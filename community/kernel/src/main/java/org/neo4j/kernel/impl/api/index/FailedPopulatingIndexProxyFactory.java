@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,9 +19,9 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import org.neo4j.kernel.api.index.IndexPopulator;
-import org.neo4j.kernel.api.index.SchemaIndexProvider;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.kernel.api.index.MinimalIndexAccessor;
+import org.neo4j.kernel.impl.api.index.stats.IndexStatisticsStore;
 import org.neo4j.logging.LogProvider;
 
 import static org.neo4j.kernel.impl.api.index.IndexPopulationFailure.failure;
@@ -29,33 +29,28 @@ import static org.neo4j.kernel.impl.api.index.IndexPopulationFailure.failure;
 public class FailedPopulatingIndexProxyFactory implements FailedIndexProxyFactory
 {
     private final IndexDescriptor descriptor;
-    private final SchemaIndexProvider.Descriptor providerDescriptor;
-    private final IndexPopulator populator;
+    private final MinimalIndexAccessor minimalIndexAccessor;
     private final String indexUserDescription;
-    private final IndexCountsRemover indexCountsRemover;
+    private final IndexStatisticsStore indexStatisticsStore;
     private final LogProvider logProvider;
 
     FailedPopulatingIndexProxyFactory( IndexDescriptor descriptor,
-                                       SchemaIndexProvider.Descriptor providerDescriptor,
-                                       IndexPopulator populator,
-                                       String indexUserDescription,
-                                       IndexCountsRemover indexCountsRemover,
-                                       LogProvider logProvider )
+            MinimalIndexAccessor minimalIndexAccessor,
+            String indexUserDescription,
+            IndexStatisticsStore indexStatisticsStore,
+            LogProvider logProvider )
     {
         this.descriptor = descriptor;
-        this.providerDescriptor = providerDescriptor;
-        this.populator = populator;
+        this.minimalIndexAccessor = minimalIndexAccessor;
         this.indexUserDescription = indexUserDescription;
-        this.indexCountsRemover = indexCountsRemover;
+        this.indexStatisticsStore = indexStatisticsStore;
         this.logProvider = logProvider;
     }
 
     @Override
     public IndexProxy create( Throwable failure )
     {
-        return
-            new FailedIndexProxy(
-                descriptor, providerDescriptor,
-                indexUserDescription, populator, failure( failure ), indexCountsRemover, logProvider );
+        return new FailedIndexProxy( descriptor, indexUserDescription, minimalIndexAccessor, failure( failure ),
+                indexStatisticsStore, logProvider );
     }
 }

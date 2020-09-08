@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -30,15 +30,15 @@ import org.neo4j.kernel.lifecycle.LifecycleAdapter;
  */
 public class FileSystemLifecycleAdapter extends LifecycleAdapter
 {
-    private FileSystemAbstraction fileSystemAbstraction;
+    private final FileSystemAbstraction fileSystemAbstraction;
 
-    public FileSystemLifecycleAdapter(FileSystemAbstraction fileSystemAbstraction)
+    public FileSystemLifecycleAdapter( FileSystemAbstraction fileSystemAbstraction )
     {
         this.fileSystemAbstraction = fileSystemAbstraction;
     }
 
     @Override
-    public void shutdown() throws Throwable
+    public void shutdown() throws Exception
     {
         fileSystemAbstraction.close();
     }

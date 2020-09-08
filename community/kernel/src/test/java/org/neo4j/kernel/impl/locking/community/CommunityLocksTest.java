@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,24 +19,24 @@
  */
 package org.neo4j.kernel.impl.locking.community;
 
-import java.time.Clock;
-
-import org.neo4j.kernel.configuration.Config;
+import org.neo4j.configuration.Config;
 import org.neo4j.kernel.impl.locking.LockingCompatibilityTestSuite;
 import org.neo4j.kernel.impl.locking.Locks;
-import org.neo4j.test.OtherThreadExecutor.WaitDetails;
+import org.neo4j.test.extension.actors.Actor;
+import org.neo4j.time.SystemNanoClock;
 
 public class CommunityLocksTest extends LockingCompatibilityTestSuite
 {
     @Override
-    protected Locks createLockManager(Config config, Clock clock)
+    protected Locks createLockManager( Config config, SystemNanoClock clock )
     {
         return new CommunityLockManger( config, clock );
     }
 
     @Override
-    protected boolean isAwaitingLockAcquisition( WaitDetails details )
+    protected boolean isAwaitingLockAcquisition( Actor actor ) throws Exception
     {
-        return details.isAt( RWLock.class, "waitUninterruptedly" );
+        actor.untilWaitingIn( RWLock.class.getDeclaredMethod( "waitUninterruptedly", long.class) );
+        return true;
     }
 }

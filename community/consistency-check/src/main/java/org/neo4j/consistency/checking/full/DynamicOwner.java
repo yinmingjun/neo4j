@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -26,6 +26,7 @@ import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.report.PendingReferenceCheck;
 import org.neo4j.consistency.store.RecordAccess;
 import org.neo4j.consistency.store.RecordReference;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
 import org.neo4j.kernel.impl.store.record.LabelTokenRecord;
@@ -40,18 +41,9 @@ abstract class DynamicOwner<RECORD extends AbstractBaseRecord> implements Owner
 {
     static final ComparativeRecordChecker<DynamicRecord, AbstractBaseRecord, ConsistencyReport.DynamicConsistencyReport>
             ORPHAN_CHECK =
-            new ComparativeRecordChecker<DynamicRecord, AbstractBaseRecord, ConsistencyReport.DynamicConsistencyReport>()
-            {
-                @Override
-                public void checkReference( DynamicRecord record, AbstractBaseRecord ignored,
-                                            CheckerEngine<DynamicRecord, ConsistencyReport.DynamicConsistencyReport> engine,
-                                            RecordAccess records )
-                {
-                    engine.report().orphanDynamicRecord();
-                }
-            };
+            ( record, ignored, engine, records, cursorTracer ) -> engine.report().orphanDynamicRecord();
 
-    abstract RecordReference<RECORD> record( RecordAccess records );
+    abstract RecordReference<RECORD> record( RecordAccess records, PageCursorTracer cursorTracer );
 
     @Override
     public void checkOrphanage()
@@ -72,15 +64,15 @@ abstract class DynamicOwner<RECORD extends AbstractBaseRecord> implements Owner
         }
 
         @Override
-        RecordReference<PropertyRecord> record( RecordAccess records )
+        RecordReference<PropertyRecord> record( RecordAccess records, PageCursorTracer cursorTracer )
         {
-            return records.property( id );
+            return records.property( id, cursorTracer );
         }
 
         @Override
         public void checkReference( PropertyRecord property, AbstractBaseRecord record,
                                     CheckerEngine<PropertyRecord, ConsistencyReport.PropertyConsistencyReport> engine,
-                                    RecordAccess records )
+                                    RecordAccess records, PageCursorTracer cursorTracer )
         {
             if ( record instanceof PropertyRecord )
             {
@@ -120,18 +112,18 @@ abstract class DynamicOwner<RECORD extends AbstractBaseRecord> implements Owner
         }
 
         @Override
-        RecordReference<DynamicRecord> record( RecordAccess records )
+        RecordReference<DynamicRecord> record( RecordAccess records, PageCursorTracer cursorTracer )
         {
             switch ( type )
             {
             case STRING_PROPERTY:
-                return records.string( id );
+                return records.string( id, cursorTracer );
             case ARRAY_PROPERTY:
-                return records.array( id );
+                return records.array( id, cursorTracer );
             case PROPERTY_KEY_NAME:
-                return records.propertyKeyName( (int)id );
+                return records.propertyKeyName( (int)id, cursorTracer );
             case RELATIONSHIP_TYPE_NAME:
-                return records.relationshipTypeName( (int) id );
+                return records.relationshipTypeName( (int) id, cursorTracer );
             default:
                 return skipReference();
             }
@@ -139,8 +131,7 @@ abstract class DynamicOwner<RECORD extends AbstractBaseRecord> implements Owner
 
         @Override
         public void checkReference( DynamicRecord block, AbstractBaseRecord record,
-                                    CheckerEngine<DynamicRecord, ConsistencyReport.DynamicConsistencyReport> engine,
-                                    RecordAccess records )
+                CheckerEngine<DynamicRecord,ConsistencyReport.DynamicConsistencyReport> engine, RecordAccess records, PageCursorTracer cursorTracer )
         {
             if ( record instanceof PropertyRecord )
             {
@@ -161,13 +152,14 @@ abstract class DynamicOwner<RECORD extends AbstractBaseRecord> implements Owner
         }
     }
 
-    abstract static class NameOwner<RECORD extends TokenRecord, REPORT extends ConsistencyReport.NameConsistencyReport> extends DynamicOwner<RECORD>
+    abstract static class NameOwner<RECORD extends TokenRecord,
+            REPORT extends ConsistencyReport.NameConsistencyReport> extends DynamicOwner<RECORD>
             implements ComparativeRecordChecker<RECORD, AbstractBaseRecord, REPORT>
     {
-        @SuppressWarnings("ConstantConditions")
+        @SuppressWarnings( "ConstantConditions" )
         @Override
-        public void checkReference( RECORD name, AbstractBaseRecord record, CheckerEngine<RECORD, REPORT> engine,
-                                    RecordAccess records )
+        public void checkReference( RECORD name, AbstractBaseRecord record, CheckerEngine<RECORD,REPORT> engine, RecordAccess records,
+                PageCursorTracer cursorTracer )
         {
             ConsistencyReport.NameConsistencyReport report = engine.report();
             if ( record instanceof RelationshipTypeTokenRecord )
@@ -197,9 +189,9 @@ abstract class DynamicOwner<RECORD extends AbstractBaseRecord> implements Owner
         }
 
         @Override
-        RecordReference<PropertyKeyTokenRecord> record( RecordAccess records )
+        RecordReference<PropertyKeyTokenRecord> record( RecordAccess records, PageCursorTracer cursorTracer )
         {
-            return records.propertyKey( id );
+            return records.propertyKey( id, cursorTracer );
         }
     }
 
@@ -213,9 +205,9 @@ abstract class DynamicOwner<RECORD extends AbstractBaseRecord> implements Owner
         }
 
         @Override
-        RecordReference<LabelTokenRecord> record( RecordAccess records )
+        RecordReference<LabelTokenRecord> record( RecordAccess records, PageCursorTracer cursorTracer )
         {
-            return records.label( id );
+            return records.label( id, cursorTracer );
         }
     }
 
@@ -229,9 +221,9 @@ abstract class DynamicOwner<RECORD extends AbstractBaseRecord> implements Owner
         }
 
         @Override
-        RecordReference<RelationshipTypeTokenRecord> record( RecordAccess records )
+        RecordReference<RelationshipTypeTokenRecord> record( RecordAccess records, PageCursorTracer cursorTracer )
         {
-            return records.relationshipType( id );
+            return records.relationshipType( id, cursorTracer );
         }
     }
 
@@ -240,7 +232,7 @@ abstract class DynamicOwner<RECORD extends AbstractBaseRecord> implements Owner
         private PendingReferenceCheck<AbstractBaseRecord> reporter;
 
         @Override
-        RecordReference<AbstractBaseRecord> record( RecordAccess records )
+        RecordReference<AbstractBaseRecord> record( RecordAccess records, PageCursorTracer cursorTracer )
         {
             // Getting the record for this owner means that some other owner replaced it
             // that means that it isn't an orphan, so we skip this orphan check
@@ -255,7 +247,7 @@ abstract class DynamicOwner<RECORD extends AbstractBaseRecord> implements Owner
             PendingReferenceCheck<AbstractBaseRecord> reporter = pop();
             if ( reporter != null )
             {
-                reporter.checkReference( null, null );
+                reporter.checkReference( null, null, null );
             }
         }
 

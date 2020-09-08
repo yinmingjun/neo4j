@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,8 +19,10 @@
  */
 package org.neo4j.consistency.checking.full;
 
+import org.eclipse.collections.api.map.primitive.MutableObjectLongMap;
+import org.eclipse.collections.impl.map.mutable.primitive.ObjectLongHashMap;
+
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
 import org.neo4j.consistency.checking.CheckDecorator;
@@ -34,16 +36,16 @@ import org.neo4j.consistency.report.ConsistencyReport.RelationshipConsistencyRep
 import org.neo4j.consistency.report.ConsistencyReporter;
 import org.neo4j.consistency.store.RecordAccess;
 import org.neo4j.consistency.store.synthetic.CountsEntry;
-import org.neo4j.helpers.collection.MultiSet;
-import org.neo4j.helpers.progress.ProgressListener;
-import org.neo4j.helpers.progress.ProgressMonitorFactory;
-import org.neo4j.kernel.impl.api.CountsAccessor;
-import org.neo4j.kernel.impl.api.CountsVisitor;
+import org.neo4j.counts.CountsAccessor;
+import org.neo4j.counts.CountsVisitor;
+import org.neo4j.internal.counts.CountsKey;
+import org.neo4j.internal.helpers.progress.ProgressListener;
+import org.neo4j.internal.helpers.progress.ProgressMonitorFactory;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.NodeLabelsField;
 import org.neo4j.kernel.impl.store.NodeStore;
 import org.neo4j.kernel.impl.store.RecordStore;
 import org.neo4j.kernel.impl.store.StoreAccess;
-import org.neo4j.kernel.impl.store.counts.keys.CountsKey;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
 import org.neo4j.kernel.impl.store.record.NodeRecord;
 import org.neo4j.kernel.impl.store.record.PrimitiveRecord;
@@ -52,75 +54,21 @@ import org.neo4j.kernel.impl.store.record.RelationshipRecord;
 import static org.neo4j.consistency.checking.cache.CacheSlots.NodeLabel.SLOT_IN_USE;
 import static org.neo4j.consistency.checking.cache.CacheSlots.NodeLabel.SLOT_LABEL_FIELD;
 import static org.neo4j.consistency.checking.full.NodeLabelReader.getListOfLabels;
-import static org.neo4j.kernel.impl.store.counts.keys.CountsKeyFactory.nodeKey;
-import static org.neo4j.kernel.impl.store.counts.keys.CountsKeyFactory.relationshipKey;
+import static org.neo4j.internal.counts.CountsKey.nodeKey;
+import static org.neo4j.internal.counts.CountsKey.relationshipKey;
 import static org.neo4j.kernel.impl.store.record.RecordLoad.FORCE;
 
 class CountsBuilderDecorator extends CheckDecorator.Adapter
 {
     private static final int WILDCARD = -1;
-    private final MultiSet<CountsKey> nodeCounts = new MultiSet<>();
-    private final MultiSet<CountsKey> relationshipCounts = new MultiSet<>();
+    private final MutableObjectLongMap<CountsKey> nodeCounts = new ObjectLongHashMap<>();
+    private final MutableObjectLongMap<CountsKey> relationshipCounts = new ObjectLongHashMap<>();
     private final MultiPassAvoidanceCondition<NodeRecord> nodeCountBuildCondition;
     private final MultiPassAvoidanceCondition<RelationshipRecord> relationshipCountBuildCondition;
+    private final CountsEntry.CheckAdapter nodeCountChecker = new NodeCountChecker();
+    private final CountsEntry.CheckAdapter relationshipCountChecker = new RelationshipCountChecker();
     private final NodeStore nodeStore;
     private final StoreAccess storeAccess;
-    private final CountsEntry.CheckAdapter CHECK_NODE_COUNT = new CountsEntry.CheckAdapter()
-    {
-        @Override
-        public void check( CountsEntry record,
-                           CheckerEngine<CountsEntry,ConsistencyReport.CountsConsistencyReport> engine,
-                           RecordAccess records )
-        {
-            final long expectedCount = nodeCounts.count( record.getCountsKey() );
-            if ( expectedCount != record.getCount() )
-            {
-                engine.report().inconsistentNodeCount( expectedCount );
-            }
-        }
-    };
-    private final CountsEntry.CheckAdapter CHECK_RELATIONSHIP_COUNT = new CountsEntry.CheckAdapter()
-    {
-        @Override
-        public void check( CountsEntry record,
-                           CheckerEngine<CountsEntry,ConsistencyReport.CountsConsistencyReport> engine,
-                           RecordAccess records )
-        {
-            final long expectedCount = relationshipCounts.count( record.getCountsKey() );
-            if ( expectedCount != record.getCount() )
-            {
-                engine.report().inconsistentRelationshipCount( expectedCount );
-            }
-        }
-    };
-    private final CountsEntry.CheckAdapter CHECK_NODE_KEY_COUNT = new CountsEntry.CheckAdapter()
-    {
-        @Override
-        public void check( CountsEntry record,
-                           CheckerEngine<CountsEntry,ConsistencyReport.CountsConsistencyReport> engine,
-                           RecordAccess records )
-        {
-            final int expectedCount = nodeCounts.uniqueSize();
-            if ( record.getCount() != expectedCount )
-            {
-                engine.report().inconsistentNumberOfNodeKeys( expectedCount );
-            }
-        }
-    };
-    private final CountsEntry.CheckAdapter CHECK_RELATIONSHIP_KEY_COUNT = new CountsEntry.CheckAdapter()
-    {
-        @Override
-        public void check( CountsEntry record,
-                           CheckerEngine<CountsEntry,ConsistencyReport.CountsConsistencyReport> engine,
-                           RecordAccess records )
-        {
-            final int expectedCount = relationshipCounts.uniqueSize();
-            if ( record.getCount() != expectedCount )
-            {
-                engine.report().inconsistentNumberOfRelationshipKeys( expectedCount );
-            }
-        }
-    };
 
     CountsBuilderDecorator( StoreAccess storeAccess )
     {
@@ -151,52 +99,27 @@ class CountsBuilderDecorator extends CheckDecorator.Adapter
         return new RelationshipCounts( storeAccess, relationshipCounts, relationshipCountBuildCondition, checker );
     }
 
-    public void checkCounts( CountsAccessor counts, final ConsistencyReporter reporter,
-            ProgressMonitorFactory progressFactory )
+    public void checkCounts( CountsAccessor counts, final ConsistencyReporter reporter, ProgressMonitorFactory progressFactory, PageCursorTracer cursorTracer )
     {
-        final int nodes = nodeCounts.uniqueSize();
-        final int relationships = relationshipCounts.uniqueSize();
+        final int nodes = nodeCounts.size();
+        final int relationships = relationshipCounts.size();
         final int total = nodes + relationships;
-        final AtomicInteger nodeEntries = new AtomicInteger( 0 );
-        final AtomicInteger relationshipEntries = new AtomicInteger( 0 );
         final ProgressListener listener = progressFactory.singlePart( "Checking node and relationship counts", total );
         listener.started();
-        counts.accept( new CountsVisitor.Adapter()
-        {
-            @Override
-            public void visitNodeCount( int labelId, long count )
-            {
-                nodeEntries.incrementAndGet();
-                reporter.forCounts( new CountsEntry( nodeKey( labelId ), count ), CHECK_NODE_COUNT );
-                listener.add( 1 );
-            }
-
-            @Override
-            public void visitRelationshipCount( int startLabelId, int relTypeId, int endLabelId, long count )
-            {
-                relationshipEntries.incrementAndGet();
-                reporter.forCounts(
-                        new CountsEntry( relationshipKey( startLabelId, relTypeId, endLabelId ), count ),
-                        CHECK_RELATIONSHIP_COUNT );
-                listener.add( 1 );
-            }
-        } );
-        reporter.forCounts(
-                new CountsEntry( nodeKey( WILDCARD ), nodeEntries.get() ), CHECK_NODE_KEY_COUNT );
-        reporter.forCounts(
-                new CountsEntry( relationshipKey( WILDCARD, WILDCARD, WILDCARD ),
-                        relationshipEntries.get() ), CHECK_RELATIONSHIP_KEY_COUNT );
+        counts.accept( new EntriesCheckerVisitor( reporter, cursorTracer, listener ), cursorTracer );
+        nodeCounts.forEachKeyValue( ( key, count ) -> reporter.forCounts( new CountsEntry( key, 0 ), nodeCountChecker, cursorTracer ) );
+        relationshipCounts.forEachKeyValue( ( key, count ) -> reporter.forCounts( new CountsEntry( key, 0 ), relationshipCountChecker, cursorTracer ) );
         listener.done();
     }
 
     private static class NodeCounts implements OwningRecordCheck<NodeRecord,NodeConsistencyReport>
     {
         private final RecordStore<NodeRecord> nodeStore;
-        private final MultiSet<CountsKey> counts;
+        private final MutableObjectLongMap<CountsKey> counts;
         private final Predicate<NodeRecord> countUpdateCondition;
         private final OwningRecordCheck<NodeRecord,NodeConsistencyReport> inner;
 
-        NodeCounts( RecordStore<NodeRecord> nodeStore, MultiSet<CountsKey> counts,
+        NodeCounts( RecordStore<NodeRecord> nodeStore, MutableObjectLongMap<CountsKey> counts,
                 Predicate<NodeRecord> countUpdateCondition, OwningRecordCheck<NodeRecord,NodeConsistencyReport> inner )
         {
             this.nodeStore = nodeStore;
@@ -214,7 +137,7 @@ class CountsBuilderDecorator extends CheckDecorator.Adapter
         @Override
         public void check( NodeRecord record,
                            CheckerEngine<NodeRecord,NodeConsistencyReport> engine,
-                           RecordAccess records )
+                           RecordAccess records, PageCursorTracer cursorTracer )
         {
             if ( countUpdateCondition.test( record ) )
             {
@@ -223,31 +146,29 @@ class CountsBuilderDecorator extends CheckDecorator.Adapter
                     CacheAccess.Client client = records.cacheAccess().client();
                     client.putToCacheSingle( record.getId(), SLOT_IN_USE, 1 );
                     client.putToCacheSingle( record.getId(), SLOT_LABEL_FIELD, record.getLabelField() );
-                    final Set<Long> labels = labelsFor( nodeStore, engine, records, record.getId() );
+                    final Set<Long> labels = labelsFor( nodeStore, engine, records, record.getId(), cursorTracer );
                     synchronized ( counts )
                     {
-                        counts.add( nodeKey( WILDCARD ) );
+                        counts.addToValue( nodeKey( WILDCARD ), 1 );
                         for ( long label : labels )
                         {
-                            counts.add( nodeKey( (int) label ) );
+                            counts.addToValue( nodeKey( (int) label ), 1 );
                         }
                     }
                 }
             }
-            inner.check( record, engine, records );
+            inner.check( record, engine, records, cursorTracer );
         }
     }
 
     private static class RelationshipCounts implements OwningRecordCheck<RelationshipRecord,RelationshipConsistencyReport>
     {
-        /** Don't support these counts at the moment so don't compute them */
-        private static final boolean COMPUTE_DOUBLE_SIDED_RELATIONSHIP_COUNTS = false;
         private final NodeStore nodeStore;
-        private final MultiSet<CountsKey> counts;
+        private final MutableObjectLongMap<CountsKey> counts;
         private final Predicate<RelationshipRecord> countUpdateCondition;
         private final OwningRecordCheck<RelationshipRecord,RelationshipConsistencyReport> inner;
 
-        RelationshipCounts( StoreAccess storeAccess, MultiSet<CountsKey> counts,
+        RelationshipCounts( StoreAccess storeAccess, MutableObjectLongMap<CountsKey> counts,
                 Predicate<RelationshipRecord> countUpdateCondition,
                 OwningRecordCheck<RelationshipRecord,RelationshipConsistencyReport> inner )
         {
@@ -266,18 +187,19 @@ class CountsBuilderDecorator extends CheckDecorator.Adapter
         @Override
         public void check( RelationshipRecord record,
                            CheckerEngine<RelationshipRecord,RelationshipConsistencyReport> engine,
-                           RecordAccess records )
+                           RecordAccess records, PageCursorTracer cursorTracer )
         {
             if ( countUpdateCondition.test( record ) )
             {
                 if ( record.inUse() )
                 {
                     CacheAccess.Client cacheAccess = records.cacheAccess().client();
-                    Set<Long> firstNodeLabels = null, secondNodeLabels = null;
+                    Set<Long> firstNodeLabels;
+                    Set<Long> secondNodeLabels;
                     long firstLabelsField = cacheAccess.getFromCache( record.getFirstNode(), SLOT_LABEL_FIELD );
                     if ( NodeLabelsField.fieldPointsToDynamicRecordOfLabels( firstLabelsField ) )
                     {
-                        firstNodeLabels = labelsFor( nodeStore, engine, records, record.getFirstNode() );
+                        firstNodeLabels = labelsFor( nodeStore, engine, records, record.getFirstNode(), cursorTracer );
                     }
                     else
                     {
@@ -286,7 +208,7 @@ class CountsBuilderDecorator extends CheckDecorator.Adapter
                     long secondLabelsField = cacheAccess.getFromCache( record.getSecondNode(), SLOT_LABEL_FIELD );
                     if ( NodeLabelsField.fieldPointsToDynamicRecordOfLabels( secondLabelsField ) )
                     {
-                        secondNodeLabels = labelsFor( nodeStore, engine, records, record.getSecondNode() );
+                        secondNodeLabels = labelsFor( nodeStore, engine, records, record.getSecondNode(), cursorTracer );
                     }
                     else
                     {
@@ -295,45 +217,28 @@ class CountsBuilderDecorator extends CheckDecorator.Adapter
                     final int type = record.getType();
                     synchronized ( counts )
                     {
-                        counts.add( relationshipKey( WILDCARD, WILDCARD, WILDCARD ) );
-                        counts.add( relationshipKey( WILDCARD, type, WILDCARD ) );
-                        if ( firstNodeLabels != null )
+                        counts.addToValue( relationshipKey( WILDCARD, WILDCARD, WILDCARD ), 1 );
+                        counts.addToValue( relationshipKey( WILDCARD, type, WILDCARD ), 1 );
+                        for ( long firstLabel : firstNodeLabels )
                         {
-                            for ( long firstLabel : firstNodeLabels )
-                            {
-                                counts.add( relationshipKey( (int) firstLabel, WILDCARD, WILDCARD ) );
-                                counts.add( relationshipKey( (int) firstLabel, type, WILDCARD ) );
-                            }
+                            counts.addToValue( relationshipKey( (int) firstLabel, WILDCARD, WILDCARD ), 1 );
+                            counts.addToValue( relationshipKey( (int) firstLabel, type, WILDCARD ), 1 );
                         }
-                        if ( secondNodeLabels != null )
+                        for ( long secondLabel : secondNodeLabels )
                         {
-                            for ( long secondLabel : secondNodeLabels )
-                            {
-                                counts.add( relationshipKey( WILDCARD, WILDCARD, (int) secondLabel ) );
-                                counts.add( relationshipKey( WILDCARD, type, (int) secondLabel ) );
-                            }
-                        }
-                        if ( COMPUTE_DOUBLE_SIDED_RELATIONSHIP_COUNTS )
-                        {
-                            for ( long firstLabel : firstNodeLabels )
-                            {
-                                for ( long secondLabel : secondNodeLabels )
-                                {
-                                    counts.add( relationshipKey( (int) firstLabel, WILDCARD, (int) secondLabel ) );
-                                    counts.add( relationshipKey( (int) firstLabel, type, (int) secondLabel ) );
-                                }
-                            }
+                            counts.addToValue( relationshipKey( WILDCARD, WILDCARD, (int) secondLabel ), 1 );
+                            counts.addToValue( relationshipKey( WILDCARD, type, (int) secondLabel ), 1 );
                         }
                     }
                 }
             }
-            inner.check( record, engine, records );
+            inner.check( record, engine, records, cursorTracer );
         }
     }
 
     private static class MultiPassAvoidanceCondition<T extends AbstractBaseRecord> implements Predicate<T>
     {
-        // Stage which this condition is active, starting from 0, mimicing the CheckStage ordinal
+        // Stage which this condition is active, starting from 0, mimicking the CheckStage ordinal
         private final int activeStage;
         // The same thread updates this every time, the TaskExecutor. Other threads read it
         private volatile int stage = -1;
@@ -358,8 +263,67 @@ class CountsBuilderDecorator extends CheckDecorator.Adapter
     private static Set<Long> labelsFor( RecordStore<NodeRecord> nodeStore,
                                         CheckerEngine<? extends AbstractBaseRecord,? extends ConsistencyReport> engine,
                                         RecordAccess recordAccess,
-                                        long nodeId )
+                                        long nodeId, PageCursorTracer cursorTracer )
     {
-        return getListOfLabels( nodeStore.getRecord( nodeId, nodeStore.newRecord(), FORCE ), recordAccess, engine );
+        return getListOfLabels( nodeStore.getRecord( nodeId, nodeStore.newRecord(), FORCE, cursorTracer ), recordAccess, engine, cursorTracer );
+    }
+
+    private class NodeCountChecker extends CountsEntry.CheckAdapter
+    {
+        @Override
+        public void check( CountsEntry record,
+                           CheckerEngine<CountsEntry,ConsistencyReport.CountsConsistencyReport> engine,
+                           RecordAccess records, PageCursorTracer cursorTracer )
+        {
+            final long expectedCount = nodeCounts.removeKeyIfAbsent( record.getCountsKey(), 0 );
+            if ( expectedCount != record.getCount() )
+            {
+                engine.report().inconsistentNodeCount( expectedCount );
+            }
+        }
+    }
+
+    private class RelationshipCountChecker extends CountsEntry.CheckAdapter
+    {
+        @Override
+        public void check( CountsEntry record,
+                           CheckerEngine<CountsEntry,ConsistencyReport.CountsConsistencyReport> engine,
+                           RecordAccess records, PageCursorTracer cursorTracer )
+        {
+            final long expectedCount = relationshipCounts.removeKeyIfAbsent( record.getCountsKey(), 0 );
+            if ( expectedCount != record.getCount() )
+            {
+                engine.report().inconsistentRelationshipCount( expectedCount );
+            }
+        }
+    }
+
+    private class EntriesCheckerVisitor extends CountsVisitor.Adapter
+    {
+        private final ConsistencyReporter reporter;
+        private final PageCursorTracer cursorTracer;
+        private final ProgressListener listener;
+
+        private EntriesCheckerVisitor( ConsistencyReporter reporter, PageCursorTracer cursorTracer, ProgressListener listener )
+        {
+            this.reporter = reporter;
+            this.cursorTracer = cursorTracer;
+            this.listener = listener;
+        }
+
+        @Override
+        public void visitNodeCount( int labelId, long count )
+        {
+            reporter.forCounts( new CountsEntry( nodeKey( labelId ), count ), nodeCountChecker, cursorTracer );
+            listener.add( 1 );
+        }
+
+        @Override
+        public void visitRelationshipCount( int startLabelId, int relTypeId, int endLabelId, long count )
+        {
+            reporter.forCounts(
+                    new CountsEntry( relationshipKey( startLabelId, relTypeId, endLabelId ), count ), relationshipCountChecker, cursorTracer );
+            listener.add( 1 );
+        }
     }
 }

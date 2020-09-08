@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,8 +19,7 @@
  */
 package org.neo4j.io.fs.watcher;
 
-import java.io.File;
-import java.io.IOException;
+import java.nio.file.Path;
 
 import org.neo4j.io.fs.watcher.resource.WatchedResource;
 
@@ -32,7 +31,7 @@ public class SilentFileWatcher implements FileWatcher
 {
 
     @Override
-    public WatchedResource watch( File file ) throws IOException
+    public WatchedResource watch( Path path )
     {
         return WatchedResource.EMPTY;
     }
@@ -53,12 +52,12 @@ public class SilentFileWatcher implements FileWatcher
     }
 
     @Override
-    public void startWatching() throws InterruptedException
+    public void startWatching()
     {
     }
 
     @Override
-    public void close() throws IOException
+    public void close()
     {
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -28,13 +28,14 @@ class PathUnique extends AbstractUniquenessFilter
         super( type );
     }
 
+    @Override
     public boolean check( TraversalBranch source )
     {
         long idToCompare = type.getId( source );
         while ( source.length() > 0 )
         {
             source = source.parent();
-            if (type.idEquals(source, idToCompare))
+            if ( type.idEquals( source, idToCompare ) )
             {
                 return false;
             }

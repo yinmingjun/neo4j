@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,51 +19,51 @@
  */
 package org.neo4j.consistency.checking;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import org.neo4j.consistency.report.ConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.LabelTokenConsistencyReport;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
 import org.neo4j.kernel.impl.store.record.LabelTokenRecord;
 
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-public class LabelTokenRecordCheckTest extends
-                                        RecordCheckTestBase<LabelTokenRecord, ConsistencyReport.LabelTokenConsistencyReport, LabelTokenRecordCheck>
+class LabelTokenRecordCheckTest
+        extends RecordCheckTestBase<LabelTokenRecord,LabelTokenConsistencyReport,LabelTokenRecordCheck>
 {
-    public LabelTokenRecordCheckTest()
+    LabelTokenRecordCheckTest()
     {
-        super( new LabelTokenRecordCheck(), ConsistencyReport.LabelTokenConsistencyReport.class, new int[0] );
+        super( new LabelTokenRecordCheck(), LabelTokenConsistencyReport.class, new int[0] );
     }
 
     @Test
-    public void shouldNotReportAnythingForRecordNotInUse() throws Exception
+    void shouldNotReportAnythingForRecordNotInUse()
     {
         // given
         LabelTokenRecord key = notInUse( new LabelTokenRecord( 42 ) );
 
         // when
-        ConsistencyReport.LabelTokenConsistencyReport report = check( key );
+        LabelTokenConsistencyReport report = check( key );
 
         // then
         verifyNoMoreInteractions( report );
     }
 
     @Test
-    public void shouldNotReportAnythingForRecordThatDoesNotReferenceADynamicBlock() throws Exception
+    void shouldNotReportAnythingForRecordThatDoesNotReferenceADynamicBlock()
     {
         // given
         LabelTokenRecord key = inUse( new LabelTokenRecord( 42 ) );
 
         // when
-        ConsistencyReport.LabelTokenConsistencyReport report = check( key );
+        LabelTokenConsistencyReport report = check( key );
 
         // then
         verifyNoMoreInteractions( report );
     }
 
     @Test
-    public void shouldReportDynamicBlockNotInUse() throws Exception
+    void shouldReportDynamicBlockNotInUse()
     {
         // given
         LabelTokenRecord key = inUse( new LabelTokenRecord( 42 ) );
@@ -71,7 +71,7 @@ public class LabelTokenRecordCheckTest extends
         key.setNameId( (int) name.getId() );
 
         // when
-        ConsistencyReport.LabelTokenConsistencyReport report = check( key );
+        LabelTokenConsistencyReport report = check( key );
 
         // then
         verify( report ).nameBlockNotInUse( name );
@@ -79,7 +79,7 @@ public class LabelTokenRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportEmptyName() throws Exception
+    void shouldReportEmptyName()
     {
         // given
         LabelTokenRecord key = inUse( new LabelTokenRecord( 42 ) );
@@ -87,7 +87,7 @@ public class LabelTokenRecordCheckTest extends
         key.setNameId( (int) name.getId() );
 
         // when
-        ConsistencyReport.LabelTokenConsistencyReport report = check( key );
+        LabelTokenConsistencyReport report = check( key );
 
         // then
         verify( report ).emptyName( name );

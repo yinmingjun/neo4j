@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -55,7 +55,7 @@ public enum SourceCode implements CodeGeneratorOption
         protected CodeGenerator createCodeGenerator( ClassLoader loader, Configuration configuration )
                 throws CodeGenerationStrategyNotSupportedException
         {
-            return new SourceCodeGenerator( loader, configuration, configuration.sourceCompilerFor( this ) );
+            return new JavaSourceGenerator( loader, configuration, configuration.sourceCompilerFor( this ) );
         }
 
         @Override
@@ -69,7 +69,14 @@ public enum SourceCode implements CodeGeneratorOption
         @Override
         protected void visitSource( TypeReference reference, CharSequence sourceCode )
         {
-            System.out.println( "=== Generated class " + reference.fullName() + " ===\n" + sourceCode );
+            String[] lines = sourceCode.toString().split( "\\n" );
+            System.out.println( "=== Generated class " + reference.fullName() + " ===\n" );
+            for ( int i = 0; i < lines.length; i++ )
+            {
+                System.out.print(i + 1);
+                System.out.print('\t');
+                System.out.println(lines[i]);
+            }
         }
 
         @Override

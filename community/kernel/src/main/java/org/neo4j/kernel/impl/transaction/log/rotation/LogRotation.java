@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,7 +21,7 @@ package org.neo4j.kernel.impl.transaction.log.rotation;
 
 import java.io.IOException;
 
-import org.neo4j.kernel.impl.transaction.tracing.LogAppendEvent;
+import org.neo4j.kernel.impl.transaction.tracing.LogRotateEvents;
 
 /**
  * Used to check if a log rotation is needed, and also to execute a log rotation.
@@ -31,37 +31,30 @@ import org.neo4j.kernel.impl.transaction.tracing.LogAppendEvent;
  */
 public interface LogRotation
 {
-    interface Monitor
-    {
-        void startedRotating( long currentVersion );
-
-        void finishedRotating( long currentVersion );
-    }
-
     LogRotation NO_ROTATION = new LogRotation()
     {
         @Override
-        public boolean rotateLogIfNeeded( LogAppendEvent logAppendEvent ) throws IOException
+        public boolean rotateLogIfNeeded( LogRotateEvents logRotateEvents )
         {
             return false;
         }
 
         @Override
-        public void rotateLogFile() throws IOException
+        public void rotateLogFile( LogRotateEvents logRotateEvents )
         {
         }
     };
 
     /**
      * Rotates the undelying log if it is required. Returns true if rotation happened, false otherwise
-     * @param logAppendEvent A trace event for the current log append operation.
+     * @param logRotateEvents A trace event for the current log append operation.
      */
-    boolean rotateLogIfNeeded( LogAppendEvent logAppendEvent ) throws IOException;
+    boolean rotateLogIfNeeded( LogRotateEvents logRotateEvents ) throws IOException;
 
     /**
      * Force a log rotation.
      *
      * @throws IOException
      */
-    void rotateLogFile() throws IOException;
+    void rotateLogFile( LogRotateEvents logRotateEvents ) throws IOException;
 }

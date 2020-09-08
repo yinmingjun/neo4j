@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,22 +19,26 @@
  */
 package org.neo4j.csv.reader;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.io.Reader;
 import java.io.StringReader;
 
 import org.neo4j.collection.RawIterator;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class MultiReadableTest
+class MultiReadableTest
 {
+    private static final Configuration CONFIG = Configuration.newBuilder().withBufferSize( 200 ).build();
+    private final Mark mark = new Mark();
+    private final Extractors extractors = new Extractors( ';' );
+    private final int delimiter = ',';
+
     @Test
-    public void shouldReadFromMultipleReaders() throws Exception
+    void shouldReadFromMultipleReaders() throws Exception
     {
         // GIVEN
         String[][] data = new String[][] {
@@ -42,7 +46,7 @@ public class MultiReadableTest
                 {"where this", "is the second line"},
                 {"and here comes", "the third line"}
         };
-        RawIterator<Reader,IOException> readers = readerIteratorFromStrings( data, null );
+        RawIterator<CharReadable,IOException> readers = readerIteratorFromStrings( data, null );
         CharSeeker seeker = CharSeekers.charSeeker( new MultiReadable( readers ), CONFIG, true );
 
         // WHEN/THEN
@@ -55,7 +59,7 @@ public class MultiReadableTest
     }
 
     @Test
-    public void shouldHandleSourcesEndingWithNewLine() throws Exception
+    void shouldHandleSourcesEndingWithNewLine() throws Exception
     {
         // GIVEN
         String[][] data = new String[][] {
@@ -64,8 +68,8 @@ public class MultiReadableTest
         };
 
         // WHEN
-        RawIterator<Reader,IOException> readers = readerIteratorFromStrings( data, '\n' );
-        CharSeeker seeker = CharSeekers.charSeeker( Readables.sources( readers ), CONFIG, true );
+        RawIterator<CharReadable,IOException> readers = readerIteratorFromStrings( data, '\n' );
+        CharSeeker seeker = CharSeekers.charSeeker( new MultiReadable( readers ), CONFIG, true );
 
         // WHEN/THEN
         for ( String[] line : data )
@@ -77,15 +81,15 @@ public class MultiReadableTest
     }
 
     @Test
-    public void shouldTrackAbsolutePosition() throws Exception
+    void shouldTrackAbsolutePosition() throws Exception
     {
         // GIVEN
         String[][] data = new String[][] {
                 {"this is", "the first line"},        // 21+delimiter+newline = 23 characters
                 {"where this", "is the second line"}, // 28+delimiter+newline = 30 characters
         };
-        RawIterator<Reader,IOException> readers = readerIteratorFromStrings( data, '\n' );
-        CharReadable reader = Readables.sources( readers );
+        RawIterator<CharReadable,IOException> readers = readerIteratorFromStrings( data, '\n' );
+        CharReadable reader = new MultiReadable( readers );
         assertEquals( 0L, reader.position() );
         SectionedCharBuffer buffer = new SectionedCharBuffer( 15 );
 
@@ -93,7 +97,7 @@ public class MultiReadableTest
         reader.read( buffer, buffer.front() );
         assertEquals( 15, reader.position() );
         reader.read( buffer, buffer.front() );
-        assertEquals( "Should not transition to a new reader in the middle of a read", 23, reader.position() );
+        assertEquals( 23, reader.position(), "Should not transition to a new reader in the middle of a read" );
         assertEquals( "Reader1", reader.sourceDescription() );
 
         // we will transition to the new reader in the call below
@@ -105,14 +109,32 @@ public class MultiReadableTest
         assertFalse( buffer.hasAvailable() );
     }
 
-    private static final Configuration CONFIG = new Configuration.Overridden( Configuration.DEFAULT )
+    @Test
+    void shouldNotCrossSourcesInOneRead() throws Exception
     {
-        @Override
-        public int bufferSize()
-        {
-            return 200;
-        }
-    };
+        // given
+        String source1 = "abcdefghijklm";
+        String source2 = "nopqrstuvwxyz";
+        String[][] data = new String[][] { {source1}, {source2} };
+        CharReadable readable = new MultiReadable( readerIteratorFromStrings( data, '\n' ) );
+
+        // when
+        char[] target = new char[source1.length() + source2.length() / 2];
+        int read = readable.read( target, 0, target.length );
+
+        // then
+        assertEquals( source1.length() + 1/*added newline-char*/, read );
+
+        // and when
+        target = new char[source2.length()];
+        read = readable.read( target, 0, target.length );
+
+        // then
+        assertEquals( source2.length(), read );
+
+        read = readable.read( target, 0, target.length );
+        assertEquals( 1/*added newline-char*/, read );
+    }
 
     private void assertNextLine( String[] line, CharSeeker seeker, Mark mark, Extractors extractors ) throws IOException
     {
@@ -124,10 +146,10 @@ public class MultiReadableTest
         assertTrue( mark.isEndOfLine() );
     }
 
-    private RawIterator<Reader,IOException> readerIteratorFromStrings(
+    private RawIterator<CharReadable,IOException> readerIteratorFromStrings(
             final String[][] data, final Character lineEnding )
     {
-        return new RawIterator<Reader,IOException>()
+        return new RawIterator<CharReadable,IOException>()
         {
             private int cursor;
 
@@ -138,16 +160,17 @@ public class MultiReadableTest
             }
 
             @Override
-            public Reader next()
+            public CharReadable next()
             {
-                return new StringReader( join( data[cursor++] ) )
+                String string = join( data[cursor++] );
+                return Readables.wrap( new StringReader( string )
                 {
                     @Override
                     public String toString()
                     {
                         return "Reader" + cursor;
                     }
-                };
+                }, string.length() * 2 );
             }
 
             private String join( String[] strings )
@@ -172,7 +195,4 @@ public class MultiReadableTest
         };
     }
 
-    private final Mark mark = new Mark();
-    private final Extractors extractors = new Extractors( ';' );
-    private final int delimiter = ',';
 }

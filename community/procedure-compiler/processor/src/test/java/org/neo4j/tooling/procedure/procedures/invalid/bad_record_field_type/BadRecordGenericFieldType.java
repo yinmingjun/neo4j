@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -44,7 +44,7 @@ public class BadRecordGenericFieldType
     public List<Relationship> okType11;
     public List<Object> okType12;
     public Map<String,Object> okType13;
-    public HashMap<String,Object> okType14;
-    public ArrayList<Boolean> okType15;
-    public ArrayList<Object> okType16;
+    public Map<String,Object> okType14;
+    public List<Boolean> okType15;
+    public List<Object> okType16;
 }

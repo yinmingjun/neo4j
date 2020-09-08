@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,21 +19,22 @@
  */
 package org.neo4j.bolt.testing;
 
-import org.neo4j.bolt.v1.runtime.BoltResponseHandler;
-import org.neo4j.bolt.v1.runtime.Neo4jError;
-import org.neo4j.bolt.v1.runtime.spi.Record;
-import org.neo4j.bolt.v1.runtime.spi.BoltResult;
-
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
-import static java.lang.String.format;
+import org.neo4j.bolt.runtime.BoltResponseHandler;
+import org.neo4j.bolt.runtime.BoltResult;
+import org.neo4j.bolt.runtime.Neo4jError;
+import org.neo4j.values.AnyValue;
+import org.neo4j.values.storable.BooleanValue;
+
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.neo4j.bolt.v1.messaging.BoltResponseMessage.FAILURE;
-import static org.neo4j.bolt.v1.messaging.BoltResponseMessage.IGNORED;
-import static org.neo4j.bolt.v1.messaging.BoltResponseMessage.SUCCESS;
+import static org.neo4j.bolt.messaging.BoltResponseMessage.FAILURE;
+import static org.neo4j.bolt.messaging.BoltResponseMessage.IGNORED;
+import static org.neo4j.bolt.messaging.BoltResponseMessage.SUCCESS;
+import static org.neo4j.values.storable.Values.stringOrNoValue;
+import static org.neo4j.values.storable.Values.stringValue;
 
 public class BoltResponseRecorder implements BoltResponseHandler
 {
@@ -52,31 +53,19 @@ public class BoltResponseRecorder implements BoltResponseHandler
     }
 
     @Override
-    public void onStart()
+    public boolean onPullRecords( BoltResult result, long size ) throws Throwable
     {
+        return hasMore( result.handleRecords( new RecordingBoltResultRecordConsumer(), size ) );
     }
 
     @Override
-    public void onRecords( BoltResult result, boolean pull ) throws Exception
+    public boolean onDiscardRecords( BoltResult result, long size ) throws Throwable
     {
-        result.accept( new BoltResult.Visitor()
-        {
-            @Override
-            public void visit( Record record ) throws Exception
-            {
-                currentResponse.addRecord( record );
-            }
-
-            @Override
-            public void addMetadata( String key, Object value )
-            {
-                currentResponse.addMetadata( key, value );
-            }
-        } );
+        return hasMore( result.handleRecords( new DiscardingBoltResultVisitor(), size ) );
     }
 
     @Override
-    public void onMetadata( String key, Object value )
+    public void onMetadata( String key, AnyValue value )
     {
         currentResponse.addMetadata( key, value );
     }
@@ -91,8 +80,8 @@ public class BoltResponseRecorder implements BoltResponseHandler
     public void markFailed( Neo4jError error )
     {
         currentResponse.setResponse( FAILURE );
-        onMetadata( "code", error.status().code().serialize() );
-        onMetadata( "message", error.message() );
+        onMetadata( "code", stringValue( error.status().code().serialize() ) );
+        onMetadata( "message", stringOrNoValue( error.message() ) );
     }
 
     @Override
@@ -118,4 +107,59 @@ public class BoltResponseRecorder implements BoltResponseHandler
         return response;
     }
 
+    private boolean hasMore( boolean hasMore )
+    {
+        if ( hasMore )
+        {
+            onMetadata( "has_more", BooleanValue.TRUE );
+        }
+        return hasMore;
+    }
+
+    private class DiscardingBoltResultVisitor extends BoltResult.DiscardingRecordConsumer
+    {
+        @Override
+        public void addMetadata( String key, AnyValue value )
+        {
+            currentResponse.addMetadata( key, value );
+        }
+    }
+
+    private class RecordingBoltResultRecordConsumer implements BoltResult.RecordConsumer
+    {
+        private AnyValue[] anyValues;
+        private int currentOffset = -1;
+
+        @Override
+        public void addMetadata( String key, AnyValue value )
+        {
+            currentResponse.addMetadata( key, value );
+        }
+
+        @Override
+        public void beginRecord( int numberOfFields )
+        {
+            currentOffset = 0;
+            anyValues = new AnyValue[numberOfFields];
+        }
+
+        @Override
+        public void consumeField( AnyValue value )
+        {
+            anyValues[currentOffset++] = value;
+        }
+
+        @Override
+        public void endRecord()
+        {
+            currentOffset = -1;
+            currentResponse.addFields( anyValues );
+        }
+
+        @Override
+        public void onError()
+        {
+            //IGNORE
+        }
+    }
 }

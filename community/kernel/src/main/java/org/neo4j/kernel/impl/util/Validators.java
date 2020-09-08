@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,81 +22,71 @@ package org.neo4j.kernel.impl.util;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
+import org.neo4j.common.Validator;
 import org.neo4j.io.fs.DefaultFileSystemAbstraction;
 import org.neo4j.io.fs.FileSystemAbstraction;
-import org.neo4j.kernel.impl.api.IndexValueValidator;
-import org.neo4j.kernel.impl.api.LegacyIndexValueValidator;
-import org.neo4j.kernel.impl.store.MetaDataStore;
-import org.neo4j.kernel.impl.storemigration.StoreFileType;
+import org.neo4j.io.layout.DatabaseLayout;
 
-public class Validators
+public final class Validators
 {
-
-    public static final IndexValueValidator INDEX_VALUE_VALIDATOR = IndexValueValidator.INSTANCE;
-
-    public static final LegacyIndexValueValidator LEGACY_INDEX_VALUE_VALIDATOR = LegacyIndexValueValidator.INSTANCE;
-
-    public static final Validator<File> REGEX_FILE_EXISTS = file ->
+    public static final Validator<String> REGEX_FILE_EXISTS = fileWithRegexInName ->
     {
-        if ( matchingFiles( file ).isEmpty() )
+        File file = new File( fileWithRegexInName ); // Path can't handle regex in the name
+        File parent = file.getParentFile();
+        if ( parent == null )
+        {
+            throw new IllegalArgumentException( "Directory of " + fileWithRegexInName + " doesn't exist" );
+        }
+
+        if ( matchingFiles( parent.toPath(), file.getName() ).isEmpty() )
         {
             throw new IllegalArgumentException( "File '" + file + "' doesn't exist" );
         }
     };
 
-    static List<File> matchingFiles( File fileWithRegexInName )
+    private Validators()
     {
-        File parent = fileWithRegexInName.getAbsoluteFile().getParentFile();
-        if ( parent == null || !parent.exists() )
+    }
+
+    static List<Path> matchingFiles( Path directory, String fileWithRegexInName )
+    {
+        if ( Files.notExists( directory ) || !Files.isDirectory( directory ) )
         {
-            throw new IllegalArgumentException( "Directory of " + fileWithRegexInName + " doesn't exist" );
+            throw new IllegalArgumentException( directory + " is not a directory" );
         }
-        final Pattern pattern = Pattern.compile( fileWithRegexInName.getName() );
-        List<File> files = new ArrayList<>();
-        for ( File file : parent.listFiles() )
+        final Pattern pattern = Pattern.compile( fileWithRegexInName );
+        List<Path> files = new ArrayList<>();
+        try ( Stream<Path> list = Files.list( directory ) )
         {
-            if ( pattern.matcher( file.getName() ).matches() )
+            list.forEach( file ->
             {
-                files.add( file );
-            }
+                if ( pattern.matcher( file.getFileName().toString() ).matches() )
+                {
+                    files.add( file );
+                }
+            } );
+        }
+        catch ( IOException e )
+        {
+            throw new UncheckedIOException( e );
         }
         return files;
     }
 
-    public static final Validator<File> DIRECTORY_IS_WRITABLE = value ->
-    {
-        if ( value.mkdirs() )
-        {   // It's OK, we created the directory right now, which means we have write access to it
-            return;
-        }
-
-        File test = new File( value, "_______test___" );
-        try
-        {
-            test.createNewFile();
-        }
-        catch ( IOException e )
-        {
-            throw new IllegalArgumentException( "Directoy '" + value + "' not writable: " + e.getMessage() );
-        }
-        finally
-        {
-            test.delete();
-        }
-    };
-
-    public static final Validator<File> CONTAINS_NO_EXISTING_DATABASE = value ->
+    public static final Validator<Path> CONTAINS_EXISTING_DATABASE = dbDir ->
     {
         try ( FileSystemAbstraction fileSystem = new DefaultFileSystemAbstraction() )
         {
-            if ( isExistingDatabase( fileSystem, value ) )
+            if ( !isExistingDatabase( fileSystem, DatabaseLayout.ofFlat( dbDir ) ) )
             {
-                throw new IllegalArgumentException( "Directory '" + value + "' already contains a database" );
+                throw new IllegalArgumentException( "Directory '" + dbDir + "' does not contain a database" );
             }
         }
         catch ( IOException e )
@@ -105,49 +95,9 @@ public class Validators
         }
     };
 
-    public static final Validator<File> CONTAINS_EXISTING_DATABASE = value ->
+    private static boolean isExistingDatabase( FileSystemAbstraction fileSystem, DatabaseLayout layout )
     {
-        try ( FileSystemAbstraction fileSystem = new DefaultFileSystemAbstraction() )
-        {
-            if ( !isExistingDatabase( fileSystem, value ) )
-            {
-                throw new IllegalArgumentException( "Directory '" + value + "' does not contain a database" );
-            }
-        }
-        catch ( IOException e )
-        {
-            throw new UncheckedIOException( e );
-        }
-    };
-
-    private static boolean isExistingDatabase( FileSystemAbstraction fileSystem, File value )
-    {
-        return fileSystem.fileExists( new File( value, StoreFileType.STORE.augment( MetaDataStore.DEFAULT_NAME ) ) );
-    }
-
-    public static Validator<String> inList( String[] validStrings )
-    {
-        return value ->
-        {
-            if ( Arrays.stream( validStrings ).noneMatch( s -> s.equals( value ) ) )
-            {
-                throw new IllegalArgumentException( "'" + value + "' found but must be one of: " +
-                    Arrays.toString( validStrings ) + "." );
-            }
-        };
-    }
-
-    public static <T> Validator<T[]> atLeast( final String key, final int length )
-    {
-        return value ->
-        {
-            if ( value.length < length )
-            {
-                throw new IllegalArgumentException( "Expected '" + key + "' to have at least " +
-                        length + " valid item" + (length == 1 ? "" : "s") + ", but had " + value.length +
-                        " " + Arrays.toString( value ) );
-            }
-        };
+        return fileSystem.fileExists( layout.metadataStore() );
     }
 
     public static <T> Validator<T> emptyValidator()

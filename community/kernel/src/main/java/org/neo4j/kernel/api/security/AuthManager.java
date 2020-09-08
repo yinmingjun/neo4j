@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,51 +21,47 @@ package org.neo4j.kernel.api.security;
 
 import java.util.Map;
 
+import org.neo4j.internal.kernel.api.security.LoginContext;
+import org.neo4j.internal.kernel.api.security.SecurityContext;
 import org.neo4j.kernel.api.security.exception.InvalidAuthTokenException;
-import org.neo4j.kernel.lifecycle.Lifecycle;
+import org.neo4j.kernel.lifecycle.LifecycleAdapter;
 
 /**
  * An AuthManager is used to do basic authentication and user management.
  */
-public interface AuthManager extends Lifecycle
+public abstract class AuthManager extends LifecycleAdapter
 {
+    public static final String INITIAL_USER_NAME = "neo4j";
+    public static final String INITIAL_PASSWORD = "neo4j";
+
     /**
      * Log in using the provided authentication token
+     *
+     * NOTE: The authToken will be cleared of any credentials
+     *
      * @param authToken The authentication token to login with. Typically contains principals and credentials.
      * @return An AuthSubject representing the newly logged-in user
      * @throws InvalidAuthTokenException if the authentication token is malformed
      */
-    SecurityContext login( Map<String,Object> authToken ) throws InvalidAuthTokenException;
+    public abstract LoginContext login( Map<String,Object> authToken ) throws InvalidAuthTokenException;
+
+    public abstract void log( String message, SecurityContext securityContext );
 
     /**
      * Implementation that does no authentication.
      */
-    AuthManager NO_AUTH = new AuthManager()
+    public static final AuthManager NO_AUTH = new AuthManager()
     {
         @Override
-        public void init() throws Throwable
+        public LoginContext login( Map<String,Object> authToken )
         {
+            AuthToken.clearCredentials( authToken );
+            return LoginContext.AUTH_DISABLED;
         }
 
         @Override
-        public void start() throws Throwable
+        public void log( String message, SecurityContext securityContext )
         {
-        }
-
-        @Override
-        public void stop() throws Throwable
-        {
-        }
-
-        @Override
-        public void shutdown() throws Throwable
-        {
-        }
-
-        @Override
-        public SecurityContext login( Map<String,Object> authToken )
-        {
-            return SecurityContext.AUTH_DISABLED;
         }
     };
 }

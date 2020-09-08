@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -24,19 +24,16 @@ import java.io.IOException;
 /**
  * Merely a super class for any kind of exception about logical log
  * or transaction missing or not found.
- *
- * @author Mattias Persson
- *
  */
-public class MissingLogDataException extends IOException
+class MissingLogDataException extends IOException
 {
-    public MissingLogDataException()
-    {
-        super();
-    }
-
-    public MissingLogDataException( String message )
+    MissingLogDataException( String message )
     {
         super( message );
+    }
+
+    MissingLogDataException( String message, Throwable cause )
+    {
+        super( message, cause );
     }
 }

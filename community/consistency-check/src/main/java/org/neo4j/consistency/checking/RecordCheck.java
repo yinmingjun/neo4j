@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,9 +21,10 @@ package org.neo4j.consistency.checking;
 
 import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.store.RecordAccess;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
 
 public interface RecordCheck<RECORD extends AbstractBaseRecord, REPORT extends ConsistencyReport>
 {
-    void check( RECORD record, CheckerEngine<RECORD, REPORT> engine, RecordAccess records );
+    void check( RECORD record, CheckerEngine<RECORD, REPORT> engine, RecordAccess records, PageCursorTracer cursorTracer );
 }

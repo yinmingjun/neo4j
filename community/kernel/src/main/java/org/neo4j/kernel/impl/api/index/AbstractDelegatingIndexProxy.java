@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,45 +19,47 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import java.io.File;
 import java.io.IOException;
-import java.util.concurrent.Future;
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import org.neo4j.graphdb.ResourceIterator;
+import org.neo4j.internal.kernel.api.InternalIndexState;
+import org.neo4j.internal.kernel.api.PopulationProgress;
+import org.neo4j.internal.kernel.api.exceptions.schema.IndexNotFoundKernelException;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.io.pagecache.IOLimiter;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.api.exceptions.index.IndexActivationFailedKernelException;
 import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
-import org.neo4j.kernel.api.exceptions.index.IndexNotFoundKernelException;
 import org.neo4j.kernel.api.exceptions.index.IndexPopulationFailedKernelException;
 import org.neo4j.kernel.api.exceptions.schema.UniquePropertyValueValidationException;
+import org.neo4j.kernel.api.index.IndexReader;
 import org.neo4j.kernel.api.index.IndexUpdater;
-import org.neo4j.kernel.api.index.InternalIndexState;
-import org.neo4j.kernel.api.index.PropertyAccessor;
-import org.neo4j.kernel.api.index.SchemaIndexProvider;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.storageengine.api.schema.IndexReader;
-import org.neo4j.storageengine.api.schema.PopulationProgress;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
+import org.neo4j.values.storable.Value;
 
 public abstract class AbstractDelegatingIndexProxy implements IndexProxy
 {
-    protected abstract IndexProxy getDelegate();
+    public abstract IndexProxy getDelegate();
 
     @Override
-    public void start() throws IOException
+    public void start()
     {
         getDelegate().start();
     }
 
     @Override
-    public IndexUpdater newUpdater( IndexUpdateMode mode )
+    public IndexUpdater newUpdater( IndexUpdateMode mode, PageCursorTracer cursorTracer )
     {
-        return getDelegate().newUpdater( mode );
+        return getDelegate().newUpdater( mode, cursorTracer );
     }
 
     @Override
-    public Future<Void> drop() throws IOException
+    public void drop()
     {
-        return getDelegate().drop();
+        getDelegate().drop();
     }
 
     @Override
@@ -73,27 +75,21 @@ public abstract class AbstractDelegatingIndexProxy implements IndexProxy
     }
 
     @Override
-    public LabelSchemaDescriptor schema()
+    public void force( IOLimiter ioLimiter, PageCursorTracer cursorTracer ) throws IOException
     {
-        return getDelegate().schema();
+        getDelegate().force( ioLimiter, cursorTracer );
     }
 
     @Override
-    public SchemaIndexProvider.Descriptor getProviderDescriptor()
+    public void refresh() throws IOException
     {
-        return getDelegate().getProviderDescriptor();
+        getDelegate().refresh();
     }
 
     @Override
-    public void force() throws IOException
+    public void close( PageCursorTracer cursorTracer ) throws IOException
     {
-        getDelegate().force();
-    }
-
-    @Override
-    public Future<Void> close() throws IOException
-    {
-        return getDelegate().close();
+        getDelegate().close( cursorTracer );
     }
 
     @Override
@@ -103,9 +99,9 @@ public abstract class AbstractDelegatingIndexProxy implements IndexProxy
     }
 
     @Override
-    public boolean awaitStoreScanCompleted() throws IndexPopulationFailedKernelException, InterruptedException
+    public boolean awaitStoreScanCompleted( long time, TimeUnit unit ) throws IndexPopulationFailedKernelException, InterruptedException
     {
-        return getDelegate().awaitStoreScanCompleted();
+        return getDelegate().awaitStoreScanCompleted( time, unit );
     }
 
     @Override
@@ -118,6 +114,12 @@ public abstract class AbstractDelegatingIndexProxy implements IndexProxy
     public void validate() throws IndexPopulationFailedKernelException, UniquePropertyValueValidationException
     {
         getDelegate().validate();
+    }
+
+    @Override
+    public void validateBeforeCommit( Value[] tuple )
+    {
+        getDelegate().validateBeforeCommit( tuple );
     }
 
     @Override
@@ -135,17 +137,23 @@ public abstract class AbstractDelegatingIndexProxy implements IndexProxy
     @Override
     public String toString()
     {
-        return String.format( "%s -> %s", getClass().getSimpleName(), getDelegate().toString() );
+        return String.format( "%s -> %s", getClass().getSimpleName(), getDelegate() );
     }
 
     @Override
-    public ResourceIterator<File> snapshotFiles() throws IOException
+    public ResourceIterator<Path> snapshotFiles() throws IOException
     {
         return getDelegate().snapshotFiles();
     }
 
     @Override
-    public void verifyDeferredConstraints( PropertyAccessor accessor ) throws IndexEntryConflictException, IOException
+    public Map<String,Value> indexConfig()
+    {
+        return getDelegate().indexConfig();
+    }
+
+    @Override
+    public void verifyDeferredConstraints( NodePropertyAccessor accessor ) throws IndexEntryConflictException, IOException
     {
         getDelegate().verifyDeferredConstraints( accessor );
     }

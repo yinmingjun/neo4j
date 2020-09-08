@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,108 +19,73 @@
  */
 package org.neo4j.kernel.api.proc;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.fail;
-import static org.neo4j.kernel.api.proc.FieldSignature.inputField;
-import static org.neo4j.kernel.api.proc.FieldSignature.outputField;
-import static org.neo4j.kernel.impl.proc.Neo4jValue.ntString;
+import org.neo4j.internal.kernel.api.procs.Neo4jTypes;
 
-public class FieldSignatureTest
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.neo4j.internal.kernel.api.procs.DefaultParameterValue.ntString;
+import static org.neo4j.internal.kernel.api.procs.FieldSignature.inputField;
+import static org.neo4j.internal.kernel.api.procs.FieldSignature.outputField;
+
+class FieldSignatureTest
 {
     @Test
-    public void equalsShouldConsiderName() throws Exception
+    void equalsShouldConsiderName()
     {
-        assertEquals(
-                "input without default",
-                inputField( "name", Neo4jTypes.NTString ),
-                inputField( "name", Neo4jTypes.NTString ) );
-        assertNotEquals(
-                "input without default",
-                inputField( "name", Neo4jTypes.NTString ),
-                inputField( "other", Neo4jTypes.NTString ) );
+        assertEquals( inputField( "name", Neo4jTypes.NTString ),
+                inputField( "name", Neo4jTypes.NTString ), "input without default" );
+        assertNotEquals( inputField( "name", Neo4jTypes.NTString ),
+                inputField( "other", Neo4jTypes.NTString ), "input without default" );
 
-        assertEquals(
-                "input with default",
-                inputField( "name", Neo4jTypes.NTString, ntString( "hello" ) ),
-                inputField( "name", Neo4jTypes.NTString, ntString( "hello" ) ) );
-        assertNotEquals(
-                "input with default",
-                inputField( "name", Neo4jTypes.NTString, ntString( "hello" ) ),
-                inputField( "other", Neo4jTypes.NTString, ntString( "hello" ) ) );
+        assertEquals( inputField( "name", Neo4jTypes.NTString, ntString( "hello" ) ),
+                inputField( "name", Neo4jTypes.NTString, ntString( "hello" ) ), "input with default" );
+        assertNotEquals( inputField( "name", Neo4jTypes.NTString, ntString( "hello" ) ),
+                inputField( "other", Neo4jTypes.NTString, ntString( "hello" ) ), "input with default" );
 
-        assertEquals(
-                "output",
-                outputField( "name", Neo4jTypes.NTString, false ),
-                outputField( "name", Neo4jTypes.NTString, false ) );
-        assertNotEquals(
-                "output",
-                outputField( "name", Neo4jTypes.NTString, false ),
-                outputField( "other", Neo4jTypes.NTString, false ) );
+        assertEquals( outputField( "name", Neo4jTypes.NTString, false ),
+                outputField( "name", Neo4jTypes.NTString, false ), "output" );
+        assertNotEquals( outputField( "name", Neo4jTypes.NTString, false ),
+                outputField( "other", Neo4jTypes.NTString, false ), "output" );
 
-        assertEquals(
-                "deprecated output",
-                outputField( "name", Neo4jTypes.NTString, true ),
-                outputField( "name", Neo4jTypes.NTString, true ) );
-        assertNotEquals(
-                "deprecated output",
-                outputField( "name", Neo4jTypes.NTString, true ),
-                outputField( "other", Neo4jTypes.NTString, true ) );
+        assertEquals( outputField( "name", Neo4jTypes.NTString, true ),
+                outputField( "name", Neo4jTypes.NTString, true ), "deprecated output" );
+        assertNotEquals( outputField( "name", Neo4jTypes.NTString, true ),
+                outputField( "other", Neo4jTypes.NTString, true ), "deprecated output" );
     }
 
     @Test
-    public void shouldTypeCheckDefaultValue() throws Exception
+    void shouldTypeCheckDefaultValue()
     {
         // when
-        try
-        {
-            inputField( "name", Neo4jTypes.NTInteger, ntString( "bad" ) );
-            fail( "expected exception" );
-        }
-        // then
-        catch ( IllegalArgumentException e )
-        {
-            assertEquals(
-                    e.getMessage(),
-                    "Default value does not have a valid type, field type was INTEGER?, but value type was STRING?." );
-        }
+        IllegalArgumentException exception =
+                assertThrows( IllegalArgumentException.class, () -> inputField( "name", Neo4jTypes.NTInteger, ntString( "bad" ) ) );
+        assertEquals( "Default value does not have a valid type, field type was INTEGER?, but value type was STRING?.", exception.getMessage() );
     }
 
     @Test
-    public void equalsShouldConsiderType() throws Exception
+    void equalsShouldConsiderType()
     {
-        assertEquals(
-                "input without default",
-                inputField( "name", Neo4jTypes.NTString ),
-                inputField( "name", Neo4jTypes.NTString ) );
-        assertNotEquals(
-                "input without default",
-                inputField( "name", Neo4jTypes.NTString ),
-                inputField( "name", Neo4jTypes.NTInteger ) );
+        assertEquals( inputField( "name", Neo4jTypes.NTString ),
+                inputField( "name", Neo4jTypes.NTString ), "input without default" );
+        assertNotEquals( inputField( "name", Neo4jTypes.NTString ),
+                inputField( "name", Neo4jTypes.NTInteger ), "input without default" );
 
-        assertEquals(
-                "output",
-                outputField( "name", Neo4jTypes.NTString, false ),
-                outputField( "name", Neo4jTypes.NTString, false ) );
-        assertNotEquals(
-                "output",
-                outputField( "name", Neo4jTypes.NTString, false ),
-                outputField( "name", Neo4jTypes.NTInteger, false ) );
+        assertEquals( outputField( "name", Neo4jTypes.NTString, false ),
+                outputField( "name", Neo4jTypes.NTString, false ), "output" );
+        assertNotEquals( outputField( "name", Neo4jTypes.NTString, false ),
+                outputField( "name", Neo4jTypes.NTInteger, false ), "output" );
 
-        assertEquals(
-                "deprecated output",
-                outputField( "name", Neo4jTypes.NTString, true ),
-                outputField( "name", Neo4jTypes.NTString, true ) );
-        assertNotEquals(
-                "deprecated output",
-                outputField( "name", Neo4jTypes.NTString, true ),
-                outputField( "name", Neo4jTypes.NTInteger, true ) );
+        assertEquals( outputField( "name", Neo4jTypes.NTString, true ),
+                outputField( "name", Neo4jTypes.NTString, true ), "deprecated output" );
+        assertNotEquals( outputField( "name", Neo4jTypes.NTString, true ),
+                outputField( "name", Neo4jTypes.NTInteger, true ), "deprecated output" );
     }
 
     @Test
-    public void equalsShouldConsiderDefaultValue() throws Exception
+    void equalsShouldConsiderDefaultValue()
     {
         assertEquals(
                 inputField( "name", Neo4jTypes.NTString, ntString( "foo" ) ),
@@ -131,7 +96,21 @@ public class FieldSignatureTest
     }
 
     @Test
-    public void equalsShouldConsiderDeprecation() throws Exception
+    void equalsShouldConsiderSensitivity()
+    {
+        assertEquals(
+                inputField( "name", Neo4jTypes.NTString, true ),
+                inputField( "name", Neo4jTypes.NTString, true ) );
+        assertEquals(
+                inputField( "name", Neo4jTypes.NTString, false ),
+                inputField( "name", Neo4jTypes.NTString, false ) );
+        assertNotEquals(
+                inputField( "name", Neo4jTypes.NTString, true ),
+                inputField( "name", Neo4jTypes.NTString, false ) );
+    }
+
+    @Test
+    void equalsShouldConsiderDeprecation()
     {
         assertEquals(
                 outputField( "name", Neo4jTypes.NTString, true ),

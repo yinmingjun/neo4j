@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,15 +22,18 @@ package org.neo4j.kernel.impl.transaction.log.checkpoint;
 import java.util.Arrays;
 import java.util.function.BooleanSupplier;
 
+import org.neo4j.exceptions.UnderlyingStorageException;
 import org.neo4j.function.Predicates;
 import org.neo4j.io.pagecache.IOLimiter;
-import org.neo4j.kernel.impl.store.UnderlyingStorageException;
-import org.neo4j.kernel.impl.util.JobScheduler;
-import org.neo4j.kernel.internal.DatabaseHealth;
 import org.neo4j.kernel.lifecycle.LifecycleAdapter;
+import org.neo4j.monitoring.Health;
+import org.neo4j.scheduler.Group;
+import org.neo4j.scheduler.JobHandle;
+import org.neo4j.scheduler.JobScheduler;
+import org.neo4j.util.FeatureToggles;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static org.neo4j.kernel.impl.util.JobScheduler.Groups.checkPoint;
+import static org.neo4j.scheduler.JobMonitoringParams.systemJob;
 
 public class CheckPointScheduler extends LifecycleAdapter
 {
@@ -38,13 +41,15 @@ public class CheckPointScheduler extends LifecycleAdapter
      * The max number of consecutive check point failures that can be tolerated before treating
      * check point failures more seriously, with a panic.
      */
-    static final int MAX_CONSECUTIVE_FAILURES_TOLERANCE = 3;
+    static final int MAX_CONSECUTIVE_FAILURES_TOLERANCE =
+            FeatureToggles.getInteger( CheckPointScheduler.class, "failure_tolerance", 10 );
 
     private final CheckPointer checkPointer;
     private final IOLimiter ioLimiter;
     private final JobScheduler scheduler;
     private final long recurringPeriodMillis;
-    private final DatabaseHealth health;
+    private final Health health;
+    private final String databaseName;
     private final Throwable[] failures = new Throwable[MAX_CONSECUTIVE_FAILURES_TOLERANCE];
     private volatile int consecutiveFailures;
     private final Runnable job = new Runnable()
@@ -59,7 +64,7 @@ public class CheckPointScheduler extends LifecycleAdapter
                 {
                     return;
                 }
-                checkPointer.checkPointIfNeeded( new SimpleTriggerInfo( "scheduler" ) );
+                checkPointer.checkPointIfNeeded( new SimpleTriggerInfo( "Scheduled checkpoint" ) );
 
                 // There were previous unsuccessful attempts, but this attempt was a success
                 // so let's clear those previous errors.
@@ -89,7 +94,7 @@ public class CheckPointScheduler extends LifecycleAdapter
             // reschedule only if it is not stopped
             if ( !stopped )
             {
-                handle = scheduler.schedule( checkPoint, job, recurringPeriodMillis, MILLISECONDS );
+                schedule();
             }
         }
 
@@ -104,41 +109,35 @@ public class CheckPointScheduler extends LifecycleAdapter
         }
     };
 
-    private volatile JobScheduler.JobHandle handle;
+    private volatile JobHandle handle;
     private volatile boolean stopped;
     private volatile boolean checkPointing;
-    private final BooleanSupplier checkPointingCondition = new BooleanSupplier()
-    {
-        @Override
-        public boolean getAsBoolean()
-        {
-            return !checkPointing;
-        }
-    };
+    private final BooleanSupplier checkPointingCondition = () -> !checkPointing;
 
     public CheckPointScheduler( CheckPointer checkPointer, IOLimiter ioLimiter, JobScheduler scheduler, long recurringPeriodMillis,
-            DatabaseHealth health )
+            Health health, String databaseName )
     {
         this.checkPointer = checkPointer;
         this.ioLimiter = ioLimiter;
         this.scheduler = scheduler;
         this.recurringPeriodMillis = recurringPeriodMillis;
         this.health = health;
+        this.databaseName = databaseName;
     }
 
     @Override
-    public void start() throws Throwable
+    public void start()
     {
-        handle = scheduler.schedule( checkPoint, job, recurringPeriodMillis, MILLISECONDS );
+        schedule();
     }
 
     @Override
-    public void stop() throws Throwable
+    public void stop()
     {
         stopped = true;
         if ( handle != null )
         {
-            handle.cancel( false );
+            handle.cancel();
         }
         waitOngoingCheckpointCompletion();
     }
@@ -154,5 +153,10 @@ public class CheckPointScheduler extends LifecycleAdapter
         {
             ioLimiter.enableLimit();
         }
+    }
+
+    private void schedule()
+    {
+        handle = scheduler.schedule( Group.CHECKPOINT, systemJob( databaseName, "Scheduled checkpoint" ), job, recurringPeriodMillis, MILLISECONDS );
     }
 }

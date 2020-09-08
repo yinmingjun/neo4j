@@ -1,7 +1,25 @@
+# Copyright (c) 2002-2020 "Neo4j,"
+# Neo4j Sweden AB [http://neo4j.com]
+#
+# This file is part of Neo4j.
+#
+# Neo4j is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$sut = (Split-Path -Leaf $MyInvocation.MyCommand.Path).Replace(".Tests.", ".")
+$sut = (Split-Path -Leaf $MyInvocation.MyCommand.Path).Replace(".Tests.",".")
 $common = Join-Path (Split-Path -Parent $here) 'Common.ps1'
-. $common
+.$common
 
 Import-Module "$src\Neo4j-Management.psm1"
 
@@ -12,7 +30,7 @@ InModuleScope Neo4j-Management {
     #  Mock Java environment
     $javaHome = global:New-MockJavaHome
     Mock Get-Neo4jEnv { $javaHome } -ParameterFilter { $Name -eq 'JAVA_HOME' }
-    Mock Set-Neo4jEnv { }
+    Mock Set-Neo4jEnv {}
     Mock Test-Path { $false } -ParameterFilter {
       $Path -like 'Registry::*\JavaSoft\Java Runtime Environment'
     }
@@ -87,5 +105,22 @@ InModuleScope Neo4j-Management {
       }
     }
 
+    Context "Additional arguments passthrough" {
+      It "returns exitcode from start command with invalid argument" {
+        Invoke-Neo4j ('start', 'foo') | Should Be 1
+      }
+
+      It "returns exitcode from start command with valid argument" {
+        Invoke-Neo4j ('start', '--expand-commands') | Should Be 3
+      }
+
+      It "pass valid argument to start command" {
+        Mock Start-Neo4jServer {
+          $a = $Neo4jServer.AdditionalArguments | Should Be ("--expand-commands");
+          return 7;
+        } -ParameterFilter {  $Service -eq $true }
+        Invoke-Neo4j ('start', '--expand-commands') | Should Be 7
+      }
+    }
   }
 }

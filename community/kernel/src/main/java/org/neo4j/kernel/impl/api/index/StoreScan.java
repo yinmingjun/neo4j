@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,10 +19,8 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import java.util.Collection;
-
-import org.neo4j.kernel.api.index.IndexEntryUpdate;
-import org.neo4j.storageengine.api.schema.PopulationProgress;
+import org.neo4j.internal.kernel.api.PopulationProgress;
+import org.neo4j.storageengine.api.IndexEntryUpdate;
 
 public interface StoreScan<FAILURE extends Exception>
 {
@@ -30,10 +28,17 @@ public interface StoreScan<FAILURE extends Exception>
 
     void stop();
 
-    void acceptUpdate( MultipleIndexPopulator.MultipleIndexUpdater updater, IndexEntryUpdate update,
+    void acceptUpdate( MultipleIndexPopulator.MultipleIndexUpdater updater, IndexEntryUpdate<?> update,
             long currentlyIndexedNodeId );
 
     PopulationProgress getProgress();
 
-    void configure( Collection<MultipleIndexPopulator.IndexPopulation> populations );
+    /**
+     * Give this {@link StoreScan} a {@link PhaseTracker} to report to.
+     * Must not be called once scan has already started.
+     * @param phaseTracker {@link PhaseTracker} this store scan shall report to.
+     */
+    default void setPhaseTracker( PhaseTracker phaseTracker )
+    {   // no-op
+    }
 }

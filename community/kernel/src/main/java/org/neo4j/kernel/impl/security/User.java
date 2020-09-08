@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -60,7 +60,7 @@ public class User
         return credential;
     }
 
-    public boolean hasFlag(String flag)
+    public boolean hasFlag( String flag )
     {
         return flags.contains( flag );
     }
@@ -103,12 +103,7 @@ public class User
         {
             return false;
         }
-        if ( name != null ? !name.equals( user.name ) : user.name != null )
-        {
-            return false;
-        }
-
-        return true;
+        return name != null ? name.equals( user.name ) : user.name == null;
     }
 
     @Override
@@ -126,19 +121,15 @@ public class User
         return "User{" +
                 "name='" + name + '\'' +
                 ", credentials=" + credential +
-                ", flags=" + flags.toString() +
+                ", flags=" + flags +
                 '}';
     }
 
     public static class Builder
     {
         private String name;
-        private Credential credential = Credential.INACCESSIBLE;
-        private TreeSet<String> flags = new TreeSet<>();
-
-        public Builder()
-        {
-        }
+        private Credential credential;
+        private SortedSet<String> flags = new TreeSet<>();
 
         public Builder( String name, Credential credential )
         {
@@ -151,12 +142,6 @@ public class User
             name = base.name;
             credential = base.credential;
             flags.addAll( base.flags );
-        }
-
-        public Builder withName( String name )
-        {
-            this.name = name;
-            return this;
         }
 
         public Builder withCredentials( Credential creds )
@@ -192,7 +177,7 @@ public class User
 
         public User build()
         {
-            return new User(name, credential, flags );
+            return new User( name, credential, flags );
         }
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,36 +19,30 @@
  */
 package org.neo4j.kernel.api.impl.index.storage;
 
+import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.store.FilterDirectory;
-import org.apache.lucene.store.IOContext;
-import org.apache.lucene.store.IndexInput;
+import org.apache.lucene.store.NIOFSDirectory;
 import org.apache.lucene.store.NRTCachingDirectory;
-import org.apache.lucene.store.RAMDirectory;
 
-import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
-import org.neo4j.io.fs.FileSystemAbstraction;
-import org.neo4j.unsafe.impl.internal.dragons.FeatureToggles;
+import org.neo4j.io.IOUtils;
+import org.neo4j.util.FeatureToggles;
 
-import static java.lang.Math.min;
-
-public interface DirectoryFactory extends FileSystemAbstraction.ThirdPartyFileSystem
+public interface DirectoryFactory extends AutoCloseable
 {
-    Directory open( File dir ) throws IOException;
+    static DirectoryFactory directoryFactory( boolean ephemeral )
+    {
+        return ephemeral ? new DirectoryFactory.InMemoryDirectoryFactory() : DirectoryFactory.PERSISTENT;
+    }
 
-    /**
-     * Called when the directory factory is disposed of, really only here to allow
-     * the ram directory thing to close open directories.
-     */
-    void close();
+    Directory open( Path dir ) throws IOException;
 
     DirectoryFactory PERSISTENT = new DirectoryFactory()
     {
@@ -56,13 +50,16 @@ public interface DirectoryFactory extends FileSystemAbstraction.ThirdPartyFileSy
                 FeatureToggles.getInteger( DirectoryFactory.class, "max_merge_size_mb", 5 );
         private final int MAX_CACHED_MB =
                 FeatureToggles.getInteger( DirectoryFactory.class, "max_cached_mb", 50 );
+        private final boolean USE_DEFAULT_DIRECTORY_FACTORY =
+                FeatureToggles.flag( DirectoryFactory.class, "default_directory_factory", true );
 
         @SuppressWarnings( "ResultOfMethodCallIgnored" )
         @Override
-        public Directory open( File dir ) throws IOException
+        public Directory open( Path dir ) throws IOException
         {
-            dir.mkdirs();
-            return new NRTCachingDirectory( FSDirectory.open( dir.toPath() ), MAX_MERGE_SIZE_MB, MAX_CACHED_MB );
+            Files.createDirectories( dir );
+            FSDirectory directory = USE_DEFAULT_DIRECTORY_FACTORY ? FSDirectory.open( dir ) : new NIOFSDirectory( dir );
+            return new NRTCachingDirectory( directory, MAX_MERGE_SIZE_MB, MAX_CACHED_MB );
         }
 
         @Override
@@ -71,60 +68,27 @@ public interface DirectoryFactory extends FileSystemAbstraction.ThirdPartyFileSy
             // No resources to release. This method only exists as a hook for test implementations.
         }
 
-        @Override
-        public void dumpToZip( ZipOutputStream zip, byte[] scratchPad )
-        {
-            // do nothing
-        }
     };
 
     final class InMemoryDirectoryFactory implements DirectoryFactory
     {
-        private final Map<File, RAMDirectory> directories = new HashMap<File, RAMDirectory>( );
+        private final Map<Path, Directory> directories = new HashMap<>();
 
         @Override
-        public synchronized Directory open( File dir ) throws IOException
+        public synchronized Directory open( Path dir )
         {
             if ( !directories.containsKey( dir ) )
             {
-                directories.put( dir, new RAMDirectory() );
+                directories.put( dir, new ByteBuffersDirectory() );
             }
             return new UncloseableDirectory( directories.get( dir ) );
         }
 
         @Override
-        public synchronized void close()
+        public synchronized void close() throws IOException
         {
-            for ( RAMDirectory ramDirectory : directories.values() )
-            {
-                ramDirectory.close();
-            }
+            IOUtils.closeAll( directories.values() );
             directories.clear();
-        }
-
-        @Override
-        public void dumpToZip( ZipOutputStream zip, byte[] scratchPad ) throws IOException
-        {
-            for ( Map.Entry<File, RAMDirectory> entry : directories.entrySet() )
-            {
-                RAMDirectory ramDir = entry.getValue();
-                for ( String fileName : ramDir.listAll() )
-                {
-                    zip.putNextEntry( new ZipEntry( new File( entry.getKey(), fileName ).getAbsolutePath() ) );
-                    copy( ramDir.openInput( fileName, IOContext.DEFAULT ), zip, scratchPad );
-                    zip.closeEntry();
-                }
-            }
-        }
-
-        private static void copy( IndexInput source, OutputStream target, byte[] buffer ) throws IOException
-        {
-            for ( long remaining = source.length(),read; remaining > 0;remaining -= read)
-            {
-                read = min( remaining, buffer.length );
-                source.readBytes( buffer, 0, (int) read );
-                target.write( buffer, 0, (int) read );
-            }
         }
     }
 
@@ -138,7 +102,7 @@ public interface DirectoryFactory extends FileSystemAbstraction.ThirdPartyFileSy
         }
 
         @Override
-        public Directory open( File dir ) throws IOException
+        public Directory open( Path dir )
         {
             return directory;
         }
@@ -147,24 +111,18 @@ public interface DirectoryFactory extends FileSystemAbstraction.ThirdPartyFileSy
         public void close()
         {
         }
-
-        @Override
-        public void dumpToZip( ZipOutputStream zip, byte[] scratchPad )
-        {
-            throw new UnsupportedOperationException();
-        }
     }
 
     final class UncloseableDirectory extends FilterDirectory
     {
 
-        public UncloseableDirectory(Directory delegate)
+        public UncloseableDirectory( Directory delegate )
         {
             super( delegate );
         }
 
         @Override
-        public void close() throws IOException
+        public void close()
         {
             // No-op
         }

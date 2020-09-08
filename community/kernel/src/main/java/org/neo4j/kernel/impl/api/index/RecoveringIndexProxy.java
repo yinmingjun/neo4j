@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,23 +19,21 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import java.io.File;
-import java.util.concurrent.Future;
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import org.neo4j.graphdb.ResourceIterator;
-import org.neo4j.kernel.api.exceptions.index.IndexPopulationFailedKernelException;
-import org.neo4j.kernel.api.index.InternalIndexState;
-import org.neo4j.kernel.api.index.SchemaIndexProvider;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.storageengine.api.schema.PopulationProgress;
-
-import static org.neo4j.helpers.FutureAdapter.VOID;
+import org.neo4j.internal.kernel.api.InternalIndexState;
+import org.neo4j.internal.kernel.api.PopulationProgress;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.values.storable.Value;
 
 public class RecoveringIndexProxy extends AbstractSwallowingIndexProxy
 {
-    public RecoveringIndexProxy( IndexDescriptor descriptor, SchemaIndexProvider.Descriptor providerDescriptor )
+    RecoveringIndexProxy( IndexDescriptor descriptor )
     {
-        super( descriptor, providerDescriptor, null );
+        super( descriptor, null );
     }
 
     @Override
@@ -45,7 +43,7 @@ public class RecoveringIndexProxy extends AbstractSwallowingIndexProxy
     }
 
     @Override
-    public boolean awaitStoreScanCompleted() throws IndexPopulationFailedKernelException, InterruptedException
+    public boolean awaitStoreScanCompleted( long time, TimeUnit unit )
     {
         throw unsupportedOperation( "Cannot await population on a recovering index." );
     }
@@ -53,25 +51,36 @@ public class RecoveringIndexProxy extends AbstractSwallowingIndexProxy
     @Override
     public void activate()
     {
-        throw  unsupportedOperation( "Cannot activate recovering index." );
+        throw unsupportedOperation( "Cannot activate recovering index." );
     }
 
     @Override
     public void validate()
     {
-        throw  unsupportedOperation( "Cannot validate recovering index." );
+        throw unsupportedOperation( "Cannot validate recovering index." );
     }
 
     @Override
-    public ResourceIterator<File> snapshotFiles()
+    public void validateBeforeCommit( Value[] tuple )
     {
-        throw  unsupportedOperation( "Cannot snapshot a recovering index." );
+        throw unsupportedOperation( "Unexpected call for validating value while recovering." );
     }
 
     @Override
-    public Future<Void> drop()
+    public ResourceIterator<Path> snapshotFiles()
     {
-        return VOID;
+        throw unsupportedOperation( "Cannot snapshot a recovering index." );
+    }
+
+    @Override
+    public Map<String,Value> indexConfig()
+    {
+        throw unsupportedOperation( "Cannot get index configuration from recovering index." );
+    }
+
+    @Override
+    public void drop()
+    {
     }
 
     @Override

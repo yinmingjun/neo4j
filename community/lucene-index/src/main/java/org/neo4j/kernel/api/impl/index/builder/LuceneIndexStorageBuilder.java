@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,7 +19,7 @@
  */
 package org.neo4j.kernel.api.impl.index.builder;
 
-import java.io.File;
+import java.nio.file.Path;
 import java.util.Objects;
 
 import org.neo4j.io.fs.FileSystemAbstraction;
@@ -35,10 +35,8 @@ public class LuceneIndexStorageBuilder
 {
     private DirectoryFactory directoryFactory = DirectoryFactory.PERSISTENT;
     private FileSystemAbstraction fileSystem;
-    private File indexRootFolder;
-    private String indexIdentifier;
+    private Path indexRootFolder;
     private PartitionedIndexStorage indexStorage;
-    private boolean archiveFailed;
 
     private LuceneIndexStorageBuilder()
     {
@@ -66,23 +64,9 @@ public class LuceneIndexStorageBuilder
             Objects.requireNonNull( directoryFactory );
             Objects.requireNonNull( fileSystem );
             Objects.requireNonNull( indexRootFolder );
-            Objects.requireNonNull( indexIdentifier );
-            indexStorage =
-                    new PartitionedIndexStorage( directoryFactory, fileSystem, indexRootFolder, indexIdentifier, archiveFailed );
+            indexStorage = new PartitionedIndexStorage( directoryFactory, fileSystem, indexRootFolder );
         }
         return indexStorage;
-    }
-
-    /**
-     * Specify index identifier
-     *
-     * @param indexIdentifier identifier
-     * @return index storage builder
-     */
-    public LuceneIndexStorageBuilder withIndexIdentifier( String indexIdentifier )
-    {
-        this.indexIdentifier = indexIdentifier;
-        return this;
     }
 
     /**
@@ -115,7 +99,7 @@ public class LuceneIndexStorageBuilder
      * @param indexRootFolder root folder
      * @return index storage builder
      */
-    public LuceneIndexStorageBuilder withIndexRootFolder( File indexRootFolder )
+    public LuceneIndexStorageBuilder withIndexFolder( Path indexRootFolder )
     {
         this.indexRootFolder = indexRootFolder;
         return this;
@@ -130,12 +114,6 @@ public class LuceneIndexStorageBuilder
     public LuceneIndexStorageBuilder withIndexStorage( PartitionedIndexStorage indexStorage )
     {
         this.indexStorage = indexStorage;
-        return this;
-    }
-
-    public LuceneIndexStorageBuilder archivingFailed( boolean archiveFailed )
-    {
-        this.archiveFailed = archiveFailed;
         return this;
     }
 }

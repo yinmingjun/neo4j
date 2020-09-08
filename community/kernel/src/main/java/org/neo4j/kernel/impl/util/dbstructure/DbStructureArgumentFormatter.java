@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -25,35 +25,36 @@ import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import org.neo4j.helpers.Strings;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
-import org.neo4j.kernel.api.schema.RelationTypeSchemaDescriptor;
-import org.neo4j.kernel.api.schema.SchemaDescriptorFactory;
-import org.neo4j.kernel.api.schema.constaints.ConstraintDescriptorFactory;
-import org.neo4j.kernel.api.schema.constaints.NodeExistenceConstraintDescriptor;
-import org.neo4j.kernel.api.schema.constaints.NodeKeyConstraintDescriptor;
-import org.neo4j.kernel.api.schema.constaints.RelExistenceConstraintDescriptor;
-import org.neo4j.kernel.api.schema.constaints.UniquenessConstraintDescriptor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptorFactory;
+import org.neo4j.common.EntityType;
+import org.neo4j.internal.helpers.Strings;
+import org.neo4j.internal.schema.ConstraintDescriptor;
+import org.neo4j.internal.schema.FulltextSchemaDescriptor;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.internal.schema.IndexPrototype;
+import org.neo4j.internal.schema.LabelSchemaDescriptor;
+import org.neo4j.internal.schema.RelationTypeSchemaDescriptor;
+import org.neo4j.internal.schema.SchemaDescriptor;
+import org.neo4j.internal.schema.constraints.ConstraintDescriptorFactory;
+import org.neo4j.internal.schema.constraints.NodeExistenceConstraintDescriptor;
+import org.neo4j.internal.schema.constraints.NodeKeyConstraintDescriptor;
+import org.neo4j.internal.schema.constraints.RelExistenceConstraintDescriptor;
+import org.neo4j.internal.schema.constraints.UniquenessConstraintDescriptor;
 
 import static java.lang.String.format;
-import static org.neo4j.kernel.api.schema.index.IndexDescriptor.Type.GENERAL;
 
 public enum DbStructureArgumentFormatter implements ArgumentFormatter
 {
     INSTANCE;
 
-    private static List<String> IMPORTS = Arrays.asList(
+    private static final List<String> IMPORTS = Arrays.asList(
             ConstraintDescriptorFactory.class.getCanonicalName(),
             UniquenessConstraintDescriptor.class.getCanonicalName(),
             RelExistenceConstraintDescriptor.class.getCanonicalName(),
             NodeExistenceConstraintDescriptor.class.getCanonicalName(),
             NodeKeyConstraintDescriptor.class.getCanonicalName(),
-            LabelSchemaDescriptor.class.getCanonicalName(),
-            SchemaDescriptorFactory.class.getCanonicalName(),
+            SchemaDescriptor.class.getCanonicalName(),
             IndexDescriptor.class.getCanonicalName(),
-            IndexDescriptorFactory.class.getCanonicalName()
+            IndexPrototype.class.getCanonicalName()
     );
 
     @Override
@@ -62,6 +63,7 @@ public enum DbStructureArgumentFormatter implements ArgumentFormatter
         return IMPORTS;
     }
 
+    @Override
     public void formatArgument( Appendable builder, Object arg ) throws IOException
     {
         if ( arg == null )
@@ -103,47 +105,85 @@ public enum DbStructureArgumentFormatter implements ArgumentFormatter
         else if ( arg instanceof IndexDescriptor )
         {
             IndexDescriptor descriptor = (IndexDescriptor) arg;
-            int labelId = descriptor.schema().getLabelId();
-            String methodName = descriptor.type() == GENERAL ? "forLabel" : "uniqueForLabel";
-            builder.append( format( "IndexDescriptorFactory.%s( %d, %s )", methodName,
-                    labelId, asString( descriptor.schema().getPropertyIds() ) ) );
+            String className = IndexPrototype.class.getSimpleName();
+            SchemaDescriptor schema = descriptor.schema();
+            String methodName = !descriptor.isUnique() ? "forSchema" : "uniqueForSchema";
+            builder.append( String.format( "%s.%s( ", className, methodName));
+            formatArgument( builder, schema );
+            builder.append( " ).withName( \"" ).append( descriptor.getName() ).append( "\" )" );
+            builder.append( ".materialise( " ).append( String.valueOf( descriptor.getId() ) ).append( " )" );
         }
-        else if ( arg instanceof LabelSchemaDescriptor )
+        else if ( arg instanceof SchemaDescriptor )
         {
-            LabelSchemaDescriptor descriptor = (LabelSchemaDescriptor) arg;
-            int labelId = descriptor.getLabelId();
-            builder.append( format( "SchemaDescriptorFactory.forLabel( %d, %s )", labelId,
-                    asString( descriptor.getPropertyIds() ) ) );
+            SchemaDescriptor schema = (SchemaDescriptor) arg;
+            if ( schema.isLabelSchemaDescriptor() )
+            {
+                LabelSchemaDescriptor descriptor = schema.asLabelSchemaDescriptor();
+                String className = SchemaDescriptor.class.getSimpleName();
+                int labelId = descriptor.getLabelId();
+                builder.append( format( "%s.forLabel( %d, %s )",
+                        className, labelId, asString( descriptor.getPropertyIds() ) ) );
+            }
+            else if ( schema.isRelationshipTypeSchemaDescriptor() )
+            {
+                RelationTypeSchemaDescriptor descriptor = schema.asRelationshipTypeSchemaDescriptor();
+                String className = SchemaDescriptor.class.getSimpleName();
+                int labelId = descriptor.getRelTypeId();
+                builder.append( format( "%s.forRelType( %d, %s )",
+                        className, labelId, asString( descriptor.getPropertyIds() ) ) );
+            }
+            else if ( schema.isFulltextSchemaDescriptor() )
+            {
+                FulltextSchemaDescriptor descriptor = schema.asFulltextSchemaDescriptor();
+                String className = SchemaDescriptor.class.getSimpleName();
+                int[] entityIds = descriptor.getEntityTokenIds();
+                builder.append( format( "%s.fulltext( EntityType.%s, IndexConfig.empty(), new int[] {%s}, new int[] {%s} )",
+                        className, descriptor.entityType().name(), asString( entityIds ), asString( descriptor.getPropertyIds() ) ) );
+            }
+            else
+            {
+                throw new IllegalArgumentException(
+                        format( "Can't handle argument of type: %s with value: %s", arg.getClass(), arg ) );
+            }
         }
-        else if ( arg instanceof UniquenessConstraintDescriptor )
+        else if ( arg instanceof ConstraintDescriptor )
         {
-            UniquenessConstraintDescriptor constraint = (UniquenessConstraintDescriptor) arg;
-            int labelId = constraint.schema().getLabelId();
-            builder.append( format( "ConstraintDescriptorFactory.uniqueForLabel( %d, %s )",
-                    labelId,
-                    asString( constraint.schema().getPropertyIds() ) ) );
-        }
-        else if ( arg instanceof NodeExistenceConstraintDescriptor )
-        {
-            NodeExistenceConstraintDescriptor constraint = (NodeExistenceConstraintDescriptor) arg;
-            int labelId = constraint.schema().getLabelId();
-            builder.append( format( "ConstraintDescriptorFactory.existsForLabel( %d, %s )",
-                    labelId, asString( constraint.schema().getPropertyIds() ) ) );
-        }
-        else if ( arg instanceof RelExistenceConstraintDescriptor )
-        {
-            RelationTypeSchemaDescriptor descriptor = ((RelExistenceConstraintDescriptor) arg).schema();
-            int relTypeId = descriptor.getRelTypeId();
-            builder.append( format( "ConstraintDescriptorFactory.existsForReltype( %d, %s )", relTypeId,
-                    asString( descriptor.getPropertyIds() ) ) );
-        }
-        else if ( arg instanceof NodeKeyConstraintDescriptor )
-        {
-            NodeKeyConstraintDescriptor constraint = (NodeKeyConstraintDescriptor) arg;
-            int labelId = constraint.schema().getLabelId();
-            builder.append( format( "ConstraintDescriptorFactory.nodeKeyForLabel( %d, %s )",
-                    labelId,
-                    asString( constraint.schema().getPropertyIds() ) ) );
+            ConstraintDescriptor constraint = (ConstraintDescriptor) arg;
+            EntityType entityType = constraint.schema().entityType();
+            if ( constraint.enforcesUniqueness() && !constraint.enforcesPropertyExistence() && entityType == EntityType.NODE )
+            {
+                String className = ConstraintDescriptorFactory.class.getSimpleName();
+                int labelId = constraint.schema().getLabelId();
+                builder.append( format( "%s.uniqueForLabel( %d, %s )",
+                        className, labelId, asString( constraint.schema().getPropertyIds() ) ) );
+            }
+            else if ( !constraint.enforcesUniqueness() && constraint.enforcesPropertyExistence() && entityType == EntityType.NODE )
+            {
+                String className = ConstraintDescriptorFactory.class.getSimpleName();
+                int labelId = constraint.schema().getLabelId();
+                builder.append( format( "%s.existsForLabel( %d, %s )",
+                        className, labelId, asString( constraint.schema().getPropertyIds() ) ) );
+            }
+            else if ( !constraint.enforcesUniqueness() && constraint.enforcesPropertyExistence() && entityType == EntityType.RELATIONSHIP )
+            {
+                SchemaDescriptor descriptor = constraint.schema();
+                String className = ConstraintDescriptorFactory.class.getSimpleName();
+                int relTypeId = descriptor.getRelTypeId();
+                builder.append( format( "%s.existsForReltype( %d, %s )",
+                        className, relTypeId, asString( descriptor.getPropertyIds() ) ) );
+            }
+            else if ( constraint.enforcesUniqueness() && constraint.enforcesPropertyExistence() && entityType == EntityType.NODE )
+            {
+                String className = ConstraintDescriptorFactory.class.getSimpleName();
+                int labelId = constraint.schema().getLabelId();
+                builder.append( format( "%s.nodeKeyForLabel( %d, %s )",
+                        className, labelId, asString( constraint.schema().getPropertyIds() ) ) );
+            }
+            else
+            {
+                throw new IllegalArgumentException(
+                        format( "Can't handle argument of type: %s with value: %s", arg.getClass(), arg ) );
+            }
         }
         else
         {
@@ -152,7 +192,7 @@ public enum DbStructureArgumentFormatter implements ArgumentFormatter
         }
     }
 
-    private String asString( int[] propertyIds )
+    private static String asString( int[] propertyIds )
     {
         List<String> strings = Arrays.stream( propertyIds ).mapToObj( i -> "" + i ).collect( Collectors.toList() );
         return String.join( ", ", strings );

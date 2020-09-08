@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,8 +21,8 @@ package org.neo4j.kernel.api.impl.schema.populator;
 
 import org.neo4j.kernel.api.impl.schema.LuceneDocumentStructure;
 import org.neo4j.kernel.api.impl.schema.writer.LuceneIndexWriter;
-import org.neo4j.kernel.api.index.IndexEntryUpdate;
-import org.neo4j.kernel.impl.api.index.sampling.NonUniqueIndexSampler;
+import org.neo4j.kernel.api.index.NonUniqueIndexSampler;
+import org.neo4j.storageengine.api.IndexEntryUpdate;
 
 /**
  * A {@link LuceneIndexPopulatingUpdater} used for non-unique Lucene schema indexes.
@@ -38,14 +38,14 @@ public class NonUniqueLuceneIndexPopulatingUpdater extends LuceneIndexPopulating
     }
 
     @Override
-    protected void added( IndexEntryUpdate update )
+    protected void added( IndexEntryUpdate<?> update )
     {
         String encodedValue = LuceneDocumentStructure.encodedStringValuesForSampling( update.values() );
         sampler.include( encodedValue );
     }
 
     @Override
-    protected void changed( IndexEntryUpdate update )
+    protected void changed( IndexEntryUpdate<?> update )
     {
         String encodedValueBefore = LuceneDocumentStructure.encodedStringValuesForSampling( update.beforeValues() );
         sampler.exclude( encodedValueBefore );
@@ -55,7 +55,7 @@ public class NonUniqueLuceneIndexPopulatingUpdater extends LuceneIndexPopulating
     }
 
     @Override
-    protected void removed( IndexEntryUpdate update )
+    protected void removed( IndexEntryUpdate<?> update )
     {
         String removedValue = LuceneDocumentStructure.encodedStringValuesForSampling( update.values() );
         sampler.exclude( removedValue );

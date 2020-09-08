@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,8 +22,8 @@ package org.neo4j.graphalgo.impl.shortestpath;
 import java.util.List;
 
 import org.neo4j.graphdb.Direction;
+import org.neo4j.graphdb.Entity;
 import org.neo4j.graphdb.Node;
-import org.neo4j.graphdb.PropertyContainer;
 import org.neo4j.graphdb.Relationship;
 import org.neo4j.graphdb.RelationshipType;
 
@@ -31,7 +31,6 @@ import org.neo4j.graphdb.RelationshipType;
  * An object implementing this encapsulates an algorithm able to solve the
  * single source single sink shortest path problem. I.e. it can find the
  * shortest path(s) between two given nodes in a network.
- * @author Patrik Larsson
  * @param <CostType>
  *            The datatype the edge weights are represented by.
  */
@@ -62,7 +61,7 @@ public interface SingleSourceSingleSinkShortestPath<CostType>
      * Node/Relationship.
      * @return The path as an alternating list of Node/Relationship.
      */
-    List<PropertyContainer> getPath();
+    List<Entity> getPath();
 
     /**
      * A call to this will run the algorithm to find a single shortest path, if
@@ -83,7 +82,7 @@ public interface SingleSourceSingleSinkShortestPath<CostType>
      * already done, and return them as alternating lists of Node/Relationship.
      * @return A list of the paths as alternating lists of Node/Relationship.
      */
-    List<List<PropertyContainer>> getPaths();
+    List<List<Entity>> getPaths();
 
     /**
      * A call to this will run the algorithm to find all shortest paths, if not

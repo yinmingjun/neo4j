@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,40 +19,35 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.concurrent.Future;
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
-import org.neo4j.collection.primitive.PrimitiveLongSet;
 import org.neo4j.graphdb.ResourceIterator;
-import org.neo4j.kernel.api.exceptions.index.IndexActivationFailedKernelException;
-import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
-import org.neo4j.kernel.api.exceptions.index.IndexNotFoundKernelException;
-import org.neo4j.kernel.api.exceptions.index.IndexPopulationFailedKernelException;
-import org.neo4j.kernel.api.index.IndexEntryUpdate;
+import org.neo4j.internal.kernel.api.InternalIndexState;
+import org.neo4j.internal.kernel.api.PopulationProgress;
+import org.neo4j.internal.kernel.api.exceptions.schema.IndexNotFoundKernelException;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.io.pagecache.IOLimiter;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.kernel.api.index.IndexReader;
 import org.neo4j.kernel.api.index.IndexUpdater;
-import org.neo4j.kernel.api.index.InternalIndexState;
-import org.neo4j.kernel.api.index.SchemaIndexProvider;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.storageengine.api.schema.IndexReader;
-import org.neo4j.storageengine.api.schema.PopulationProgress;
+import org.neo4j.storageengine.api.IndexEntryUpdate;
+import org.neo4j.values.storable.Value;
 
-import static org.neo4j.helpers.collection.Iterators.emptyIterator;
+import static org.neo4j.internal.helpers.collection.Iterators.emptyResourceIterator;
 
 public class PopulatingIndexProxy implements IndexProxy
 {
-    private final IndexDescriptor descriptor;
-    private final SchemaIndexProvider.Descriptor providerDescriptor;
+    private final IndexDescriptor indexDescriptor;
     private final IndexPopulationJob job;
+    private final MultipleIndexPopulator.IndexPopulation indexPopulation;
 
-    public PopulatingIndexProxy( IndexDescriptor descriptor,
-                                 SchemaIndexProvider.Descriptor providerDescriptor,
-                                 IndexPopulationJob job )
+    PopulatingIndexProxy( IndexDescriptor indexDescriptor, IndexPopulationJob job, MultipleIndexPopulator.IndexPopulation indexPopulation )
     {
-        this.descriptor = descriptor;
-        this.providerDescriptor = providerDescriptor;
+        this.indexDescriptor = indexDescriptor;
         this.job = job;
+        this.indexPopulation = indexPopulation;
     }
 
     @Override
@@ -61,7 +56,7 @@ public class PopulatingIndexProxy implements IndexProxy
     }
 
     @Override
-    public IndexUpdater newUpdater( final IndexUpdateMode mode )
+    public IndexUpdater newUpdater( final IndexUpdateMode mode, PageCursorTracer cursorTracer )
     {
         switch ( mode )
         {
@@ -70,7 +65,7 @@ public class PopulatingIndexProxy implements IndexProxy
                 return new PopulatingIndexUpdater()
                 {
                     @Override
-                    public void process( IndexEntryUpdate update ) throws IOException, IndexEntryConflictException
+                    public void process( IndexEntryUpdate<?> update )
                     {
                         job.update( update );
                     }
@@ -79,7 +74,7 @@ public class PopulatingIndexProxy implements IndexProxy
                 return new PopulatingIndexUpdater()
                 {
                     @Override
-                    public void process( IndexEntryUpdate update ) throws IOException, IndexEntryConflictException
+                    public void process( IndexEntryUpdate<?> update )
                     {
                         throw new IllegalArgumentException( "Unsupported update mode: " + mode );
                     }
@@ -88,27 +83,15 @@ public class PopulatingIndexProxy implements IndexProxy
     }
 
     @Override
-    public Future<Void> drop()
+    public void drop()
     {
-        return job.cancel();
+        job.dropPopulation( indexPopulation );
     }
 
     @Override
     public IndexDescriptor getDescriptor()
     {
-        return descriptor;
-    }
-
-    @Override
-    public LabelSchemaDescriptor schema()
-    {
-        return descriptor.schema();
-    }
-
-    @Override
-    public SchemaIndexProvider.Descriptor getProviderDescriptor()
-    {
-        return providerDescriptor;
+        return indexDescriptor;
     }
 
     @Override
@@ -118,15 +101,21 @@ public class PopulatingIndexProxy implements IndexProxy
     }
 
     @Override
-    public void force()
+    public void force( IOLimiter ioLimiter, PageCursorTracer cursorTracer )
     {
-        // Ignored... this isn't controlled from the outside while we're populating the index.
+        // Ignored... this isn't called from the outside while we're populating the index.
     }
 
     @Override
-    public Future<Void> close()
+    public void refresh()
     {
-        return job.cancel();
+        // Ignored... this isn't called from the outside while we're populating the index.
+    }
+
+    @Override
+    public void close( PageCursorTracer cursorTracer )
+    {
+        job.stop( indexPopulation, cursorTracer );
     }
 
     @Override
@@ -136,14 +125,13 @@ public class PopulatingIndexProxy implements IndexProxy
     }
 
     @Override
-    public boolean awaitStoreScanCompleted() throws IndexPopulationFailedKernelException, InterruptedException
+    public boolean awaitStoreScanCompleted( long time, TimeUnit unit ) throws InterruptedException
     {
-        job.awaitCompletion();
-        return true;
+        return job.awaitCompletion( time, unit );
     }
 
     @Override
-    public void activate() throws IndexActivationFailedKernelException
+    public void activate()
     {
         throw new IllegalStateException( "Cannot activate index while it is still populating: " + job );
     }
@@ -155,9 +143,21 @@ public class PopulatingIndexProxy implements IndexProxy
     }
 
     @Override
-    public ResourceIterator<File> snapshotFiles()
+    public void validateBeforeCommit( Value[] tuple )
     {
-        return emptyIterator();
+        // It's OK to put whatever values in while populating because it will take the natural path of failing the population.
+    }
+
+    @Override
+    public ResourceIterator<Path> snapshotFiles()
+    {
+        return emptyResourceIterator();
+    }
+
+    @Override
+    public Map<String,Value> indexConfig()
+    {
+        return indexPopulation.populator.indexConfig();
     }
 
     @Override
@@ -169,7 +169,7 @@ public class PopulatingIndexProxy implements IndexProxy
     @Override
     public PopulationProgress getIndexPopulationProgress()
     {
-        return job.getPopulationProgress();
+        return job.getPopulationProgress( indexPopulation );
     }
 
     @Override
@@ -178,17 +178,11 @@ public class PopulatingIndexProxy implements IndexProxy
         return getClass().getSimpleName() + "[job:" + job + "]";
     }
 
-    private abstract class PopulatingIndexUpdater implements IndexUpdater
+    private abstract static class PopulatingIndexUpdater implements IndexUpdater
     {
         @Override
-        public void close() throws IOException, IndexEntryConflictException
+        public void close()
         {
-        }
-
-        @Override
-        public void remove( PrimitiveLongSet nodeIds )
-        {
-            throw new UnsupportedOperationException( "Should not remove() from populating index." );
         }
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,37 +19,39 @@
  */
 package org.neo4j.consistency.checking;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collection;
 
 import org.neo4j.consistency.report.ConsistencyReport.DynamicLabelConsistencyReport;
-import org.neo4j.helpers.collection.Iterators;
+import org.neo4j.internal.helpers.collection.Iterators;
 import org.neo4j.kernel.impl.store.allocator.ReusableRecordsAllocator;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
 import org.neo4j.kernel.impl.store.record.NodeRecord;
 
 import static org.mockito.Mockito.verify;
+import static org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer.NULL;
 import static org.neo4j.kernel.impl.store.DynamicArrayStore.allocateFromNumbers;
 import static org.neo4j.kernel.impl.store.DynamicNodeLabels.dynamicPointer;
+import static org.neo4j.memory.EmptyMemoryTracker.INSTANCE;
 
-public class NodeDynamicLabelOrphanChainStartCheckTest
+class NodeDynamicLabelOrphanChainStartCheckTest
         extends RecordCheckTestBase<DynamicRecord, DynamicLabelConsistencyReport, NodeDynamicLabelOrphanChainStartCheck>
 {
 
-    public NodeDynamicLabelOrphanChainStartCheckTest()
+    NodeDynamicLabelOrphanChainStartCheckTest()
     {
         super( new NodeDynamicLabelOrphanChainStartCheck(), DynamicLabelConsistencyReport.class, new int[0] );
     }
 
     @Test
-    public void shouldReportMissingOwnerId() throws Exception
+    void shouldReportMissingOwnerId()
     {
         // given
         DynamicRecord record = new DynamicRecord( 0 );
         inUse( record ) ;
-        allocateFromNumbers( new ArrayList<>(), new long[] { }, new ReusableRecordsAllocator( 66, record ) );
+        allocateFromNumbers( new ArrayList<>(), new long[] { }, new ReusableRecordsAllocator( 66, record ), NULL, INSTANCE );
 
         // when
         DynamicLabelConsistencyReport report = check( record );
@@ -59,14 +61,14 @@ public class NodeDynamicLabelOrphanChainStartCheckTest
     }
 
     @Test
-    public void shouldReportOwningNodeRecordNotInUse() throws Exception
+    void shouldReportOwningNodeRecordNotInUse()
     {
         // given
-        NodeRecord nodeRecord = notInUse( new NodeRecord( 12L, false, -1, -1 ) );
+        NodeRecord nodeRecord = notInUse( new NodeRecord( 12L ).initialize( false, -1, false, -1, 0 ) );
         add( nodeRecord );
 
         DynamicRecord nodeDynamicLabelRecord = inUse( new DynamicRecord( 0 ) );
-        allocateFromNumbers( new ArrayList<>(), new long[]{12L}, new ReusableRecordsAllocator( 66, nodeDynamicLabelRecord ) );
+        allocateFromNumbers( new ArrayList<>(), new long[]{12L}, new ReusableRecordsAllocator( 66, nodeDynamicLabelRecord ), NULL, INSTANCE );
 
         // when
         DynamicLabelConsistencyReport report = check( nodeDynamicLabelRecord );
@@ -76,20 +78,20 @@ public class NodeDynamicLabelOrphanChainStartCheckTest
     }
 
     @Test
-    public void shouldReportOwningNodeRecordNotPointingBack() throws Exception
+    void shouldReportOwningNodeRecordNotPointingBack()
     {
         // given
         long nodeId = 12L;
 
         Collection<DynamicRecord> validLabelRecords = new ArrayList<>();
         DynamicRecord dynamicRecord = inUse( new DynamicRecord( 0 ) );
-        allocateFromNumbers( validLabelRecords, new long[] {nodeId}, new ReusableRecordsAllocator( 66, dynamicRecord ) );
+        allocateFromNumbers( validLabelRecords, new long[] {nodeId}, new ReusableRecordsAllocator( 66, dynamicRecord ), NULL, INSTANCE );
 
         Collection<DynamicRecord> fakePointedToRecords = new ArrayList<>();
         DynamicRecord dynamicRecord1 = inUse( new DynamicRecord( 1 ) );
-        allocateFromNumbers( fakePointedToRecords, new long[] {nodeId}, new ReusableRecordsAllocator( 66, dynamicRecord1 ) );
+        allocateFromNumbers( fakePointedToRecords, new long[] {nodeId}, new ReusableRecordsAllocator( 66, dynamicRecord1 ), NULL, INSTANCE );
 
-        NodeRecord nodeRecord = inUse( new NodeRecord( nodeId, false, -1, -1 ) );
+        NodeRecord nodeRecord = inUse( new NodeRecord( nodeId ).initialize( false, -1, false, -1, 0 ) );
         nodeRecord.setLabelField( dynamicPointer( fakePointedToRecords ), fakePointedToRecords );
         add( nodeRecord );
 

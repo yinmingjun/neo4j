@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -26,7 +26,7 @@ import javax.annotation.Nullable;
 /**
  * A {@link Log} implementation that discards all messages
  */
-public final class NullLog implements Log
+public final class NullLog extends AbstractLog
 {
     private static final NullLog INSTANCE = new NullLog();
 
@@ -48,13 +48,6 @@ public final class NullLog implements Log
         return false;
     }
 
-    @Nonnull
-    @Override
-    public Logger debugLogger()
-    {
-        return NullLogger.getInstance();
-    }
-
     @Override
     public void debug( @Nonnull String message )
     {
@@ -68,13 +61,6 @@ public final class NullLog implements Log
     @Override
     public void debug( @Nonnull String format, @Nullable Object... arguments )
     {
-    }
-
-    @Nonnull
-    @Override
-    public Logger infoLogger()
-    {
-        return NullLogger.getInstance();
     }
 
     @Override
@@ -92,13 +78,6 @@ public final class NullLog implements Log
     {
     }
 
-    @Nonnull
-    @Override
-    public Logger warnLogger()
-    {
-        return NullLogger.getInstance();
-    }
-
     @Override
     public void warn( @Nonnull String message )
     {
@@ -112,13 +91,6 @@ public final class NullLog implements Log
     @Override
     public void warn( @Nonnull String format, @Nullable Object... arguments )
     {
-    }
-
-    @Nonnull
-    @Override
-    public Logger errorLogger()
-    {
-        return NullLogger.getInstance();
     }
 
     @Override

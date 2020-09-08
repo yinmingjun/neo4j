@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,7 +19,7 @@
  */
 package org.neo4j.kernel.impl.api;
 
-import org.neo4j.kernel.api.exceptions.TransactionFailureException;
+import org.neo4j.internal.kernel.api.exceptions.TransactionFailureException;
 import org.neo4j.kernel.impl.transaction.log.TransactionAppender;
 import org.neo4j.kernel.impl.transaction.tracing.CommitEvent;
 import org.neo4j.kernel.impl.transaction.tracing.LogAppendEvent;
@@ -42,8 +42,7 @@ public class TransactionRepresentationCommitProcess implements TransactionCommit
     }
 
     @Override
-    public long commit( TransactionToApply batch, CommitEvent commitEvent,
-            TransactionApplicationMode mode ) throws TransactionFailureException
+    public long commit( TransactionToApply batch, CommitEvent commitEvent, TransactionApplicationMode mode ) throws TransactionFailureException
     {
         long lastTxId = appendToLog( batch, commitEvent );
         try
@@ -70,7 +69,7 @@ public class TransactionRepresentationCommitProcess implements TransactionCommit
         }
     }
 
-    private void applyToStore( TransactionToApply batch, CommitEvent commitEvent, TransactionApplicationMode mode )
+    protected void applyToStore( TransactionToApply batch, CommitEvent commitEvent, TransactionApplicationMode mode )
             throws TransactionFailureException
     {
         try ( StoreApplyEvent storeApplyEvent = commitEvent.beginStoreApply() )
@@ -84,14 +83,11 @@ public class TransactionRepresentationCommitProcess implements TransactionCommit
         }
     }
 
-    private void close( TransactionToApply batch )
+    private static void close( TransactionToApply batch )
     {
         while ( batch != null )
         {
-            if ( batch.commitment().markedAsCommitted() )
-            {
-                batch.commitment().publishAsClosed();
-            }
+            batch.publishAsClosed();
             batch.close();
             batch = batch.next();
         }

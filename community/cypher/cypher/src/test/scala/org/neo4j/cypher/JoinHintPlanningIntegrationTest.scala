@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,13 +19,18 @@
  */
 package org.neo4j.cypher
 
-import org.neo4j.cypher.internal.compiler.v3_2.planner.logical.QueryGraphSolver
-import org.neo4j.cypher.internal.compiler.v3_2.planner.logical.idp._
-import org.neo4j.cypher.internal.compiler.v3_2.planner.logical.plans.{LogicalPlan, NodeHashJoin}
-import org.neo4j.cypher.internal.compiler.v3_2.planner.LogicalPlanningTestSupport2
-import org.neo4j.cypher.internal.frontend.v3_2.Foldable.FoldableAny
-import org.neo4j.cypher.internal.frontend.v3_2.test_helpers.CypherFunSuite
-import org.neo4j.cypher.internal.ir.v3_2.{IdName, RegularPlannerQuery}
+import org.neo4j.cypher.internal.compiler.planner.LogicalPlanningTestSupport2
+import org.neo4j.cypher.internal.compiler.planner.logical.QueryGraphSolver
+import org.neo4j.cypher.internal.compiler.planner.logical.idp.DefaultIDPSolverConfig
+import org.neo4j.cypher.internal.compiler.planner.logical.idp.IDPQueryGraphSolver
+import org.neo4j.cypher.internal.compiler.planner.logical.idp.IDPQueryGraphSolverMonitor
+import org.neo4j.cypher.internal.compiler.planner.logical.idp.SingleComponentPlanner
+import org.neo4j.cypher.internal.compiler.planner.logical.idp.cartesianProductsOrValueJoins
+import org.neo4j.cypher.internal.ir.RegularSinglePlannerQuery
+import org.neo4j.cypher.internal.logical.plans.LogicalPlan
+import org.neo4j.cypher.internal.logical.plans.NodeHashJoin
+import org.neo4j.cypher.internal.util.Foldable.TraverseChildren
+import org.neo4j.cypher.internal.util.test_helpers.CypherFunSuite
 import org.scalacheck.Gen
 
 import scala.util.Random
@@ -53,11 +58,11 @@ class JoinHintPlanningIntegrationTest extends CypherFunSuite with PatternGen wit
       whenever(joinNode.isDefined) {
         val query =
           s"""MATCH $patternString
-              |USING JOIN ON ${joinNode.get}
-              |RETURN count(*)""".stripMargin
+             |USING JOIN ON ${joinNode.get}
+             |RETURN count(*)""".stripMargin
 
         val plan = logicalPlan(query, solver)
-        joinSymbolsIn(plan) should contain(Set(IdName(joinNode.get)))
+        joinSymbolsIn(plan) should contain(Set(joinNode.get))
       }
     }
   }
@@ -66,7 +71,7 @@ class JoinHintPlanningIntegrationTest extends CypherFunSuite with PatternGen wit
     val semanticPlan = new given {
       cardinality = mapCardinality {
         // expand - cheap
-        case RegularPlannerQuery(queryGraph, _, _) if queryGraph.patternRelationships.size == 1 => 100.0
+        case RegularSinglePlannerQuery(queryGraph, _, _, _, _) if queryGraph.patternRelationships.size == 1 => 100.0
         // everything else - expensive
         case _ => Double.MaxValue
       }
@@ -80,7 +85,7 @@ class JoinHintPlanningIntegrationTest extends CypherFunSuite with PatternGen wit
 
   def joinSymbolsIn(plan: LogicalPlan) = {
     val flattenedPlan = plan.treeFold(Seq.empty[LogicalPlan]) {
-      case plan: LogicalPlan => acc => (acc :+ plan, Some(identity))
+      case plan: LogicalPlan => acc => TraverseChildren(acc :+ plan)
     }
 
     flattenedPlan.collect {

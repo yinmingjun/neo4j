@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,20 +19,21 @@
  */
 package org.neo4j.kernel.impl.transaction.log;
 
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.storageengine.api.TransactionIdStore;
+
 class TransactionCommitment implements Commitment
 {
-    private final boolean hasLegacyIndexChanges;
     private final long transactionId;
-    private final long transactionChecksum;
+    private final int transactionChecksum;
     private final long transactionCommitTimestamp;
     private final LogPosition logPosition;
     private final TransactionIdStore transactionIdStore;
     private boolean markedAsCommitted;
 
-    TransactionCommitment( boolean hasLegacyIndexChanges, long transactionId, long transactionChecksum,
-            long transactionCommitTimestamp, LogPosition logPosition, TransactionIdStore transactionIdStore )
+    TransactionCommitment( long transactionId, int transactionChecksum, long transactionCommitTimestamp, LogPosition logPosition,
+            TransactionIdStore transactionIdStore )
     {
-        this.hasLegacyIndexChanges = hasLegacyIndexChanges;
         this.transactionId = transactionId;
         this.transactionChecksum = transactionChecksum;
         this.transactionCommitTimestamp = transactionCommitTimestamp;
@@ -40,17 +41,22 @@ class TransactionCommitment implements Commitment
         this.transactionIdStore = transactionIdStore;
     }
 
-    @Override
-    public void publishAsCommitted()
+    public LogPosition logPosition()
     {
-        markedAsCommitted = true;
-        transactionIdStore.transactionCommitted( transactionId, transactionChecksum, transactionCommitTimestamp );
+        return logPosition;
     }
 
     @Override
-    public void publishAsClosed()
+    public void publishAsCommitted( PageCursorTracer cursorTracer )
     {
-        transactionIdStore.transactionClosed( transactionId, logPosition.getLogVersion(), logPosition.getByteOffset() );
+        markedAsCommitted = true;
+        transactionIdStore.transactionCommitted( transactionId, transactionChecksum, transactionCommitTimestamp, cursorTracer );
+    }
+
+    @Override
+    public void publishAsClosed( PageCursorTracer cursorTracer )
+    {
+        transactionIdStore.transactionClosed( transactionId, logPosition.getLogVersion(), logPosition.getByteOffset(), cursorTracer );
     }
 
     @Override
@@ -59,9 +65,8 @@ class TransactionCommitment implements Commitment
         return markedAsCommitted;
     }
 
-    @Override
-    public boolean hasLegacyIndexChanges()
+    public int getTransactionChecksum()
     {
-        return hasLegacyIndexChanges;
+        return transactionChecksum;
     }
 }

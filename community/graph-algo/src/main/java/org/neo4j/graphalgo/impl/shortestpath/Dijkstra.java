@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -26,15 +26,20 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 
 import org.neo4j.graphalgo.CostAccumulator;
 import org.neo4j.graphalgo.CostEvaluator;
 import org.neo4j.graphdb.Direction;
+import org.neo4j.graphdb.Entity;
 import org.neo4j.graphdb.Node;
-import org.neo4j.graphdb.PropertyContainer;
 import org.neo4j.graphdb.Relationship;
 import org.neo4j.graphdb.RelationshipType;
+import org.neo4j.graphdb.ResourceIterable;
+import org.neo4j.graphdb.ResourceIterator;
+import org.neo4j.internal.helpers.collection.Iterables;
 
 /**
  * Dijkstra class. This class can be used to perform shortest path computations
@@ -50,7 +55,6 @@ import org.neo4j.graphdb.RelationshipType;
  *             cost comparator will all be called once for every relationship
  *             traversed. Assuming they run in constant time, the time
  *             complexity for this algorithm is O(m + n * log(n)).
- * @author Patrik Larsson
  * @param <CostType> The datatype the edge weights will be represented by.
  */
 public class Dijkstra<CostType> implements
@@ -58,19 +62,20 @@ public class Dijkstra<CostType> implements
 {
     protected CostType startCost; // starting cost for both the start node and
     // the end node
-    protected Node startNode, endNode;
+    protected Node startNode;
+    protected Node endNode;
     protected RelationshipType[] costRelationTypes;
     protected Direction relationDirection;
-    protected CostEvaluator<CostType> costEvaluator = null;
-    protected CostAccumulator<CostType> costAccumulator = null;
-    protected Comparator<CostType> costComparator = null;
-    protected boolean calculateAllShortestPaths = false;
+    protected CostEvaluator<CostType> costEvaluator;
+    protected CostAccumulator<CostType> costAccumulator;
+    protected Comparator<CostType> costComparator;
+    protected boolean calculateAllShortestPaths;
     // Limits
     protected long maxRelationShipsToTraverse = -1;
-    protected long numberOfTraversedRelationShips = 0;
+    protected long numberOfTraversedRelationShips;
     protected long maxNodesToTraverse = -1;
-    protected long numberOfNodesTraversed = 0;
-    protected CostType maxCost = null;
+    protected long numberOfNodesTraversed;
+    protected CostType maxCost;
 
     /**
      * @return True if the set limits for the calculation has been reached (but
@@ -78,17 +83,8 @@ public class Dijkstra<CostType> implements
      */
     protected boolean limitReached()
     {
-        if ( maxRelationShipsToTraverse >= 0
-             && numberOfTraversedRelationShips >= maxRelationShipsToTraverse )
-        {
-            return true;
-        }
-        if ( maxNodesToTraverse >= 0
-             && numberOfNodesTraversed >= maxNodesToTraverse )
-        {
-            return true;
-        }
-        return false;
+        return maxRelationShipsToTraverse >= 0 && numberOfTraversedRelationShips >= maxRelationShipsToTraverse ||
+                maxNodesToTraverse >= 0 && numberOfNodesTraversed >= maxNodesToTraverse;
     }
 
     protected boolean limitReached( CostType cost1, CostType cost2 )
@@ -108,22 +104,23 @@ public class Dijkstra<CostType> implements
     }
 
     // Result data
-    protected boolean doneCalculation = false;
-    protected Set<Node> foundPathsMiddleNodes = null;
+    protected boolean doneCalculation;
+    protected Set<Node> foundPathsMiddleNodes;
     protected CostType foundPathsCost;
-    protected HashMap<Node, List<Relationship>> predecessors1 = new HashMap<Node, List<Relationship>>();
-    protected HashMap<Node, List<Relationship>> predecessors2 = new HashMap<Node, List<Relationship>>();
+    protected Map<Node, List<Relationship>> predecessors1 = new HashMap<>();
+    protected Map<Node, List<Relationship>> predecessors2 = new HashMap<>();
 
     /**
      * Resets the result data to force the computation to be run again when some
      * result is asked for.
      */
+    @Override
     public void reset()
     {
         doneCalculation = false;
         foundPathsMiddleNodes = null;
-        predecessors1 = new HashMap<Node, List<Relationship>>();
-        predecessors2 = new HashMap<Node, List<Relationship>>();
+        predecessors1 = new HashMap<>();
+        predecessors2 = new HashMap<>();
         // Limits
         numberOfTraversedRelationShips = 0;
         numberOfNodesTraversed = 0;
@@ -160,37 +157,35 @@ public class Dijkstra<CostType> implements
     /**
      * A DijkstraIterator computes the distances to nodes from a specified
      * starting node, one at a time, following the dijkstra algorithm.
-     *
-     * @author Patrik Larsson
      */
-    protected class DijstraIterator implements Iterator<Node>
+    protected class DijkstraIterator implements Iterator<Node>
     {
         protected Node startNode;
         // where do we come from
-        protected HashMap<Node, List<Relationship>> predecessors;
+        protected Map<Node, List<Relationship>> predecessors;
         // observed distances not yet final
-        protected HashMap<Node, CostType> mySeen;
-        protected HashMap<Node, CostType> otherSeen;
+        protected Map<Node, CostType> mySeen;
+        protected Map<Node, CostType> otherSeen;
         // the final distances
-        protected HashMap<Node, CostType> myDistances;
-        protected HashMap<Node, CostType> otherDistances;
+        protected Map<Node, CostType> myDistances;
+        protected Map<Node, CostType> otherDistances;
         // Flag that indicates if we should follow egdes in the opposite
         // direction instead
-        protected boolean backwards = false;
+        protected boolean backwards;
         // The priority queue
         protected DijkstraPriorityQueue<CostType> queue;
         // "Done" flags. The first is set to true when a node is found that is
         // contained in both myDistances and otherDistances. This means the
         // calculation has found one of the shortest paths.
-        protected boolean oneShortestPathHasBeenFound = false;
-        protected boolean allShortestPathsHasBeenFound = false;
+        protected boolean oneShortestPathHasBeenFound;
+        protected boolean allShortestPathsHasBeenFound;
 
-        public DijstraIterator( Node startNode,
-                HashMap<Node, List<Relationship>> predecessors,
-                HashMap<Node, CostType> mySeen,
-                HashMap<Node, CostType> otherSeen,
-                HashMap<Node, CostType> myDistances,
-                HashMap<Node, CostType> otherDistances, boolean backwards )
+        public DijkstraIterator( Node startNode,
+                Map<Node, List<Relationship>> predecessors,
+                Map<Node, CostType> mySeen,
+                Map<Node, CostType> otherSeen,
+                Map<Node, CostType> myDistances,
+                Map<Node, CostType> otherDistances, boolean backwards )
         {
             super();
             this.startNode = startNode;
@@ -225,22 +220,23 @@ public class Dijkstra<CostType> implements
         // This puts the start node into the queue
         protected void InitQueue()
         {
-            queue = new DijkstraPriorityQueueFibonacciImpl<CostType>(
-                    costComparator );
+            queue = new DijkstraPriorityQueueFibonacciImpl<>( costComparator );
             queue.insertValue( startNode, startCost );
             mySeen.put( startNode, startCost );
         }
 
+        @Override
         public boolean hasNext()
         {
             return !queue.isEmpty() && !limitReached();
         }
 
+        @Override
         public void remove()
         {
             // Not used
-            // Could be used to generate more sollutions, by removing an edge
-            // from the sollution and run again?
+            // Could be used to generate more solutions, by removing an edge
+            // from the solution and run again?
         }
 
         /**
@@ -255,7 +251,7 @@ public class Dijkstra<CostType> implements
          *            is found and examined if this contains currentNode.
          */
         protected void checkForPath( Node currentNode, CostType currentCost,
-                HashMap<Node, CostType> otherSideDistances )
+                Map<Node, CostType> otherSideDistances )
         {
             // Found a path?
             if ( otherSideDistances.containsKey( currentNode ) )
@@ -266,10 +262,10 @@ public class Dijkstra<CostType> implements
                         otherCost );
                 if ( foundPathsMiddleNodes == null )
                 {
-                    foundPathsMiddleNodes = new HashSet<Node>();
+                    foundPathsMiddleNodes = new HashSet<>();
                 }
                 // No previous path found, or equally good one found?
-                if ( foundPathsMiddleNodes.size() == 0
+                if ( foundPathsMiddleNodes.isEmpty()
                      || costComparator.compare( foundPathsCost, newTotalCost ) == 0 )
                 {
                     foundPathsCost = newTotalCost; // in case we had no
@@ -286,8 +282,14 @@ public class Dijkstra<CostType> implements
             }
         }
 
+        @Override
         public Node next()
         {
+            if ( !hasNext() )
+            {
+                throw new NoSuchElementException();
+            }
+
             Node currentNode = queue.extractMin();
             CostType currentCost = mySeen.get( currentNode );
             // Already done with this node?
@@ -315,100 +317,97 @@ public class Dijkstra<CostType> implements
                 // Otherwise, follow all edges from this node
                 for ( RelationshipType costRelationType : costRelationTypes )
                 {
-                    for ( Relationship relationship : currentNode.getRelationships(
-                            costRelationType, getDirection() ) )
+                    ResourceIterable<Relationship> relationships = Iterables.asResourceIterable(
+                            currentNode.getRelationships( getDirection(), costRelationType ) );
+                    try ( ResourceIterator<Relationship> iterator = relationships.iterator() )
                     {
-                        if ( limitReached() )
+                        while ( iterator.hasNext() )
                         {
-                            break;
-                        }
-                        ++numberOfTraversedRelationShips;
-                        // Target node
-                        Node target = relationship.getOtherNode( currentNode );
-                        // Find out if an eventual path would go in the opposite
-                        // direction of the edge
-                        boolean backwardsEdge = relationship.getEndNode().equals(
-                                currentNode )
-                                                ^ backwards;
-                        CostType newCost = costAccumulator.addCosts(
-                                currentCost, costEvaluator.getCost(
-                                        relationship,
-                                        backwardsEdge ? Direction.INCOMING
-                                                : Direction.OUTGOING ) );
-                        // Already done with target node?
-                        if ( myDistances.containsKey( target ) )
-                        {
-                            // Have we found a better cost for a node which is
-                            // already
-                            // calculated?
-                            if ( costComparator.compare(
-                                    myDistances.get( target ), newCost ) > 0 )
+                            Relationship relationship = iterator.next();
+                            if ( limitReached() )
                             {
-                                throw new RuntimeException(
-                                        "Cycle with negative costs found." );
+                                break;
                             }
-                            // Equally good path found?
-                            else if ( calculateAllShortestPaths
-                                      && costComparator.compare(
-                                              myDistances.get( target ),
-                                              newCost ) == 0 )
+                            ++numberOfTraversedRelationShips;
+                            // Target node
+                            Node target = relationship.getOtherNode( currentNode );
+                            if ( otherDistances.containsKey( target ) )
                             {
-                                // Put it in predecessors
-                                List<Relationship> myPredecessors = predecessors.get( currentNode );
-                                // Dont do it if this relation is already in
-                                // predecessors (other direction)
-                                if ( myPredecessors == null
-                                     || !myPredecessors.contains( relationship ) )
+                                continue;
+                            }
+                            // Find out if an eventual path would go in the opposite
+                            // direction of the edge
+                            boolean backwardsEdge = relationship.getEndNode().equals( currentNode ) ^ backwards;
+                            CostType newCost = costAccumulator.addCosts( currentCost, costEvaluator
+                                    .getCost( relationship, backwardsEdge ? Direction.INCOMING : Direction.OUTGOING ) );
+                            // Already done with target node?
+                            if ( myDistances.containsKey( target ) )
+                            {
+                                // Have we found a better cost for a node which is
+                                // already
+                                // calculated?
+                                if ( costComparator.compare( myDistances.get( target ), newCost ) > 0 )
                                 {
-                                    List<Relationship> predList = predecessors.get( target );
-                                    if ( predList == null )
+                                    throw new RuntimeException( "Cycle with negative costs found." );
+                                }
+                                // Equally good path found?
+                                else if ( calculateAllShortestPaths &&
+                                        costComparator.compare( myDistances.get( target ), newCost ) == 0 )
+                                {
+                                    // Put it in predecessors
+                                    List<Relationship> myPredecessors = predecessors.get( currentNode );
+                                    // Dont do it if this relation is already in
+                                    // predecessors (other direction)
+                                    if ( myPredecessors == null || !myPredecessors.contains( relationship ) )
                                     {
-                                        // This only happens if we get back to
-                                        // the
-                                        // start node, which is just bogus
-                                    }
-                                    else
-                                    {
-                                        predList.add( relationship );
+                                        List<Relationship> predList = predecessors.get( target );
+                                        if ( predList == null )
+                                        {
+                                            // This only happens if we get back to
+                                            // the
+                                            // start node, which is just bogus
+                                        }
+                                        else
+                                        {
+                                            predList.add( relationship );
+                                        }
                                     }
                                 }
+                                continue;
                             }
-                            continue;
-                        }
-                        // Have we found a better cost for this node?
-                        if ( !mySeen.containsKey( target )
-                             || costComparator.compare( mySeen.get( target ),
-                                     newCost ) > 0 )
-                        {
-                            // Put it in the queue
-                            if ( !mySeen.containsKey( target ) )
+                            // Have we found a better cost for this node?
+                            if ( !mySeen.containsKey( target ) ||
+                                    costComparator.compare( mySeen.get( target ), newCost ) > 0 )
                             {
-                                queue.insertValue( target, newCost );
+                                // Put it in the queue
+                                if ( !mySeen.containsKey( target ) )
+                                {
+                                    queue.insertValue( target, newCost );
+                                }
+                                // or update the entry. (It is important to keep
+                                // these
+                                // cases apart to limit the size of the queue)
+                                else
+                                {
+                                    queue.decreaseValue( target, newCost );
+                                }
+                                // Update it
+                                mySeen.put( target, newCost );
+                                // Put it in predecessors
+                                List<Relationship> predList = new LinkedList<>();
+                                predList.add( relationship );
+                                predecessors.put( target, predList );
                             }
-                            // or update the entry. (It is important to keep
-                            // these
-                            // cases apart to limit the size of the queue)
-                            else
+                            // Have we found an equal cost for (additional path to)
+                            // this
+                            // node?
+                            else if ( calculateAllShortestPaths &&
+                                    costComparator.compare( mySeen.get( target ), newCost ) == 0 )
                             {
-                                queue.decreaseValue( target, newCost );
+                                // Put it in predecessors
+                                List<Relationship> predList = predecessors.get( target );
+                                predList.add( relationship );
                             }
-                            // Update it
-                            mySeen.put( target, newCost );
-                            // Put it in predecessors
-                            List<Relationship> predList = new LinkedList<Relationship>();
-                            predList.add( relationship );
-                            predecessors.put( target, predList );
-                        }
-                        // Have we found an equal cost for (additonal path to)
-                        // this
-                        // node?
-                        else if ( calculateAllShortestPaths
-                                  && costComparator.compare(
-                                          mySeen.get( target ), newCost ) == 0 )
-                        {
-                            // Put it in predecessors
-                            List<Relationship> predList = predecessors.get( target );
-                            predList.add( relationship );
                         }
                     }
                 }
@@ -478,18 +477,18 @@ public class Dijkstra<CostType> implements
         // Special case when path length is zero
         if ( startNode.equals( endNode ) )
         {
-            foundPathsMiddleNodes = new HashSet<Node>();
+            foundPathsMiddleNodes = new HashSet<>();
             foundPathsMiddleNodes.add( startNode );
             foundPathsCost = costAccumulator.addCosts( startCost, startCost );
             return true;
         }
-        HashMap<Node, CostType> seen1 = new HashMap<Node, CostType>();
-        HashMap<Node, CostType> seen2 = new HashMap<Node, CostType>();
-        HashMap<Node, CostType> dists1 = new HashMap<Node, CostType>();
-        HashMap<Node, CostType> dists2 = new HashMap<Node, CostType>();
-        DijstraIterator iter1 = new DijstraIterator( startNode, predecessors1,
+        Map<Node, CostType> seen1 = new HashMap<>();
+        Map<Node, CostType> seen2 = new HashMap<>();
+        Map<Node, CostType> dists1 = new HashMap<>();
+        Map<Node, CostType> dists2 = new HashMap<>();
+        DijkstraIterator iter1 = new DijkstraIterator( startNode, predecessors1,
                 seen1, seen2, dists1, dists2, false );
-        DijstraIterator iter2 = new DijstraIterator( endNode, predecessors2,
+        DijkstraIterator iter2 = new DijkstraIterator( endNode, predecessors2,
                 seen2, seen1, dists2, dists1, true );
         Node node1 = null;
         Node node2 = null;
@@ -535,6 +534,7 @@ public class Dijkstra<CostType> implements
     /**
      * @return The cost for the found path(s).
      */
+    @Override
     public CostType getCost()
     {
         if ( startNode == null || endNode == null )
@@ -548,33 +548,33 @@ public class Dijkstra<CostType> implements
     /**
      * @return All the found paths or null.
      */
-    public List<List<PropertyContainer>> getPaths()
+    @Override
+    public List<List<Entity>> getPaths()
     {
         if ( startNode == null || endNode == null )
         {
             throw new RuntimeException( "Start or end node undefined." );
         }
         calculateMultiple();
-        if ( foundPathsMiddleNodes == null || foundPathsMiddleNodes.size() == 0 )
+        if ( foundPathsMiddleNodes == null || foundPathsMiddleNodes.isEmpty() )
         {
             return Collections.emptyList();
         }
-        // Currently we use a set to avoid duplicate paths
-        // TODO: can this be done smarter?
-        Set<List<PropertyContainer>> paths = new HashSet<List<PropertyContainer>>();
+
+        List<List<Entity>> paths = new LinkedList<>();
         for ( Node middleNode : foundPathsMiddleNodes )
         {
-            List<List<PropertyContainer>> paths1 = Util.constructAllPathsToNode(
+            List<List<Entity>> paths1 = Util.constructAllPathsToNode(
                     middleNode, predecessors1, true, false );
-            List<List<PropertyContainer>> paths2 = Util.constructAllPathsToNode(
+            List<List<Entity>> paths2 = Util.constructAllPathsToNode(
                     middleNode, predecessors2, false, true );
             // For all combinations...
-            for ( List<PropertyContainer> part1 : paths1 )
+            for ( List<Entity> part1 : paths1 )
             {
-                for ( List<PropertyContainer> part2 : paths2 )
+                for ( List<Entity> part2 : paths2 )
                 {
                     // Combine them
-                    LinkedList<PropertyContainer> path = new LinkedList<PropertyContainer>();
+                    List<Entity> path = new LinkedList<>();
                     path.addAll( part1 );
                     path.addAll( part2 );
                     // Add to collection
@@ -582,12 +582,14 @@ public class Dijkstra<CostType> implements
                 }
             }
         }
-        return new LinkedList<List<PropertyContainer>>( paths );
+
+        return paths;
     }
 
     /**
      * @return All the found paths or null.
      */
+    @Override
     public List<List<Node>> getPathsAsNodes()
     {
         if ( startNode == null || endNode == null )
@@ -595,13 +597,12 @@ public class Dijkstra<CostType> implements
             throw new RuntimeException( "Start or end node undefined." );
         }
         calculateMultiple();
-        if ( foundPathsMiddleNodes == null || foundPathsMiddleNodes.size() == 0 )
+        if ( foundPathsMiddleNodes == null || foundPathsMiddleNodes.isEmpty() )
         {
             return null;
         }
-        // Currently we use a set to avoid duplicate paths
-        // TODO: can this be done smarter?
-        Set<List<Node>> paths = new HashSet<List<Node>>();
+
+        List<List<Node>> paths = new LinkedList<>();
         for ( Node middleNode : foundPathsMiddleNodes )
         {
             List<List<Node>> paths1 = Util.constructAllPathsToNodeAsNodes(
@@ -614,7 +615,7 @@ public class Dijkstra<CostType> implements
                 for ( List<Node> part2 : paths2 )
                 {
                     // Combine them
-                    LinkedList<Node> path = new LinkedList<Node>();
+                    List<Node> path = new LinkedList<>();
                     path.addAll( part1 );
                     path.addAll( part2 );
                     // Add to collection
@@ -622,12 +623,14 @@ public class Dijkstra<CostType> implements
                 }
             }
         }
-        return new LinkedList<List<Node>>( paths );
+
+        return paths;
     }
 
     /**
      * @return All the found paths or null.
      */
+    @Override
     public List<List<Relationship>> getPathsAsRelationships()
     {
         if ( startNode == null || endNode == null )
@@ -635,13 +638,12 @@ public class Dijkstra<CostType> implements
             throw new RuntimeException( "Start or end node undefined." );
         }
         calculateMultiple();
-        if ( foundPathsMiddleNodes == null || foundPathsMiddleNodes.size() == 0 )
+        if ( foundPathsMiddleNodes == null || foundPathsMiddleNodes.isEmpty() )
         {
             return null;
         }
-        // Currently we use a set to avoid duplicate paths
-        // TODO: can this be done smarter?
-        Set<List<Relationship>> paths = new HashSet<List<Relationship>>();
+
+        List<List<Relationship>> paths = new LinkedList<>();
         for ( Node middleNode : foundPathsMiddleNodes )
         {
             List<List<Relationship>> paths1 = Util.constructAllPathsToNodeAsRelationships(
@@ -654,7 +656,7 @@ public class Dijkstra<CostType> implements
                 for ( List<Relationship> part2 : paths2 )
                 {
                     // Combine them
-                    LinkedList<Relationship> path = new LinkedList<Relationship>();
+                    List<Relationship> path = new LinkedList<>();
                     path.addAll( part1 );
                     path.addAll( part2 );
                     // Add to collection
@@ -662,25 +664,27 @@ public class Dijkstra<CostType> implements
                 }
             }
         }
-        return new LinkedList<List<Relationship>>( paths );
+
+        return paths;
     }
 
     /**
      * @return One of the shortest paths found or null.
      */
-    public List<PropertyContainer> getPath()
+    @Override
+    public List<Entity> getPath()
     {
         if ( startNode == null || endNode == null )
         {
             throw new RuntimeException( "Start or end node undefined." );
         }
         calculate();
-        if ( foundPathsMiddleNodes == null || foundPathsMiddleNodes.size() == 0 )
+        if ( foundPathsMiddleNodes == null || foundPathsMiddleNodes.isEmpty() )
         {
             return null;
         }
         Node middleNode = foundPathsMiddleNodes.iterator().next();
-        LinkedList<PropertyContainer> path = new LinkedList<PropertyContainer>();
+        List<Entity> path = new LinkedList<>();
         path.addAll( Util.constructSinglePathToNode( middleNode, predecessors1,
                 true, false ) );
         path.addAll( Util.constructSinglePathToNode( middleNode, predecessors2,
@@ -691,6 +695,7 @@ public class Dijkstra<CostType> implements
     /**
      * @return One of the shortest paths found or null.
      */
+    @Override
     public List<Node> getPathAsNodes()
     {
         if ( startNode == null || endNode == null )
@@ -698,12 +703,12 @@ public class Dijkstra<CostType> implements
             throw new RuntimeException( "Start or end node undefined." );
         }
         calculate();
-        if ( foundPathsMiddleNodes == null || foundPathsMiddleNodes.size() == 0 )
+        if ( foundPathsMiddleNodes == null || foundPathsMiddleNodes.isEmpty() )
         {
             return null;
         }
         Node middleNode = foundPathsMiddleNodes.iterator().next();
-        LinkedList<Node> pathNodes = new LinkedList<Node>();
+        List<Node> pathNodes = new LinkedList<>();
         pathNodes.addAll( Util.constructSinglePathToNodeAsNodes( middleNode,
                 predecessors1, true, false ) );
         pathNodes.addAll( Util.constructSinglePathToNodeAsNodes( middleNode,
@@ -714,6 +719,7 @@ public class Dijkstra<CostType> implements
     /**
      * @return One of the shortest paths found or null.
      */
+    @Override
     public List<Relationship> getPathAsRelationships()
     {
         if ( startNode == null || endNode == null )
@@ -721,12 +727,12 @@ public class Dijkstra<CostType> implements
             throw new RuntimeException( "Start or end node undefined." );
         }
         calculate();
-        if ( foundPathsMiddleNodes == null || foundPathsMiddleNodes.size() == 0 )
+        if ( foundPathsMiddleNodes == null || foundPathsMiddleNodes.isEmpty() )
         {
             return null;
         }
         Node middleNode = foundPathsMiddleNodes.iterator().next();
-        List<Relationship> path = new LinkedList<Relationship>();
+        List<Relationship> path = new LinkedList<>();
         path.addAll( Util.constructSinglePathToNodeAsRelationships( middleNode,
                 predecessors1, false ) );
         path.addAll( Util.constructSinglePathToNodeAsRelationships( middleNode,
@@ -761,6 +767,7 @@ public class Dijkstra<CostType> implements
      *
      * @param endNode the endNode to set
      */
+    @Override
     public void setEndNode( Node endNode )
     {
         reset();
@@ -772,6 +779,7 @@ public class Dijkstra<CostType> implements
      *
      * @param startNode the startNode to set
      */
+    @Override
     public void setStartNode( Node startNode )
     {
         this.startNode = startNode;
@@ -781,6 +789,7 @@ public class Dijkstra<CostType> implements
     /**
      * @return the relationDirection
      */
+    @Override
     public Direction getDirection()
     {
         return relationDirection;
@@ -789,6 +798,7 @@ public class Dijkstra<CostType> implements
     /**
      * @return the costRelationType
      */
+    @Override
     public RelationshipType[] getRelationshipTypes()
     {
         return costRelationTypes;

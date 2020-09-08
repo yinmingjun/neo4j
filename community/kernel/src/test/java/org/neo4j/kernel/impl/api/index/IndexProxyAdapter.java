@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,21 +19,22 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import java.io.File;
-import java.util.concurrent.Future;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import org.neo4j.graphdb.ResourceIterator;
+import org.neo4j.internal.kernel.api.InternalIndexState;
+import org.neo4j.internal.kernel.api.PopulationProgress;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.io.pagecache.IOLimiter;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.kernel.api.index.IndexReader;
 import org.neo4j.kernel.api.index.IndexUpdater;
-import org.neo4j.kernel.api.index.InternalIndexState;
-import org.neo4j.kernel.api.index.SchemaIndexProvider;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.kernel.impl.api.index.updater.SwallowingIndexUpdater;
-import org.neo4j.storageengine.api.schema.IndexReader;
-import org.neo4j.storageengine.api.schema.PopulationProgress;
+import org.neo4j.values.storable.Value;
 
-import static org.neo4j.helpers.FutureAdapter.VOID;
-import static org.neo4j.helpers.collection.Iterators.emptyIterator;
+import static org.neo4j.internal.helpers.collection.Iterators.emptyResourceIterator;
 
 public class IndexProxyAdapter implements IndexProxy
 {
@@ -43,15 +44,14 @@ public class IndexProxyAdapter implements IndexProxy
     }
 
     @Override
-    public IndexUpdater newUpdater( IndexUpdateMode mode )
+    public IndexUpdater newUpdater( IndexUpdateMode mode, PageCursorTracer cursorTracer )
     {
         return SwallowingIndexUpdater.INSTANCE;
     }
 
     @Override
-    public Future<Void> drop()
+    public void drop()
     {
-        return VOID;
     }
 
     @Override
@@ -61,30 +61,22 @@ public class IndexProxyAdapter implements IndexProxy
     }
 
     @Override
-    public void force()
+    public void force( IOLimiter ioLimiter, PageCursorTracer cursorTracer )
     {
     }
 
     @Override
-    public Future<Void> close()
+    public void refresh()
     {
-        return VOID;
+    }
+
+    @Override
+    public void close( PageCursorTracer cursorTracer )
+    {
     }
 
     @Override
     public IndexDescriptor getDescriptor()
-    {
-        return null;
-    }
-
-    @Override
-    public LabelSchemaDescriptor schema()
-    {
-        return null;
-    }
-
-    @Override
-    public SchemaIndexProvider.Descriptor getProviderDescriptor()
     {
         return null;
     }
@@ -96,7 +88,7 @@ public class IndexProxyAdapter implements IndexProxy
     }
 
     @Override
-    public boolean awaitStoreScanCompleted()
+    public boolean awaitStoreScanCompleted( long time, TimeUnit unit )
     {
         throw new UnsupportedOperationException();
     }
@@ -112,9 +104,20 @@ public class IndexProxyAdapter implements IndexProxy
     }
 
     @Override
-    public ResourceIterator<File> snapshotFiles()
+    public void validateBeforeCommit( Value[] tuple )
     {
-        return emptyIterator();
+    }
+
+    @Override
+    public ResourceIterator<Path> snapshotFiles()
+    {
+        return emptyResourceIterator();
+    }
+
+    @Override
+    public Map<String,Value> indexConfig()
+    {
+        return Collections.emptyMap();
     }
 
     @Override

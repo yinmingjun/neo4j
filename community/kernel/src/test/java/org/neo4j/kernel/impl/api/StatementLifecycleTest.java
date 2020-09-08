@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,59 +19,62 @@
  */
 package org.neo4j.kernel.impl.api;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import org.neo4j.kernel.impl.factory.CanWrite;
-import org.neo4j.kernel.impl.locking.LockTracer;
-import org.neo4j.kernel.impl.proc.Procedures;
-import org.neo4j.storageengine.api.StorageStatement;
+import java.util.concurrent.atomic.AtomicReference;
 
+import org.neo4j.configuration.Config;
+import org.neo4j.io.pagecache.tracing.cursor.context.EmptyVersionContextSupplier;
+import org.neo4j.kernel.database.TestDatabaseIdRepository;
+import org.neo4j.lock.LockTracer;
+import org.neo4j.resources.CpuClock;
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
-public class StatementLifecycleTest
+class StatementLifecycleTest
 {
     @Test
-    public void shouldReleaseStoreStatementOnlyWhenReferenceCountDownToZero() throws Exception
+    void shouldReleaseStoreStatementOnlyWhenReferenceCountDownToZero()
     {
         // given
         KernelTransactionImplementation transaction = mock( KernelTransactionImplementation.class );
-        StorageStatement storageStatement = mock( StorageStatement.class );
-        KernelStatement statement = getKernelStatement( transaction, storageStatement );
+        KernelStatement statement = createStatement( transaction );
         statement.acquire();
-        verify( storageStatement ).acquire();
         statement.acquire();
 
         // when
         statement.close();
-        verifyNoMoreInteractions( storageStatement );
+        verify( transaction, never() ).releaseStatementResources();
 
         // then
         statement.close();
-        verify( storageStatement ).release();
+        verify( transaction ).releaseStatementResources();
     }
 
     @Test
-    public void shouldReleaseStoreStatementWhenForceClosingStatements() throws Exception
+    void shouldReleaseStoreStatementWhenForceClosingStatements()
     {
         // given
         KernelTransactionImplementation transaction = mock( KernelTransactionImplementation.class );
-        StorageStatement storageStatement = mock( StorageStatement.class );
-        KernelStatement statement = getKernelStatement( transaction, storageStatement );
+        when( transaction.isSuccess() ).thenReturn( true );
+        KernelStatement statement = createStatement( transaction );
         statement.acquire();
 
         // when
-        statement.forceClose();
+        assertThrows( KernelStatement.StatementNotClosedException.class, statement::forceClose );
 
         // then
-        verify( storageStatement ).release();
+        verify( transaction ).releaseStatementResources();
     }
 
-    private KernelStatement getKernelStatement( KernelTransactionImplementation transaction,
-            StorageStatement storageStatement )
+    private static KernelStatement createStatement( KernelTransactionImplementation transaction )
     {
-        return new KernelStatement( transaction, null, storageStatement, new Procedures(), new CanWrite(),
-                LockTracer.NONE );
+        return new KernelStatement( transaction, LockTracer.NONE, new ClockContext(), EmptyVersionContextSupplier.EMPTY,
+                                    new AtomicReference<>( CpuClock.NOT_AVAILABLE ), new TestDatabaseIdRepository().defaultDatabase(), Config.defaults() );
     }
+
 }

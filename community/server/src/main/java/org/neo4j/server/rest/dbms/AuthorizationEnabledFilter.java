@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,7 +20,7 @@
 package org.neo4j.server.rest.dbms;
 
 import java.io.IOException;
-import java.net.URI;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -31,37 +31,32 @@ import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.core.HttpHeaders;
-import javax.ws.rs.core.UriBuilder;
 
 import org.neo4j.function.ThrowingConsumer;
 import org.neo4j.graphdb.security.AuthProviderFailedException;
 import org.neo4j.graphdb.security.AuthProviderTimeoutException;
 import org.neo4j.graphdb.security.AuthorizationViolationException;
+import org.neo4j.internal.kernel.api.security.LoginContext;
 import org.neo4j.kernel.api.exceptions.Status;
 import org.neo4j.kernel.api.security.AuthManager;
-import org.neo4j.kernel.api.security.SecurityContext;
 import org.neo4j.kernel.api.security.exception.InvalidAuthTokenException;
 import org.neo4j.logging.Log;
 import org.neo4j.logging.LogProvider;
-import org.neo4j.server.web.XForwardUtil;
+import org.neo4j.server.web.JettyHttpConnection;
+import org.neo4j.string.UTF8;
 
-import static java.lang.String.format;
 import static java.util.Collections.singletonList;
 import static javax.servlet.http.HttpServletRequest.BASIC_AUTH;
-import static org.neo4j.helpers.collection.MapUtil.map;
+import static org.neo4j.internal.helpers.collection.MapUtil.map;
 import static org.neo4j.kernel.api.security.AuthToken.newBasicAuthToken;
-import static org.neo4j.server.web.XForwardUtil.X_FORWARD_HOST_HEADER_KEY;
-import static org.neo4j.server.web.XForwardUtil.X_FORWARD_PROTO_HEADER_KEY;
 
 public class AuthorizationEnabledFilter extends AuthorizationFilter
 {
-    private static final Pattern PASSWORD_CHANGE_WHITELIST = Pattern.compile( "/user/.*" );
-
     private final Supplier<AuthManager> authManagerSupplier;
     private final Log log;
-    private final Pattern[] uriWhitelist;
+    private final List<Pattern> uriWhitelist;
 
-    public AuthorizationEnabledFilter( Supplier<AuthManager> authManager, LogProvider logProvider, Pattern... uriWhitelist )
+    public AuthorizationEnabledFilter( Supplier<AuthManager> authManager, LogProvider logProvider, List<Pattern> uriWhitelist )
     {
         this.authManagerSupplier = authManager;
         this.log = logProvider.getLog( getClass() );
@@ -69,7 +64,8 @@ public class AuthorizationEnabledFilter extends AuthorizationFilter
     }
 
     @Override
-    public void doFilter( ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain ) throws IOException, ServletException
+    public void doFilter( ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain )
+            throws IOException, ServletException
     {
         validateRequestType( servletRequest );
         validateResponseType( servletResponse );
@@ -77,12 +73,16 @@ public class AuthorizationEnabledFilter extends AuthorizationFilter
         final HttpServletRequest request = (HttpServletRequest) servletRequest;
         final HttpServletResponse response = (HttpServletResponse) servletResponse;
 
+        String userAgent = request.getHeader( HttpHeaders.USER_AGENT );
+        // username is only known after authentication, make connection aware of the user-agent
+        JettyHttpConnection.updateUserForCurrentConnection( null, userAgent );
+
         final String path = request.getContextPath() + ( request.getPathInfo() == null ? "" : request.getPathInfo() );
 
         if ( request.getMethod().equals( "OPTIONS" ) || whitelisted( path ) )
         {
             // NOTE: If starting transactions with access mode on whitelisted uris should be possible we need to
-            //       wrap servletRequest in an AuthorizedRequestWarpper here
+            //       wrap servletRequest in an AuthorizedRequestWrapper here
             filterChain.doFilter( servletRequest, servletResponse );
             return;
         }
@@ -106,16 +106,16 @@ public class AuthorizationEnabledFilter extends AuthorizationFilter
 
         try
         {
-            SecurityContext securityContext = authenticate( username, password );
+            LoginContext securityContext = authenticate( username, password );
+            // username is now known, make connection aware of both username and user-agent
+            JettyHttpConnection.updateUserForCurrentConnection( username, userAgent );
+
             switch ( securityContext.subject().getAuthenticationResult() )
             {
             case PASSWORD_CHANGE_REQUIRED:
-                if ( !PASSWORD_CHANGE_WHITELIST.matcher( path ).matches() )
-                {
-                    passwordChangeRequired( username, baseURL( request ) ).accept( response );
-                    return;
-                }
-                // fall through
+                // Fall through
+                // You should be able to authenticate with PASSWORD_CHANGE_REQUIRED but will be stopped
+                // from the server side if you try to do anything else than changing you own password.
             case SUCCESS:
                 try
                 {
@@ -149,45 +149,45 @@ public class AuthorizationEnabledFilter extends AuthorizationFilter
         }
     }
 
-    private SecurityContext authenticate( String username, String password ) throws InvalidAuthTokenException
+    private LoginContext authenticate( String username, String password ) throws InvalidAuthTokenException
     {
         AuthManager authManager = authManagerSupplier.get();
-        Map<String,Object> authToken = newBasicAuthToken( username, password );
+        Map<String,Object> authToken = newBasicAuthToken( username, password != null ? UTF8.encode( password ) : null );
         return authManager.login( authToken );
     }
 
     private static final ThrowingConsumer<HttpServletResponse, IOException> noHeader =
-            error(  401,
+            error( 401,
                     map( "errors", singletonList( map(
                             "code", Status.Security.Unauthorized.code().serialize(),
                             "message", "No authentication header supplied." ) ) ) );
 
     private static final ThrowingConsumer<HttpServletResponse, IOException> badHeader =
-            error(  400,
+            error( 400,
                     map( "errors", singletonList( map(
                             "code", Status.Request.InvalidFormat.code().serialize(),
                             "message", "Invalid authentication header." ) ) ) );
 
     private static final ThrowingConsumer<HttpServletResponse, IOException> invalidCredential =
-            error(  401,
+            error( 401,
                     map( "errors", singletonList( map(
                             "code", Status.Security.Unauthorized.code().serialize(),
                             "message", "Invalid username or password." ) ) ) );
 
     private static final ThrowingConsumer<HttpServletResponse, IOException> tooManyAttempts =
-            error(  429,
+            error( 429,
                     map( "errors", singletonList( map(
                             "code", Status.Security.AuthenticationRateLimit.code().serialize(),
                             "message", "Too many failed authentication requests. Please wait 5 seconds and try again." ) ) ) );
 
     private static final ThrowingConsumer<HttpServletResponse, IOException> authProviderFailed =
-            error(  502,
+            error( 502,
                     map( "errors", singletonList( map(
                             "code", Status.Security.AuthProviderFailed.code().serialize(),
                             "message", "An auth provider request failed." ) ) ) );
 
     private static final ThrowingConsumer<HttpServletResponse, IOException> authProviderTimeout =
-            error(  504,
+            error( 504,
                     map( "errors", singletonList( map(
                             "code", Status.Security.AuthProviderTimeout.code().serialize(),
                             "message", "An auth provider request timed out." ) ) ) );
@@ -198,15 +198,6 @@ public class AuthorizationEnabledFilter extends AuthorizationFilter
                 map( "errors", singletonList( map(
                         "code", Status.Security.Unauthorized.code().serialize(),
                         "message", message ) ) ) );
-    }
-
-    private static ThrowingConsumer<HttpServletResponse, IOException> passwordChangeRequired( final String username, final String baseURL )
-    {
-        URI path = UriBuilder.fromUri( baseURL ).path( format( "/user/%s/password", username ) ).build();
-        return error( 403,
-                map( "errors", singletonList( map(
-                        "code", Status.Security.Forbidden.code().serialize(),
-                        "message", "User is required to change their password." ) ), "password_change", path.toString() ) );
     }
 
     /**
@@ -222,7 +213,7 @@ public class AuthorizationEnabledFilter extends AuthorizationFilter
     {
         if ( "true".equals( req.getHeader( "X-Ajax-Browser-Auth" ) ) )
         {
-            return ( res ) ->
+            return res ->
             {
                 responseGen.accept( res );
                 res.addHeader( HttpHeaders.WWW_AUTHENTICATE, "None" );
@@ -230,23 +221,12 @@ public class AuthorizationEnabledFilter extends AuthorizationFilter
         }
         else
         {
-            return ( res ) ->
+            return res ->
             {
                 responseGen.accept( res );
                 res.addHeader( HttpHeaders.WWW_AUTHENTICATE, "Basic realm=\"Neo4j\"" );
             };
         }
-    }
-
-    private String baseURL( HttpServletRequest request )
-    {
-        StringBuffer url = request.getRequestURL();
-        String baseURL = url.substring( 0, url.length() - request.getRequestURI().length() ) + "/";
-
-        return XForwardUtil.externalUri(
-                baseURL,
-                request.getHeader( X_FORWARD_HOST_HEADER_KEY ),
-                request.getHeader( X_FORWARD_PROTO_HEADER_KEY ) );
     }
 
     private boolean whitelisted( String path )

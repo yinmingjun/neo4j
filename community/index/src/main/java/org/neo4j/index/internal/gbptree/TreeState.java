@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -39,8 +39,27 @@ import org.neo4j.io.pagecache.PageCursor;
  */
 class TreeState
 {
-    private static final byte CLEAN = 0x01;
-    private static final byte DIRTY = 0x00;
+    /**
+     * Size of one set of tree-state fields.
+     */
+    private static final int TREE_STATE_FIELDS_SIZE =
+            Integer.BYTES * 2 + // stable/unstable gen
+            Long.BYTES +        // rootId
+            Long.BYTES +        // rootGeneration
+            Long.BYTES +        // lastId
+            Long.BYTES +        // freeListWritePageId
+            Long.BYTES +        // freeListReadPageId
+            Long.BYTES +        // freeListWritePos
+            Long.BYTES +        // freeListReadPos
+            Byte.BYTES;         // clean
+
+    /**
+     * Size of a tree-state altogether, which consists of two sets of tree-state fields.
+     */
+    static final int SIZE = TREE_STATE_FIELDS_SIZE * 2;
+
+    private static final byte CLEAN_BYTE = 0x01;
+    private static final byte DIRTY_BYTE = 0x00;
 
     /**
      * Page id this tree state has been read from.
@@ -103,7 +122,7 @@ class TreeState
     /**
      * Is tree clean or dirty. Clean means it was closed without any non-checkpointed changes.
      */
-    private boolean clean;
+    private final boolean clean;
 
     TreeState( long pageId, long stableGeneration, long unstableGeneration, long rootId, long rootGeneration,
             long lastId, long freeListWritePageId, long freeListReadPageId, int freeListWritePos, int freeListReadPos,
@@ -233,7 +252,7 @@ class TreeState
         return this;
     }
 
-    private boolean isEmpty()
+    boolean isEmpty()
     {
         return stableGeneration == 0L && unstableGeneration == 0L && rootId == 0L && lastId == 0L &&
                 freeListWritePageId == 0L && freeListReadPageId == 0L && freeListWritePos == 0 && freeListReadPos == 0;
@@ -251,7 +270,7 @@ class TreeState
         long freeListReadPageId = cursor.getLong();
         int freeListWritePos = cursor.getInt();
         int freeListReadPos = cursor.getInt();
-        boolean clean = cursor.getByte() == CLEAN;
+        boolean clean = cursor.getByte() == CLEAN_BYTE;
         return new TreeState( pageId, stableGeneration, unstableGeneration, rootId, rootGeneration, lastId,
                 freeListWritePageId, freeListReadPageId, freeListWritePos, freeListReadPos, clean, true );
     }
@@ -269,7 +288,7 @@ class TreeState
         cursor.putLong( freeListReadPageId );
         cursor.putInt( freeListWritePos );
         cursor.putInt( freeListReadPos );
-        cursor.putByte( clean ? CLEAN : DIRTY );
+        cursor.putByte( clean ? CLEAN_BYTE : DIRTY_BYTE );
     }
 
     @Override
@@ -286,22 +305,20 @@ class TreeState
     public boolean equals( Object o )
     {
         if ( this == o )
-        { return true; }
+        {
+            return true;
+        }
         if ( o == null || getClass() != o.getClass() )
-        { return false; }
+        {
+            return false;
+        }
         TreeState treeState = (TreeState) o;
-        return pageId == treeState.pageId &&
-                stableGeneration == treeState.stableGeneration &&
-                unstableGeneration == treeState.unstableGeneration &&
-                rootId == treeState.rootId &&
-                rootGeneration == treeState.rootGeneration &&
-                lastId == treeState.lastId &&
+        return pageId == treeState.pageId && stableGeneration == treeState.stableGeneration &&
+                unstableGeneration == treeState.unstableGeneration && rootId == treeState.rootId &&
+                rootGeneration == treeState.rootGeneration && lastId == treeState.lastId &&
                 freeListWritePageId == treeState.freeListWritePageId &&
-                freeListReadPageId == treeState.freeListReadPageId &&
-                freeListWritePos == treeState.freeListWritePos &&
-                freeListReadPos == treeState.freeListReadPos &&
-                clean == treeState.clean &&
-                valid == treeState.valid;
+                freeListReadPageId == treeState.freeListReadPageId && freeListWritePos == treeState.freeListWritePos &&
+                freeListReadPos == treeState.freeListReadPos && clean == treeState.clean && valid == treeState.valid;
     }
 
     @Override

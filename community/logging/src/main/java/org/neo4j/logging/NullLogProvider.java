@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,7 +22,7 @@ package org.neo4j.logging;
 /**
  * A {@link LogProvider} implementation that discards all messages
  */
-public class NullLogProvider implements LogProvider
+public final class NullLogProvider implements LogProvider
 {
     private static final NullLogProvider INSTANCE = new NullLogProvider();
 
@@ -38,8 +38,13 @@ public class NullLogProvider implements LogProvider
         return INSTANCE;
     }
 
+    public static NullLogProvider nullLogProvider()
+    {
+        return INSTANCE;
+    }
+
     @Override
-    public Log getLog( Class loggingClass )
+    public Log getLog( Class<?> loggingClass )
     {
         return NullLog.getInstance();
     }

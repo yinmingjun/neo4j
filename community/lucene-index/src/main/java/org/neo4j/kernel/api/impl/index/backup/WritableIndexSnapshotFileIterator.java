@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,8 +22,8 @@ package org.neo4j.kernel.api.impl.index.backup;
 import org.apache.lucene.index.IndexCommit;
 import org.apache.lucene.index.SnapshotDeletionPolicy;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 
 /**
  * Iterator over Lucene index files for a particular {@link IndexCommit snapshot}.
@@ -35,8 +35,7 @@ public class WritableIndexSnapshotFileIterator extends ReadOnlyIndexSnapshotFile
 {
     private final SnapshotDeletionPolicy snapshotDeletionPolicy;
 
-    WritableIndexSnapshotFileIterator( File indexDirectory, SnapshotDeletionPolicy snapshotDeletionPolicy )
-            throws IOException
+    WritableIndexSnapshotFileIterator( Path indexDirectory, SnapshotDeletionPolicy snapshotDeletionPolicy ) throws IOException
     {
         super( indexDirectory, snapshotDeletionPolicy.snapshot() );
         this.snapshotDeletionPolicy = snapshotDeletionPolicy;
@@ -55,5 +54,4 @@ public class WritableIndexSnapshotFileIterator extends ReadOnlyIndexSnapshotFile
                                                 getIndexDirectory(), e );
         }
     }
-
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,9 +19,7 @@
  */
 package org.neo4j.kernel.impl.traversal;
 
-import org.junit.Test;
-
-import java.util.Collections;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Path;
@@ -29,21 +27,22 @@ import org.neo4j.graphdb.PathExpander;
 import org.neo4j.graphdb.traversal.BranchState;
 import org.neo4j.graphdb.traversal.TraversalBranch;
 import org.neo4j.graphdb.traversal.TraversalContext;
+import org.neo4j.internal.helpers.collection.Iterables;
 
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-
 import static org.neo4j.graphdb.traversal.Evaluation.INCLUDE_AND_CONTINUE;
 
-public class TraversalBranchImplTest
+class TraversalBranchImplTest
 {
     @SuppressWarnings( "unchecked" )
     @Test
-    public void shouldExpandOnFirstAccess() throws Exception
+    void shouldExpandOnFirstAccess()
     {
         // GIVEN
         TraversalBranch parent = mock( TraversalBranch.class );
@@ -51,15 +50,16 @@ public class TraversalBranchImplTest
         TraversalBranchImpl branch = new TraversalBranchImpl( parent, source );
         @SuppressWarnings( "rawtypes" )
         PathExpander expander = mock( PathExpander.class );
-        when( expander.expand( eq( branch ), any( BranchState.class ) ) ).thenReturn( Collections.emptySet() );
+        when( expander.expand( eq( branch ), any( BranchState.class ) ) )
+                .thenReturn( Iterables.emptyResourceIterable() );
         TraversalContext context = mock( TraversalContext.class );
-        when( context.evaluate( eq( branch ), any( BranchState.class ) ) ).thenReturn( INCLUDE_AND_CONTINUE );
+        when( context.evaluate( eq( branch ), isNull() ) ).thenReturn( INCLUDE_AND_CONTINUE );
 
         // WHEN initializing
         branch.initialize( expander, context );
 
         // THEN the branch should not be expanded
-        verifyZeroInteractions( source );
+        verifyNoInteractions( source );
 
         // and WHEN actually traversing from it
         branch.next( expander, context );

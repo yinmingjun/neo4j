@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,9 +22,9 @@ package org.neo4j.consistency.checking.full;
 import org.neo4j.consistency.checking.cache.CacheAccess;
 import org.neo4j.consistency.checking.full.QueueDistribution.QueueDistributor;
 import org.neo4j.consistency.statistics.Statistics;
-import org.neo4j.helpers.Exceptions;
-import org.neo4j.helpers.progress.ProgressListener;
-import org.neo4j.helpers.progress.ProgressMonitorFactory;
+import org.neo4j.internal.helpers.progress.ProgressListener;
+import org.neo4j.internal.helpers.progress.ProgressMonitorFactory;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
 import org.neo4j.kernel.impl.store.RecordStore;
 import org.neo4j.kernel.impl.store.StoreAccess;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
@@ -39,10 +39,11 @@ public class StoreProcessorTask<R extends AbstractBaseRecord> extends Consistenc
     private final StoreAccess storeAccess;
     private final CacheAccess cacheAccess;
     private final QueueDistribution distribution;
+    private final PageCacheTracer pageCacheTracer;
 
     StoreProcessorTask( String name, Statistics statistics, int threads, RecordStore<R> store, StoreAccess storeAccess,
             String builderPrefix, ProgressMonitorFactory.MultiPartBuilder builder, CacheAccess cacheAccess,
-            StoreProcessor processor, QueueDistribution distribution )
+            StoreProcessor processor, QueueDistribution distribution, PageCacheTracer pageCacheTracer )
     {
         super( name, statistics, threads );
         this.store = store;
@@ -50,13 +51,14 @@ public class StoreProcessorTask<R extends AbstractBaseRecord> extends Consistenc
         this.cacheAccess = cacheAccess;
         this.processor = processor;
         this.distribution = distribution;
+        this.pageCacheTracer = pageCacheTracer;
         this.progressListener = builder.progressForPart( name +
-                indexedPartName( store.getStorageFileName().getName(), builderPrefix ), store.getHighId() );
+                indexedPartName( store.getStorageFile().getFileName().toString(), builderPrefix ), store.getHighId() );
     }
 
     private String indexedPartName( String storeFileName, String prefix )
     {
-        return prefix.length() != 0 ? "_" : format( "%s_pass_%s", storeFileName, prefix );
+        return prefix.isEmpty() ? format( "%s_pass_%s", storeFileName, prefix ) : "_";
     }
 
     @Override
@@ -88,20 +90,20 @@ public class StoreProcessorTask<R extends AbstractBaseRecord> extends Consistenc
                 {
                     highId = storeAccess.getNodeStore().getHighId();
                 }
-                long recordsPerCPU = RecordDistributor.calculateRecodsPerCpu( highId, numberOfThreads );
+                long recordsPerCPU = RecordDistributor.calculateRecordsPerCpu( highId, numberOfThreads );
                 QueueDistributor<R> distributor = distribution.distributor( recordsPerCPU, numberOfThreads );
-                processor.applyFilteredParallel( store, progressListener, numberOfThreads, recordsPerCPU, distributor );
+                processor.applyFilteredParallel( store, progressListener, numberOfThreads, recordsPerCPU, distributor, pageCacheTracer );
             }
             else
             {
-                processor.applyFiltered( store, progressListener );
+                processor.applyFiltered( store, progressListener, pageCacheTracer );
             }
             cacheAccess.setForward( true );
         }
         catch ( Throwable e )
         {
             progressListener.failed( e );
-            throw Exceptions.launderedException( e );
+            throw new RuntimeException( e );
         }
         finally
         {

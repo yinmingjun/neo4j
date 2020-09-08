@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,49 +19,64 @@
  */
 package org.neo4j.kernel.impl.api.state;
 
-import org.junit.Test;
+import org.eclipse.collections.api.iterator.LongIterator;
+import org.junit.jupiter.api.Test;
 
-import org.neo4j.kernel.impl.api.RelationshipVisitor;
-import org.neo4j.kernel.impl.api.store.RelationshipIterator;
-import org.neo4j.storageengine.api.Direction;
+import org.neo4j.graphdb.Direction;
 
-import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.mock;
-import static org.neo4j.kernel.impl.api.store.RelationshipIterator.EMPTY;
-import static org.neo4j.storageengine.api.Direction.INCOMING;
-import static org.neo4j.storageengine.api.Direction.OUTGOING;
+import org.neo4j.memory.EmptyMemoryTracker;
 
-public class RelationshipChangesForNodeTest
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.neo4j.collection.PrimitiveLongCollections.asArray;
+import static org.neo4j.storageengine.api.RelationshipDirection.INCOMING;
+import static org.neo4j.storageengine.api.RelationshipDirection.LOOP;
+import static org.neo4j.storageengine.api.RelationshipDirection.OUTGOING;
+
+class RelationshipChangesForNodeTest
 {
-    private static final int REL_0 = 0;
-    private static final int REL_1 = 1;
-    private static final int TYPE_SELF = 0;
-    private static final int TYPE_DIR = 1;
 
     @Test
-    public void testOutgoingRelsWithTypeAndLoop() throws Exception
+    void shouldGetRelationships()
     {
-        RelationshipChangesForNode changes = new RelationshipChangesForNode(
-                RelationshipChangesForNode.DiffStrategy.ADD, mock( RelationshipVisitor.Home.class ) );
-        changes.addRelationship( REL_0, TYPE_SELF, Direction.BOTH );
-        changes.addRelationship( REL_1, TYPE_DIR, OUTGOING );
+        RelationshipChangesForNode changes = RelationshipChangesForNode.createRelationshipChangesForNode(
+                RelationshipChangesForNode.DiffStrategy.ADD, EmptyMemoryTracker.INSTANCE );
 
-        RelationshipIterator iterator = changes.augmentRelationships( OUTGOING, new int[]{TYPE_DIR}, EMPTY );
-        assertEquals( true, iterator.hasNext() );
-        assertEquals( REL_1, iterator.next() );
-        assertEquals( "should have no next relationships but has ", false, iterator.hasNext() );
+        final int TYPE = 2;
+
+        changes.addRelationship( 1, TYPE, INCOMING );
+        changes.addRelationship( 2, TYPE, OUTGOING );
+        changes.addRelationship( 3, TYPE, OUTGOING );
+        changes.addRelationship( 4, TYPE, LOOP );
+        changes.addRelationship( 5, TYPE, LOOP );
+        changes.addRelationship( 6, TYPE, LOOP );
+
+        LongIterator rawRelationships = changes.getRelationships();
+        assertThat( asArray( rawRelationships ) ).containsExactly( 1, 2, 3, 4, 5, 6 );
     }
-    @Test
-    public void testIncomingRelsWithTypeAndLoop() throws Exception
-    {
-        RelationshipChangesForNode changes = new RelationshipChangesForNode(
-                RelationshipChangesForNode.DiffStrategy.ADD, mock( RelationshipVisitor.Home.class ) );
-        changes.addRelationship( REL_0, TYPE_SELF, Direction.BOTH );
-        changes.addRelationship( REL_1, TYPE_DIR, INCOMING );
 
-        RelationshipIterator iterator = changes.augmentRelationships( INCOMING, new int[]{TYPE_DIR}, EMPTY );
-        assertEquals( true, iterator.hasNext() );
-        assertEquals( REL_1, iterator.next() );
-        assertEquals( "should have no next relationships but has ", false, iterator.hasNext() );
+    @Test
+    void shouldGetRelationshipsByTypeAndDirection()
+    {
+        RelationshipChangesForNode changes = RelationshipChangesForNode.createRelationshipChangesForNode(
+                RelationshipChangesForNode.DiffStrategy.ADD, EmptyMemoryTracker.INSTANCE );
+
+        final int TYPE = 2;
+        final int DECOY_TYPE = 666;
+
+        changes.addRelationship( 1, TYPE, INCOMING );
+        changes.addRelationship( 2, TYPE, OUTGOING );
+        changes.addRelationship( 3, TYPE, OUTGOING );
+        changes.addRelationship( 4, TYPE, LOOP );
+        changes.addRelationship( 5, TYPE, LOOP );
+        changes.addRelationship( 6, TYPE, LOOP );
+
+        changes.addRelationship( 10, DECOY_TYPE, INCOMING );
+        changes.addRelationship( 11, DECOY_TYPE, OUTGOING );
+        changes.addRelationship( 12, DECOY_TYPE, LOOP );
+        LongIterator rawIncoming = changes.getRelationships( Direction.INCOMING, TYPE );
+        assertThat( asArray( rawIncoming ) ).containsExactly( 1, 4, 5, 6 );
+
+        LongIterator rawOutgoing = changes.getRelationships( Direction.OUTGOING, TYPE );
+        assertThat( asArray( rawOutgoing ) ).containsExactly( 2, 3, 4, 5, 6 );
     }
 }

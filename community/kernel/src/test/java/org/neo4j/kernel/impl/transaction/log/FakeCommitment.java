@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,6 +19,11 @@
  */
 package org.neo4j.kernel.impl.transaction.log;
 
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.storageengine.api.TransactionIdStore;
+
+import static org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer.NULL;
+
 public class FakeCommitment implements Commitment
 {
     public static final int CHECKSUM = 3;
@@ -26,7 +31,6 @@ public class FakeCommitment implements Commitment
     private final long id;
     private final TransactionIdStore transactionIdStore;
     private boolean committed;
-    private boolean hasLegacyIndexChanges = false;
 
     public FakeCommitment( long id, TransactionIdStore transactionIdStore )
     {
@@ -41,16 +45,16 @@ public class FakeCommitment implements Commitment
     }
 
     @Override
-    public void publishAsCommitted()
+    public void publishAsCommitted( PageCursorTracer cursorTracer )
     {
         committed = true;
-        transactionIdStore.transactionCommitted( id, CHECKSUM, TIMESTAMP );
+        transactionIdStore.transactionCommitted( id, CHECKSUM, TIMESTAMP, NULL );
     }
 
     @Override
-    public void publishAsClosed()
+    public void publishAsClosed( PageCursorTracer cursorTracer )
     {
-        transactionIdStore.transactionClosed( id, 1, 2 );
+        transactionIdStore.transactionClosed( id, 1, 2, cursorTracer );
     }
 
     @Override
@@ -59,14 +63,4 @@ public class FakeCommitment implements Commitment
         return committed;
     }
 
-    public void setHasLegacyIndexChanges( boolean hasLegacyIndexChanges )
-    {
-        this.hasLegacyIndexChanges = hasLegacyIndexChanges;
-    }
-
-    @Override
-    public boolean hasLegacyIndexChanges()
-    {
-        return hasLegacyIndexChanges;
-    }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,89 +19,52 @@
  */
 package org.neo4j.cypher
 
-import org.neo4j.cypher.internal.QueryStatistics
-import org.neo4j.cypher.internal.compatibility.v3_2.ExecutionResultWrapper
-import org.neo4j.cypher.internal.compiler.v3_2.executionplan.InternalExecutionResult
-import org.neo4j.cypher.internal.compiler.v3_2.{CompiledRuntimeName, CostBasedPlannerName}
-import org.neo4j.kernel.api.query.ExecutingQuery
-import org.neo4j.kernel.impl.query.QueryExecutionMonitor
+import org.neo4j.cypher.internal.RewindableExecutionResult
+import org.neo4j.cypher.internal.runtime.QueryStatistics
 import org.scalatest.Assertions
-import org.scalatest.mock.MockitoSugar
+import org.scalatest.mockito.MockitoSugar
 
 trait QueryStatisticsTestSupport extends MockitoSugar {
   self: Assertions =>
 
-  implicit class QueryStatisticsAssertions(expected: QueryStatistics) {
-    def apply(actual: QueryStatistics) {
-      assertResult(expected)(actual)
-    }
+  def assertStats(result: RewindableExecutionResult,
+                  nodesCreated: Int = 0,
+                  relationshipsCreated: Int = 0,
+                  propertiesWritten: Int = 0,
+                  nodesDeleted: Int = 0,
+                  relationshipsDeleted: Int = 0,
+                  labelsAdded: Int = 0,
+                  labelsRemoved: Int = 0,
+                  indexesAdded: Int = 0,
+                  indexesRemoved: Int = 0,
+                  uniqueConstraintsAdded: Int = 0,
+                  uniqueConstraintsRemoved: Int = 0,
+                  existenceConstraintsAdded: Int = 0,
+                  existenceConstraintsRemoved: Int = 0,
+                  nodekeyConstraintsAdded: Int = 0,
+                  nodekeyConstraintsRemoved: Int = 0,
+                  namedConstraintsRemoved: Int = 0
+                 ): Unit = {
+    val expected =
+      QueryStatistics(
+        nodesCreated,
+        relationshipsCreated,
+        propertiesWritten,
+        nodesDeleted,
+        relationshipsDeleted,
+        labelsAdded,
+        labelsRemoved,
+        indexesAdded,
+        indexesRemoved,
+        uniqueConstraintsAdded,
+        uniqueConstraintsRemoved,
+        existenceConstraintsAdded,
+        existenceConstraintsRemoved,
+        nodekeyConstraintsAdded,
+        nodekeyConstraintsRemoved,
+        namedConstraintsRemoved
+      )
 
-    def apply(actual: InternalExecutionResult) {
-      implicit val monitor = new QueryExecutionMonitor {
-        override def startQueryExecution(query: ExecutingQuery) {}
-
-        override def endSuccess(query: ExecutingQuery){}
-
-        override def endFailure(query: ExecutingQuery, throwable: Throwable){}
-      }
-      val r = new ExecutionResultWrapper(actual, CostBasedPlannerName.default, CompiledRuntimeName, Set.empty)
-      apply(r.queryStatistics())
-    }
+    assertResult(expected)(result.queryStatistics())
   }
-
-  def assertStats(
-                   result: InternalExecutionResult,
-                   nodesCreated: Int = 0,
-                   relationshipsCreated: Int = 0,
-                   propertiesWritten: Int = 0,
-                   nodesDeleted: Int = 0,
-                   relationshipsDeleted: Int = 0,
-                   labelsAdded: Int = 0,
-                   labelsRemoved: Int = 0,
-                   indexesAdded: Int = 0,
-                   indexesRemoved: Int = 0,
-                   constraintsAdded: Int = 0,
-                   constraintsRemoved: Int = 0
-  ) = {
-    assertStatsResult(
-      nodesCreated,
-      relationshipsCreated,
-      propertiesWritten,
-      nodesDeleted,
-      relationshipsDeleted,
-      labelsAdded,
-      labelsRemoved,
-      indexesAdded,
-      indexesRemoved,
-      constraintsAdded,
-      constraintsRemoved
-    )(result)
-  }
-
-  // This api is more in line with scala test assertions which prefer the expectation before the actual
-  def assertStatsResult(nodesCreated: Int = 0,
-                        relationshipsCreated: Int = 0,
-                        propertiesWritten: Int = 0,
-                        nodesDeleted: Int = 0,
-                        relationshipsDeleted: Int = 0,
-                        labelsAdded: Int = 0,
-                        labelsRemoved: Int = 0,
-                        indexesAdded: Int = 0,
-                        indexesRemoved: Int = 0,
-                        constraintsAdded: Int = 0,
-                        constraintsRemoved: Int = 0
-                       ): QueryStatisticsAssertions =
-    QueryStatistics(
-      nodesCreated,
-      relationshipsCreated,
-      propertiesWritten,
-      nodesDeleted,
-      relationshipsDeleted,
-      labelsAdded,
-      labelsRemoved,
-      indexesAdded,
-      indexesRemoved,
-      constraintsAdded,
-      constraintsRemoved
-    )
 }

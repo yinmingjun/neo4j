@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,6 +19,12 @@
  */
 package org.neo4j.io;
 
+import java.util.HashMap;
+import java.util.Locale;
+import java.util.Map;
+
+import static java.lang.String.format;
+
 /**
  * A ByteUnit is a unit for a quantity of bytes.
  * <p>
@@ -34,26 +40,32 @@ package org.neo4j.io;
 public enum ByteUnit
 {
     /*
-    XXX Future notes: This class can potentially replace some of the functionality in org.neo4j.helpers.Format.
+    XXX Future notes: This class can potentially replace some of the functionality in org.neo4j.helpers.internal.Format.
      */
 
     Byte( 0, "B" ),
-    KibiByte( 1, "KiB" ),
-    MebiByte( 2, "MiB" ),
-    GibiByte( 3, "GiB" ),
-    TebiByte( 4, "TiB" ),
-    PebiByte( 5, "PiB" ),
-    ExbiByte( 6, "EiB" ),;
+    KibiByte( 1, "KiB", "KB", "K", "kB", "kb", "k" ),
+    MebiByte( 2, "MiB", "MB", "M", "mB", "mb", "m" ),
+    GibiByte( 3, "GiB", "GB", "G", "gB", "gb", "g" ),
+    TebiByte( 4, "TiB", "TB" ),
+    PebiByte( 5, "PiB", "PB" ),
+    ExbiByte( 6, "EiB", "EB" );
+
+    public static final long ONE_KIBI_BYTE = ByteUnit.KibiByte.toBytes( 1 );
+    public static final long ONE_MEBI_BYTE = ByteUnit.MebiByte.toBytes( 1 );
+    public static final long ONE_GIBI_BYTE = ByteUnit.GibiByte.toBytes( 1 );
 
     private static final long EIC_MULTIPLIER = 1024;
 
     private final long factor;
     private final String shortName;
+    private final String[] names;
 
-    ByteUnit( long power, String shortName )
+    ByteUnit( long power, String... names )
     {
         this.factor = factorFromPower( power );
-        this.shortName = shortName;
+        this.shortName = names[0];
+        this.names = names;
     }
 
     /**
@@ -61,7 +73,7 @@ public enum ByteUnit
      * <p>
      * Giving zero always produces 1. Giving 1 will produce 1000 or 1024, for SI and EIC respectively, and so on.
      */
-    private long factorFromPower( long power )
+    private static long factorFromPower( long power )
     {
         if ( power == 0 )
         {
@@ -165,5 +177,125 @@ public enum ByteUnit
     public static long exbiBytes( long exbibytes )
     {
         return ExbiByte.toBytes( exbibytes );
+    }
+
+    public static String bytesToString( long bytes )
+    {
+        if ( bytes > ONE_GIBI_BYTE )
+        {
+            return format( Locale.ROOT, "%.4g%s", bytes / (double) ONE_GIBI_BYTE, GibiByte.shortName );
+        }
+        else if ( bytes > ONE_MEBI_BYTE )
+        {
+            return format( Locale.ROOT, "%.4g%s", bytes / (double) ONE_MEBI_BYTE, MebiByte.shortName );
+        }
+        else if ( bytes > ONE_KIBI_BYTE )
+        {
+            return format( Locale.ROOT, "%.4g%s", bytes / (double) ONE_KIBI_BYTE, KibiByte.shortName );
+        }
+        else
+        {
+            return bytes + Byte.shortName;
+        }
+    }
+
+    public static long parse( String text )
+    {
+        long result = 0;
+        int len = text.length();
+        int unitStart;
+        int unitCharacters = 0;
+        int digitCharacters = 0;
+        Map<String,ByteUnit> units = listUnits();
+
+        int i = 0;
+
+        // Skip initial whitespace.
+        while ( i < len )
+        {
+            char ch = text.charAt( i );
+            if ( !Character.isWhitespace( ch ) )
+            {
+                break;
+            }
+            i++;
+        }
+
+        // Parse digits.
+        while ( i < len )
+        {
+            char ch = text.charAt( i );
+            int digit = Character.digit( ch, 10 );
+            if ( digit == -1 )
+            {
+                break;
+            }
+            result *= 10;
+            result += digit;
+            i++;
+            digitCharacters++;
+        }
+
+        // Skip whitespace between digits and unit.
+        while ( i < len )
+        {
+            char ch = text.charAt( i );
+            if ( !Character.isWhitespace( ch ) )
+            {
+                break;
+            }
+            i++;
+        }
+
+        // Parse the unit.
+        unitStart = i;
+        while ( i < len )
+        {
+            char ch = text.charAt( i );
+            if ( Character.isWhitespace( ch ) )
+            {
+                break;
+            }
+            i++;
+            unitCharacters++;
+        }
+
+        // Validate parsed data and return result.
+        if ( digitCharacters == 0 )
+        {
+            throw invalidFormat( text );
+        }
+
+        if ( unitCharacters == 0 )
+        {
+            return result;
+        }
+
+        ByteUnit unit = units.get( text.substring( unitStart, unitStart + unitCharacters ) );
+        if ( unit == null )
+        {
+            throw invalidFormat( text );
+        }
+
+        result = unit.toBytes( result );
+        return result;
+    }
+
+    private static IllegalArgumentException invalidFormat( String text )
+    {
+        return new IllegalArgumentException( "Invalid number format: '" + text + "'" );
+    }
+
+    private static Map<String,ByteUnit> listUnits()
+    {
+        Map<String,ByteUnit> units = new HashMap<>();
+        for ( ByteUnit unit : values() )
+        {
+            for ( String name : unit.names )
+            {
+                units.put( name, unit );
+            }
+        }
+        return units;
     }
 }

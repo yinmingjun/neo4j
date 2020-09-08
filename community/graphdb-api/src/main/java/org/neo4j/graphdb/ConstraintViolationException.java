@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,12 +19,15 @@
  */
 package org.neo4j.graphdb;
 
+import org.neo4j.annotations.api.PublicApi;
+
 /**
  * Thrown when the database is asked to modify data in a way that violates one or more
  * constraints that it is expected to uphold.
  *
  * For instance, if removing a node that still has relationships.
  */
+@PublicApi
 public class ConstraintViolationException extends RuntimeException
 {
     public ConstraintViolationException( String msg )

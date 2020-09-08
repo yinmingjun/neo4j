@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -31,12 +31,12 @@ import org.neo4j.codegen.CodeGenerationStrategy;
 import org.neo4j.codegen.CodeGenerationStrategyNotSupportedException;
 import org.neo4j.codegen.CompilationFailureException;
 
-class JdkCompiler implements SourceCompiler
+class JdkCompiler implements JavaSourceCompiler
 {
     public static final Factory FACTORY = new Factory()
     {
         @Override
-        SourceCompiler sourceCompilerFor( Configuration configuration, CodeGenerationStrategy<?> strategy )
+        JavaSourceCompiler sourceCompilerFor( Configuration configuration, CodeGenerationStrategy<?> strategy )
                 throws CodeGenerationStrategyNotSupportedException
         {
             JavaCompiler jdkCompiler = ToolProvider.getSystemJavaCompiler();

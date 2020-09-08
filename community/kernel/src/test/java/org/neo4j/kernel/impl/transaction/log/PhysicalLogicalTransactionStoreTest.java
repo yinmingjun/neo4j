@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,120 +19,129 @@
  */
 package org.neo4j.kernel.impl.transaction.log;
 
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import org.neo4j.helpers.collection.Visitor;
+import org.neo4j.common.ProgressReporter;
+import org.neo4j.io.ByteUnit;
+import org.neo4j.io.fs.DefaultFileSystemAbstraction;
+import org.neo4j.io.layout.DatabaseLayout;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.kernel.impl.api.TestCommand;
 import org.neo4j.kernel.impl.api.TransactionToApply;
-import org.neo4j.kernel.impl.store.record.NodeRecord;
 import org.neo4j.kernel.impl.transaction.CommittedTransactionRepresentation;
-import org.neo4j.kernel.impl.transaction.DeadSimpleTransactionIdStore;
+import org.neo4j.kernel.impl.transaction.SimpleTransactionIdStore;
 import org.neo4j.kernel.impl.transaction.TransactionRepresentation;
-import org.neo4j.kernel.impl.transaction.command.Command;
-import org.neo4j.kernel.impl.transaction.log.PhysicalLogFile.Monitor;
-import org.neo4j.kernel.impl.transaction.log.entry.VersionAwareLogEntryReader;
+import org.neo4j.kernel.impl.transaction.log.files.LogFile;
+import org.neo4j.kernel.impl.transaction.log.files.LogFiles;
+import org.neo4j.kernel.impl.transaction.log.files.LogFilesBuilder;
 import org.neo4j.kernel.impl.transaction.tracing.LogAppendEvent;
-import org.neo4j.kernel.internal.DatabaseHealth;
 import org.neo4j.kernel.lifecycle.LifeSupport;
-import org.neo4j.kernel.monitoring.Monitors;
-import org.neo4j.kernel.recovery.Recovery;
+import org.neo4j.kernel.lifecycle.LifecycleAdapter;
+import org.neo4j.kernel.recovery.CorruptedLogsTruncator;
+import org.neo4j.kernel.recovery.RecoveryApplier;
+import org.neo4j.kernel.recovery.RecoveryMonitor;
+import org.neo4j.kernel.recovery.RecoveryService;
+import org.neo4j.kernel.recovery.RecoveryStartInformation;
+import org.neo4j.kernel.recovery.TransactionLogsRecovery;
+import org.neo4j.monitoring.DatabaseHealth;
+import org.neo4j.monitoring.Health;
+import org.neo4j.monitoring.Monitors;
+import org.neo4j.storageengine.api.LogVersionRepository;
 import org.neo4j.storageengine.api.StorageCommand;
+import org.neo4j.storageengine.api.StoreId;
+import org.neo4j.storageengine.api.TransactionApplicationMode;
+import org.neo4j.storageengine.api.TransactionIdStore;
+import org.neo4j.test.extension.Inject;
+import org.neo4j.test.extension.Neo4jLayoutExtension;
 import org.neo4j.test.rule.TestDirectory;
-import org.neo4j.test.rule.fs.DefaultFileSystemRule;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-import static org.neo4j.kernel.impl.transaction.log.PhysicalLogFile.DEFAULT_NAME;
-import static org.neo4j.kernel.impl.transaction.log.TransactionMetadataCache.TransactionMetadata;
+import static org.neo4j.internal.kernel.api.security.AuthSubject.ANONYMOUS;
+import static org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer.NULL;
+import static org.neo4j.kernel.impl.transaction.log.TestLogEntryReader.logEntryReader;
 import static org.neo4j.kernel.impl.transaction.log.rotation.LogRotation.NO_ROTATION;
-import static org.neo4j.kernel.impl.util.IdOrderingQueue.BYPASS;
+import static org.neo4j.kernel.recovery.RecoveryStartupChecker.EMPTY_CHECKER;
+import static org.neo4j.memory.EmptyMemoryTracker.INSTANCE;
 
-public class PhysicalLogicalTransactionStoreTest
+@Neo4jLayoutExtension
+class PhysicalLogicalTransactionStoreTest
 {
-    private static final DatabaseHealth DATABASE_HEALTH = mock( DatabaseHealth.class );
+    private static final Health DATABASE_HEALTH = mock( DatabaseHealth.class );
 
-    @Rule
-    public final DefaultFileSystemRule fileSystemRule = new DefaultFileSystemRule();
-    @Rule
-    public TestDirectory dir = TestDirectory.testDirectory();
-    private File testDir;
+    @Inject
+    private DefaultFileSystemAbstraction fileSystem;
+    @Inject
+    private TestDirectory testDirectory;
+    @Inject
+    private DatabaseLayout databaseLayout;
+    private Path databaseDirectory;
+    private final Monitors monitors = new Monitors();
 
-    @Before
-    public void setup()
+    @BeforeEach
+    void setup()
     {
-        testDir = dir.graphDbDir();
+        databaseDirectory = testDirectory.homePath();
     }
 
     @Test
-    public void extractTransactionFromLogFilesSkippingLastLogFileWithoutHeader() throws IOException
+    void extractTransactionFromLogFilesSkippingLastLogFileWithoutHeader() throws IOException
     {
-        TransactionIdStore transactionIdStore = new DeadSimpleTransactionIdStore();
-        TransactionMetadataCache positionCache = new TransactionMetadataCache( 100 );
-        LogHeaderCache logHeaderCache = new LogHeaderCache( 10 );
+        TransactionIdStore transactionIdStore = new SimpleTransactionIdStore();
+        TransactionMetadataCache positionCache = new TransactionMetadataCache();
         final byte[] additionalHeader = new byte[]{1, 2, 5};
-        final int masterId = 2, authorId = 1;
-        final long timeStarted = 12345, latestCommittedTxWhenStarted = 4545, timeCommitted = timeStarted + 10;
+        final long timeStarted = 12345;
+        long latestCommittedTxWhenStarted = 4545;
+        long timeCommitted = timeStarted + 10;
         LifeSupport life = new LifeSupport();
-        final PhysicalLogFiles logFiles = new PhysicalLogFiles( testDir, DEFAULT_NAME, fileSystemRule.get() );
-        Monitor monitor = new Monitors().newMonitor( PhysicalLogFile.Monitor.class );
-        LogFile logFile = life.add( new PhysicalLogFile( fileSystemRule.get(), logFiles, 1000,
-                transactionIdStore::getLastCommittedTransactionId, mock( LogVersionRepository.class ), monitor,
-                logHeaderCache ) );
-
+        final LogFiles logFiles = buildLogFiles( transactionIdStore );
+        life.add( logFiles );
         life.start();
         try
         {
-            addATransactionAndRewind(life,  logFile, positionCache, transactionIdStore,
-                    additionalHeader, masterId, authorId, timeStarted, latestCommittedTxWhenStarted, timeCommitted );
+            addATransactionAndRewind( life, logFiles, positionCache, transactionIdStore, additionalHeader, timeStarted, latestCommittedTxWhenStarted,
+                    timeCommitted );
         }
         finally
         {
             life.shutdown();
         }
 
-        PhysicalLogFile emptyLogFile = new PhysicalLogFile( fileSystemRule.get(), logFiles, 1000,
-                transactionIdStore::getLastCommittedTransactionId, mock( LogVersionRepository.class ), monitor,
-                logHeaderCache );
         // create empty transaction log file and clear transaction cache to force re-read
-        fileSystemRule.get().create( logFiles.getLogFileForVersion( logFiles.getHighestLogVersion() + 1 ) ).close();
+        LogFile logFile = logFiles.getLogFile();
+        fileSystem.write( logFile.getLogFileForVersion( logFile.getHighestLogVersion() + 1 ) ).close();
         positionCache.clear();
 
-        final LogicalTransactionStore store =
-                new PhysicalLogicalTransactionStore( emptyLogFile, positionCache, new VersionAwareLogEntryReader<>() );
-        verifyTransaction( transactionIdStore, positionCache, additionalHeader, masterId, authorId, timeStarted,
-                latestCommittedTxWhenStarted, timeCommitted, store );
+        final LogicalTransactionStore store = new PhysicalLogicalTransactionStore( logFiles, positionCache, logEntryReader(), monitors, true );
+        verifyTransaction( positionCache, additionalHeader, timeStarted, latestCommittedTxWhenStarted, timeCommitted, store );
     }
 
     @Test
-    public void shouldOpenCleanStore() throws Exception
+    void shouldOpenCleanStore() throws Exception
     {
         // GIVEN
-        TransactionIdStore transactionIdStore = new DeadSimpleTransactionIdStore();
-        TransactionMetadataCache positionCache = new TransactionMetadataCache( 1000 );
-        LogHeaderCache logHeaderCache = new LogHeaderCache( 10 );
+        TransactionIdStore transactionIdStore = new SimpleTransactionIdStore();
+        TransactionMetadataCache positionCache = new TransactionMetadataCache();
 
         LifeSupport life = new LifeSupport();
-        PhysicalLogFiles logFiles = new PhysicalLogFiles( testDir, DEFAULT_NAME, fileSystemRule.get() );
-        Monitor monitor = new Monitors().newMonitor( PhysicalLogFile.Monitor.class );
-        LogFile logFile = life.add( new PhysicalLogFile( fileSystemRule.get(), logFiles, 1000,
-                transactionIdStore::getLastCommittedTransactionId, mock( LogVersionRepository.class ), monitor,
-                logHeaderCache ) );
+        final LogFiles logFiles = buildLogFiles( transactionIdStore );
+        life.add( logFiles );
 
-        life.add( new BatchingTransactionAppender( logFile, NO_ROTATION, positionCache, transactionIdStore, BYPASS,
-                DATABASE_HEALTH ) );
+        life.add( new BatchingTransactionAppender( logFiles, NO_ROTATION, positionCache, transactionIdStore, DATABASE_HEALTH ) );
 
         try
         {
@@ -146,27 +155,24 @@ public class PhysicalLogicalTransactionStoreTest
     }
 
     @Test
-    public void shouldOpenAndRecoverExistingData() throws Exception
+    void shouldOpenAndRecoverExistingData() throws Exception
     {
         // GIVEN
-        TransactionIdStore transactionIdStore = new DeadSimpleTransactionIdStore();
-        TransactionMetadataCache positionCache = new TransactionMetadataCache( 100 );
-        LogHeaderCache logHeaderCache = new LogHeaderCache( 10 );
+        TransactionIdStore transactionIdStore = new SimpleTransactionIdStore();
+        TransactionMetadataCache positionCache = new TransactionMetadataCache();
         final byte[] additionalHeader = new byte[]{1, 2, 5};
-        final int masterId = 2, authorId = 1;
-        final long timeStarted = 12345, latestCommittedTxWhenStarted = 4545, timeCommitted = timeStarted + 10;
+        final long timeStarted = 12345;
+        long latestCommittedTxWhenStarted = 4545;
+        long timeCommitted = timeStarted + 10;
         LifeSupport life = new LifeSupport();
-        final PhysicalLogFiles logFiles = new PhysicalLogFiles( testDir, DEFAULT_NAME, fileSystemRule.get() );
-        Monitor monitor = new Monitors().newMonitor( PhysicalLogFile.Monitor.class );
-        LogFile logFile = life.add( new PhysicalLogFile( fileSystemRule.get(), logFiles, 1000,
-                transactionIdStore::getLastCommittedTransactionId, mock( LogVersionRepository.class ), monitor,
-                logHeaderCache ) );
+        final LogFiles logFiles = buildLogFiles( transactionIdStore );
 
         life.start();
+        life.add( logFiles );
         try
         {
-            addATransactionAndRewind(life,  logFile, positionCache, transactionIdStore,
-                    additionalHeader, masterId, authorId, timeStarted, latestCommittedTxWhenStarted, timeCommitted );
+            addATransactionAndRewind( life, logFiles, positionCache, transactionIdStore, additionalHeader, timeStarted, latestCommittedTxWhenStarted,
+                    timeCommitted );
         }
         finally
         {
@@ -174,50 +180,19 @@ public class PhysicalLogicalTransactionStoreTest
         }
 
         life = new LifeSupport();
-        final AtomicBoolean recoveryRequired = new AtomicBoolean();
-        FakeRecoveryVisitor visitor = new FakeRecoveryVisitor( additionalHeader, masterId,
-                authorId, timeStarted, timeCommitted, latestCommittedTxWhenStarted );
-        logFile = life.add( new PhysicalLogFile( fileSystemRule.get(), logFiles, 1000,
-                transactionIdStore::getLastCommittedTransactionId,
-                mock( LogVersionRepository.class ), monitor, logHeaderCache ) );
-        LogicalTransactionStore txStore = new PhysicalLogicalTransactionStore( logFile, positionCache,
-                new VersionAwareLogEntryReader<>() );
+        life.add( logFiles );
+        final AtomicBoolean recoveryPerformed = new AtomicBoolean();
+        FakeRecoveryVisitor visitor = new FakeRecoveryVisitor( additionalHeader, timeStarted, timeCommitted, latestCommittedTxWhenStarted );
 
-        life.add( new BatchingTransactionAppender( logFile, NO_ROTATION, positionCache,
-                transactionIdStore, BYPASS, DATABASE_HEALTH ) );
+        LogicalTransactionStore txStore = new PhysicalLogicalTransactionStore( logFiles, positionCache,
+                logEntryReader(), monitors, true );
 
-        life.add( new Recovery( new Recovery.SPI()
-        {
-            @Override
-            public void forceEverything()
-            {
-            }
-
-            @Override
-            public Visitor<CommittedTransactionRepresentation,Exception> startRecovery()
-            {
-                recoveryRequired.set( true );
-                return visitor;
-            }
-
-            @Override
-            public LogPosition getPositionToRecoverFrom() throws IOException
-            {
-                return LogPosition.start( 0 );
-            }
-
-            @Override
-            public TransactionCursor getTransactions( LogPosition position ) throws IOException
-            {
-                return txStore.getTransactions( position );
-            }
-
-            @Override
-            public void allTransactionsRecovered( CommittedTransactionRepresentation lastRecoveredTransaction,
-                    LogPosition positionAfterLastRecoveredTransaction ) throws Exception
-            {
-            }
-        }, mock(Recovery.Monitor.class)));
+        life.add( new BatchingTransactionAppender( logFiles, NO_ROTATION, positionCache,
+                transactionIdStore, DATABASE_HEALTH ) );
+        CorruptedLogsTruncator logPruner = new CorruptedLogsTruncator( databaseDirectory, logFiles, fileSystem, INSTANCE );
+        life.add( new TransactionLogsRecovery( new TestRecoveryService( visitor, logFiles, txStore, recoveryPerformed ),
+                logPruner, new LifecycleAdapter(), mock( RecoveryMonitor.class ), ProgressReporter.SILENT, false, EMPTY_CHECKER,
+                PageCacheTracer.NULL ) );
 
         // WHEN
         try
@@ -231,31 +206,27 @@ public class PhysicalLogicalTransactionStoreTest
 
         // THEN
         assertEquals( 1, visitor.getVisitedTransactions() );
-        assertTrue( recoveryRequired.get() );
+        assertTrue( recoveryPerformed.get() );
     }
 
     @Test
-    public void shouldExtractMetadataFromExistingTransaction() throws Exception
+    void shouldExtractMetadataFromExistingTransaction() throws Exception
     {
         // GIVEN
-        TransactionIdStore txIdStore = new DeadSimpleTransactionIdStore();
-        TransactionMetadataCache positionCache = new TransactionMetadataCache( 100 );
-        LogHeaderCache logHeaderCache = new LogHeaderCache( 10 );
+        TransactionIdStore transactionIdStore = new SimpleTransactionIdStore();
+        TransactionMetadataCache positionCache = new TransactionMetadataCache();
         final byte[] additionalHeader = new byte[]{1, 2, 5};
-        final int masterId = 2, authorId = 1;
-        final long timeStarted = 12345, latestCommittedTxWhenStarted = 4545, timeCommitted = timeStarted + 10;
+        final long timeStarted = 12345;
+        long latestCommittedTxWhenStarted = 4545;
+        long timeCommitted = timeStarted + 10;
         LifeSupport life = new LifeSupport();
-        PhysicalLogFiles logFiles = new PhysicalLogFiles( testDir, DEFAULT_NAME, fileSystemRule.get() );
-        Monitor monitor = new Monitors().newMonitor( PhysicalLogFile.Monitor.class );
-        LogFile logFile = life.add( new PhysicalLogFile( fileSystemRule.get(), logFiles, 1000,
-                txIdStore::getLastCommittedTransactionId, mock( LogVersionRepository.class ), monitor,
-                logHeaderCache ) );
-
+        final LogFiles logFiles = buildLogFiles( transactionIdStore );
         life.start();
+        life.add( logFiles );
         try
         {
-            addATransactionAndRewind( life, logFile, positionCache, txIdStore,
-                    additionalHeader, masterId, authorId, timeStarted, latestCommittedTxWhenStarted, timeCommitted );
+            addATransactionAndRewind( life, logFiles, positionCache, transactionIdStore, additionalHeader, timeStarted, latestCommittedTxWhenStarted,
+                    timeCommitted );
         }
         finally
         {
@@ -263,18 +234,14 @@ public class PhysicalLogicalTransactionStoreTest
         }
 
         life = new LifeSupport();
-        logFile = life.add( new PhysicalLogFile( fileSystemRule.get(), logFiles, 1000,
-                txIdStore::getLastCommittedTransactionId, mock( LogVersionRepository.class ), monitor,
-                logHeaderCache ) );
-        final LogicalTransactionStore store =
-                new PhysicalLogicalTransactionStore( logFile, positionCache, new VersionAwareLogEntryReader<>() );
+        life.add( logFiles );
+        final LogicalTransactionStore store = new PhysicalLogicalTransactionStore( logFiles, positionCache, logEntryReader(), monitors, true );
 
         // WHEN
         life.start();
         try
         {
-            verifyTransaction( txIdStore, positionCache, additionalHeader, masterId, authorId, timeStarted,
-                    latestCommittedTxWhenStarted, timeCommitted, store );
+            verifyTransaction( positionCache, additionalHeader, timeStarted, latestCommittedTxWhenStarted, timeCommitted, store );
         }
         finally
         {
@@ -283,51 +250,21 @@ public class PhysicalLogicalTransactionStoreTest
     }
 
     @Test
-    public void shouldThrowNoSuchTransactionExceptionIfMetadataNotFound() throws Exception
+    void shouldThrowNoSuchTransactionExceptionIfLogFileIsMissing() throws Exception
     {
         // GIVEN
         LogFile logFile = mock( LogFile.class );
-        TransactionMetadataCache cache = new TransactionMetadataCache( 10 );
-
-        LifeSupport life = new LifeSupport();
-
-        final LogicalTransactionStore txStore =
-                new PhysicalLogicalTransactionStore( logFile, cache, new VersionAwareLogEntryReader<>() );
-
-        try
-        {
-            life.start();
-            // WHEN
-            try
-            {
-                txStore.getMetadataFor( 10 );
-                fail( "Should have thrown" );
-            }
-            catch ( NoSuchTransactionException e )
-            {   // THEN Good
-            }
-        }
-        finally
-        {
-            life.shutdown();
-        }
-    }
-
-    @Test
-    public void shouldThrowNoSuchTransactionExceptionIfLogFileIsMissing() throws Exception
-    {
-        // GIVEN
-        LogFile logFile = mock( LogFile.class );
+        LogFiles logFiles = mock( LogFiles.class );
         // a missing file
-        when( logFile.getReader( any( LogPosition.class) ) ).thenThrow( new FileNotFoundException() );
+        when( logFiles.getLogFile() ).thenReturn( logFile );
+        when( logFile.getReader( any( LogPosition.class) ) ).thenThrow( new NoSuchFileException( "mock" ) );
         // Which is nevertheless in the metadata cache
-        TransactionMetadataCache cache = new TransactionMetadataCache( 10 );
-        cache.cacheTransactionMetadata( 10, new LogPosition( 2, 130 ), 1, 1, 100, System.currentTimeMillis() );
+        TransactionMetadataCache cache = new TransactionMetadataCache();
+        cache.cacheTransactionMetadata( 10, new LogPosition( 2, 130 ), 100, System.currentTimeMillis() );
 
         LifeSupport life = new LifeSupport();
 
-        final LogicalTransactionStore txStore =
-                new PhysicalLogicalTransactionStore( logFile, cache, new VersionAwareLogEntryReader<>() );
+        final LogicalTransactionStore txStore = new PhysicalLogicalTransactionStore( logFiles, cache, logEntryReader(), monitors, true );
 
         try
         {
@@ -335,56 +272,47 @@ public class PhysicalLogicalTransactionStoreTest
 
             // WHEN
             // we ask for that transaction and forward
-            try
-            {
-                txStore.getTransactions( 10 );
-                fail();
-            }
-            catch ( NoSuchTransactionException e )
-            {
-                // THEN
-                // We don't get a FileNotFoundException but a NoSuchTransactionException instead
-            }
+            assertThrows( NoSuchTransactionException.class, () -> txStore.getTransactions( 10 ) );
         }
         finally
         {
             life.shutdown();
         }
-
     }
 
-    private void addATransactionAndRewind( LifeSupport life, LogFile logFile,
+    private LogFiles buildLogFiles( TransactionIdStore transactionIdStore ) throws IOException
+    {
+        return LogFilesBuilder.builder( databaseLayout, fileSystem )
+                .withRotationThreshold( ByteUnit.mebiBytes( 1 ) )
+                .withTransactionIdStore( transactionIdStore )
+                .withLogVersionRepository( mock( LogVersionRepository.class ) )
+                .withLogEntryReader( logEntryReader() )
+                .withStoreId( StoreId.UNKNOWN )
+                .build();
+    }
+
+    private void addATransactionAndRewind( LifeSupport life, LogFiles logFiles,
                                            TransactionMetadataCache positionCache,
                                            TransactionIdStore transactionIdStore,
-                                           byte[] additionalHeader, int masterId, int authorId, long timeStarted,
+                                           byte[] additionalHeader, long timeStarted,
                                            long latestCommittedTxWhenStarted, long timeCommitted ) throws IOException
     {
-        TransactionAppender appender = life.add( new BatchingTransactionAppender( logFile, NO_ROTATION, positionCache,
-                transactionIdStore, BYPASS, DATABASE_HEALTH ) );
+        TransactionAppender appender = life.add( new BatchingTransactionAppender( logFiles, NO_ROTATION, positionCache,
+                transactionIdStore, DATABASE_HEALTH ) );
         PhysicalTransactionRepresentation transaction =
-                new PhysicalTransactionRepresentation( singleCreateNodeCommand() );
-        transaction.setHeader( additionalHeader, masterId, authorId, timeStarted, latestCommittedTxWhenStarted,
-                timeCommitted, -1 );
-        appender.append( new TransactionToApply( transaction ), LogAppendEvent.NULL );
+                new PhysicalTransactionRepresentation( singleTestCommand() );
+        transaction.setHeader( additionalHeader, timeStarted, latestCommittedTxWhenStarted, timeCommitted, -1, ANONYMOUS );
+        appender.append( new TransactionToApply( transaction, NULL ), LogAppendEvent.NULL );
     }
 
-    private Collection<StorageCommand> singleCreateNodeCommand()
+    private Collection<StorageCommand> singleTestCommand()
     {
-        Collection<StorageCommand> commands = new ArrayList<>();
-
-        long id = 0;
-        NodeRecord before = new NodeRecord( id );
-        NodeRecord after = new NodeRecord( id );
-        after.setInUse( true );
-        commands.add( new Command.NodeCommand( before, after ) );
-        return commands;
+        return Collections.singletonList( new TestCommand() );
     }
 
-    private void verifyTransaction( TransactionIdStore transactionIdStore, TransactionMetadataCache positionCache,
-            byte[] additionalHeader, int masterId, int authorId, long timeStarted, long latestCommittedTxWhenStarted,
-            long timeCommitted, LogicalTransactionStore store ) throws IOException
+    private void verifyTransaction( TransactionMetadataCache positionCache, byte[] additionalHeader, long timeStarted,
+            long latestCommittedTxWhenStarted, long timeCommitted, LogicalTransactionStore store ) throws IOException
     {
-        TransactionMetadata expectedMetadata;
         try ( TransactionCursor cursor = store.getTransactions( TransactionIdStore.BASE_TX_ID + 1 ) )
         {
             boolean hasNext = cursor.next();
@@ -392,49 +320,35 @@ public class PhysicalLogicalTransactionStoreTest
             CommittedTransactionRepresentation tx = cursor.get();
             TransactionRepresentation transaction = tx.getTransactionRepresentation();
             assertArrayEquals( additionalHeader, transaction.additionalHeader() );
-            assertEquals( masterId, transaction.getMasterId() );
-            assertEquals( authorId, transaction.getAuthorId() );
             assertEquals( timeStarted, transaction.getTimeStarted() );
             assertEquals( timeCommitted, transaction.getTimeCommitted() );
             assertEquals( latestCommittedTxWhenStarted, transaction.getLatestCommittedTxWhenStarted() );
-            expectedMetadata = new TransactionMetadata( masterId, authorId,
-                    tx.getStartEntry().getStartPosition(), tx.getStartEntry().checksum(), timeCommitted );
         }
 
         positionCache.clear();
-
-        TransactionMetadata actualMetadata = store.getMetadataFor( transactionIdStore.getLastCommittedTransactionId() );
-        assertEquals( expectedMetadata, actualMetadata );
     }
 
-    private static class FakeRecoveryVisitor implements Visitor<CommittedTransactionRepresentation,Exception>
+    private static class FakeRecoveryVisitor implements RecoveryApplier
     {
         private final byte[] additionalHeader;
-        private final int masterId;
-        private final int authorId;
         private final long timeStarted;
         private final long timeCommitted;
         private final long latestCommittedTxWhenStarted;
         private int visitedTransactions;
 
-        FakeRecoveryVisitor( byte[] additionalHeader, int masterId, int authorId, long timeStarted, long timeCommitted,
-                long latestCommittedTxWhenStarted )
+        FakeRecoveryVisitor( byte[] additionalHeader, long timeStarted, long timeCommitted, long latestCommittedTxWhenStarted )
         {
             this.additionalHeader = additionalHeader;
-            this.masterId = masterId;
-            this.authorId = authorId;
             this.timeStarted = timeStarted;
             this.timeCommitted = timeCommitted;
             this.latestCommittedTxWhenStarted = latestCommittedTxWhenStarted;
         }
 
         @Override
-        public boolean visit( CommittedTransactionRepresentation tx ) throws Exception
+        public boolean visit( CommittedTransactionRepresentation tx )
         {
             TransactionRepresentation transaction = tx.getTransactionRepresentation();
             assertArrayEquals( additionalHeader, transaction.additionalHeader() );
-            assertEquals( masterId, transaction.getMasterId() );
-            assertEquals( authorId, transaction.getAuthorId() );
             assertEquals( timeStarted, transaction.getTimeStarted() );
             assertEquals( timeCommitted, transaction.getTimeCommitted() );
             assertEquals( latestCommittedTxWhenStarted, transaction.getLatestCommittedTxWhenStarted() );
@@ -442,9 +356,61 @@ public class PhysicalLogicalTransactionStoreTest
             return false;
         }
 
-        public int getVisitedTransactions()
+        int getVisitedTransactions()
         {
             return visitedTransactions;
+        }
+
+        @Override
+        public void close()
+        {
+        }
+    }
+
+    private static class TestRecoveryService implements RecoveryService
+    {
+        private final FakeRecoveryVisitor visitor;
+        private final LogFiles logFiles;
+        private final LogicalTransactionStore txStore;
+        private final AtomicBoolean recoveryPerformed;
+
+        TestRecoveryService( FakeRecoveryVisitor visitor, LogFiles logFiles, LogicalTransactionStore txStore, AtomicBoolean recoveryPerformed )
+        {
+            this.visitor = visitor;
+            this.logFiles = logFiles;
+            this.txStore = txStore;
+            this.recoveryPerformed = recoveryPerformed;
+        }
+
+        @Override
+        public RecoveryApplier getRecoveryApplier( TransactionApplicationMode mode, PageCursorTracer cursorTracer )
+        {
+            return mode == TransactionApplicationMode.REVERSE_RECOVERY ? mock( RecoveryApplier.class ) : visitor;
+        }
+
+        @Override
+        public RecoveryStartInformation getRecoveryStartInformation() throws IOException
+        {
+            return new RecoveryStartInformation( logFiles.getLogFile().extractHeader( 0 ).getStartPosition(), 1 );
+        }
+
+        @Override
+        public TransactionCursor getTransactions( LogPosition position ) throws IOException
+        {
+            return txStore.getTransactions( position );
+        }
+
+        @Override
+        public TransactionCursor getTransactionsInReverseOrder( LogPosition position ) throws IOException
+        {
+            return txStore.getTransactionsInReverseOrder( position );
+        }
+
+        @Override
+        public void transactionsRecovered( CommittedTransactionRepresentation lastRecoveredTransaction, LogPosition lastTransactionPosition,
+                LogPosition positionAfterLastRecoveredTransaction, boolean missingLogs, PageCursorTracer cursorTracer )
+        {
+            recoveryPerformed.set( true );
         }
     }
 }

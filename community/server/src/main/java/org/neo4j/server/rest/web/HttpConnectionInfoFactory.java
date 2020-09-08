@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,22 +20,43 @@
 package org.neo4j.server.rest.web;
 
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import javax.servlet.http.HttpServletRequest;
 
-import org.neo4j.kernel.impl.query.clientconnection.ClientConnectionInfo;
+import org.neo4j.internal.kernel.api.connectioninfo.ClientConnectionInfo;
 import org.neo4j.kernel.impl.query.clientconnection.HttpConnectionInfo;
-
-import static javax.ws.rs.core.HttpHeaders.USER_AGENT;
+import org.neo4j.server.web.JettyHttpConnection;
 
 public class HttpConnectionInfoFactory
 {
+    private HttpConnectionInfoFactory()
+    {
+    }
+
     public static ClientConnectionInfo create( HttpServletRequest request )
     {
-        return new HttpConnectionInfo(
-                request.getScheme(),
-                request.getHeader( USER_AGENT ),
-                new InetSocketAddress( request.getRemoteAddr(), request.getRemotePort() ),
-                new InetSocketAddress( request.getServerName(), request.getServerPort() ),
-                request.getRequestURI() );
+        String connectionId;
+        String protocol = request.getScheme();
+        SocketAddress clientAddress;
+        SocketAddress serverAddress;
+        String requestURI = request.getRequestURI();
+
+        JettyHttpConnection connection = JettyHttpConnection.getCurrentJettyHttpConnection();
+        if ( connection != null )
+        {
+            connectionId = connection.id();
+            clientAddress = connection.clientAddress();
+            serverAddress = connection.serverAddress();
+        }
+        else
+        {
+            // connection is unknown, connection object can't be extracted or is missing from the Jetty thread-local
+            // get all the available information directly from the request
+            connectionId = null;
+            clientAddress = new InetSocketAddress( request.getRemoteAddr(), request.getRemotePort() );
+            serverAddress = new InetSocketAddress( request.getServerName(), request.getServerPort() );
+        }
+
+        return new HttpConnectionInfo( connectionId, protocol, clientAddress, serverAddress, requestURI );
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -43,7 +43,7 @@ public abstract class ObjectRepresentation extends MappingRepresentation
 
     private final Map<String, PropertyGetter> serialization = serialization( getClass() );
 
-    ObjectRepresentation( RepresentationType type )
+    public ObjectRepresentation( RepresentationType type )
     {
         super( type );
     }
@@ -118,7 +118,7 @@ public abstract class ObjectRepresentation extends MappingRepresentation
             {
                 throw new IllegalStateException( "Property getter method may not have any parameters." );
             }
-            if ( !Representation.class.isAssignableFrom( (Class<?>) method.getReturnType() ) )
+            if ( !Representation.class.isAssignableFrom( method.getReturnType() ) )
             {
                 throw new IllegalStateException( "Property getter must return Representation object." );
             }
@@ -147,7 +147,7 @@ public abstract class ObjectRepresentation extends MappingRepresentation
         extraData( serializer );
     }
 
-    void extraData( MappingSerializer serializer )
+    protected void extraData( MappingSerializer serializer )
     {
     }
 }

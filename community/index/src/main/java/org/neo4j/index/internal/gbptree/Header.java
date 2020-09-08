@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,10 +19,12 @@
  */
 package org.neo4j.index.internal.gbptree;
 
+import java.nio.ByteBuffer;
 import java.util.function.Consumer;
 
-import org.neo4j.io.pagecache.PageCache;
+import org.neo4j.io.pagecache.IOLimiter;
 import org.neo4j.io.pagecache.PageCursor;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 
 /**
  * Defines interfaces and common implementations of header reader/writer for {@link GBPTree}.
@@ -30,15 +32,22 @@ import org.neo4j.io.pagecache.PageCursor;
 public class Header
 {
     /**
+     * The total overhead of other things written into the page that the additional header is written into.
+     * Therefore the max size of an additional header cannot exceed page size minus this overhead.
+     */
+    public static final int OVERHEAD =
+            TreeState.SIZE +   // size of the tree state
+            Integer.BYTES;     // size of the field storing the length of the additional header data
+
+    /**
      * Writes a header into a {@link GBPTree} state page during
-     * {@link GBPTree#checkpoint(org.neo4j.io.pagecache.IOLimiter)}.
+     * {@link GBPTree#checkpoint(IOLimiter, PageCursorTracer)}.
      */
     public interface Writer
     {
         /**
          * Writes header data into {@code to} with previous valid header data found in {@code from} of {@code length}
          * bytes in size.
-         *
          * @param from {@link PageCursor} positioned at the header data written in the previous check point.
          * @param length size in bytes of the previous header data.
          * @param to {@link PageCursor} to write new header into.
@@ -46,7 +55,11 @@ public class Header
         void write( PageCursor from, int length, PageCursor to );
     }
 
-    static final Writer CARRY_OVER_PREVIOUS_HEADER = (from,length,to) ->
+    private Header()
+    {
+    }
+
+    static final Writer CARRY_OVER_PREVIOUS_HEADER = ( from, length, to ) ->
     {
         int toOffset = to.getOffset();
         from.copyTo( from.getOffset(), to, toOffset, length );
@@ -56,7 +69,7 @@ public class Header
     static Writer replace( Consumer<PageCursor> writer )
     {
         // Discard the previous state, just write the new
-        return (from,length,to) -> writer.accept( to );
+        return ( from, length, to ) -> writer.accept( to );
     }
 
     /**
@@ -66,14 +79,11 @@ public class Header
     {
         /**
          * Called when it's time to read header data from the most up to date and valid state page.
-         * Due to the nature of the underlying {@link PageCache} this method may be called several times,
-         * some times with invalid data in the {@link PageCursor}. Because of this there mustn't be any
-         * exceptions thrown or decisions made based on the read data until the GBPTree constructor has been
-         * completely executed.
+         * The data that can be accessed from the {@code headerBytes} buffer have been consistently
+         * read from a {@link PageCursor}.
          *
-         * @param from {@link PageCursor} positioned at beginning of the header data to read.
-         * @param length number of bytes available to read in the header data.
+         * @param headerBytes {@link ByteBuffer} containing the header data.
          */
-        void read( PageCursor from, int length );
+        void read( ByteBuffer headerBytes );
     }
 }

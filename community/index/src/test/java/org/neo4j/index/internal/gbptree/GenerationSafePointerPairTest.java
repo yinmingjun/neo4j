@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,27 +19,24 @@
  */
 package org.neo4j.index.internal.gbptree;
 
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameter;
-import org.junit.runners.Parameterized.Parameters;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
-import java.util.ArrayList;
-import java.util.Collection;
+import java.util.List;
 
+import org.neo4j.io.pagecache.ByteArrayPageCursor;
 import org.neo4j.io.pagecache.PageCursor;
 
-import static org.hamcrest.CoreMatchers.containsString;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.neo4j.index.internal.gbptree.GenerationSafePointerPair.FLAG_READ;
 import static org.neo4j.index.internal.gbptree.GenerationSafePointerPair.FLAG_WRITE;
 import static org.neo4j.index.internal.gbptree.GenerationSafePointerPair.GENERATION_COMPARISON_MASK;
-import static org.neo4j.index.internal.gbptree.GenerationSafePointerPair.NO_LOGICAL_POS;
 import static org.neo4j.index.internal.gbptree.GenerationSafePointerPair.READ_OR_WRITE_MASK;
 import static org.neo4j.index.internal.gbptree.GenerationSafePointerPair.SHIFT_STATE_A;
 import static org.neo4j.index.internal.gbptree.GenerationSafePointerPair.SHIFT_STATE_B;
@@ -48,8 +45,7 @@ import static org.neo4j.index.internal.gbptree.GenerationSafePointerPair.isRead;
 import static org.neo4j.index.internal.gbptree.GenerationSafePointerPair.pointerStateFromResult;
 import static org.neo4j.index.internal.gbptree.GenerationSafePointerPair.pointerStateName;
 
-@RunWith( Parameterized.class )
-public class GenerationSafePointerPairTest
+class GenerationSafePointerPairTest
 {
     private static final int PAGE_SIZE = 128;
     private static final int OLD_STABLE_GENERATION = 1;
@@ -74,78 +70,49 @@ public class GenerationSafePointerPairTest
     private static final int SLOT_A_OFFSET = GSPP_OFFSET;
     private static final int SLOT_B_OFFSET = SLOT_A_OFFSET + GenerationSafePointer.SIZE;
 
-    @Parameters( name = "{0},{1},read {2},write {3}" )
-    public static Collection<Object[]> data()
+    private static List<Arguments> params()
     {
-        Collection<Object[]> data = new ArrayList<>();
-
-        //             ┌─────────────────┬─────────────────┬─────────────────-------──┬───────------────────────────┐
-        //             │ State A         │ State B         │ Read outcome             │ Write outcome               │
-        //             └─────────────────┴─────────────────┴──────────────────-------─┴────────────────────------───┘
-        data.add( array( State.EMPTY,      State.EMPTY,      Fail.GENERATION_DISREGARD, Success.A ) );
-        data.add( array( State.EMPTY,      State.UNSTABLE,   Success.B,                 Success.B ) );
-        data.add( array( State.EMPTY,      State.STABLE,     Success.B,                 Success.A ) );
-        data.add( array( State.EMPTY,      State.CRASH,      Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ) );
-        data.add( array( State.EMPTY,      State.BROKEN,     Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ) );
-        data.add( array( State.UNSTABLE,   State.EMPTY,      Success.A,                 Success.A ) );
-        data.add( array( State.UNSTABLE,   State.UNSTABLE,   Fail.GENERATION_EQUAL,     Fail.GENERATION_EQUAL ) );
-        data.add( array( State.UNSTABLE,   State.STABLE,     Success.A,                  Success.A ) );
-        data.add( array( State.UNSTABLE,   State.CRASH,      Fail.GENERATION_A_BIG,     Fail.GENERATION_A_BIG ) );
-        data.add( array( State.UNSTABLE,   State.BROKEN,     Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ) );
-        data.add( array( State.STABLE,     State.EMPTY,      Success.A,                 Success.B ) );
-        data.add( array( State.STABLE,     State.UNSTABLE,   Success.B,                 Success.B ) );
-        data.add( array( State.STABLE,     State.OLD_STABLE, Success.A,                 Success.B ) );
-        data.add( array( State.OLD_STABLE, State.STABLE,     Success.B,                 Success.A ) );
-        data.add( array( State.STABLE,     State.STABLE,     Fail.GENERATION_EQUAL,     Fail.GENERATION_EQUAL ) );
-        data.add( array( State.STABLE,     State.CRASH,      Success.A,                 Success.B ) );
-        data.add( array( State.STABLE,     State.BROKEN,     Success.A,                 Success.B ) );
-        data.add( array( State.CRASH,      State.EMPTY,      Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ) );
-        data.add( array( State.CRASH,      State.UNSTABLE,   Fail.GENERATION_B_BIG,     Fail.GENERATION_B_BIG ) );
-        data.add( array( State.CRASH,      State.STABLE,     Success.B,                 Success.A ) );
-        data.add( array( State.CRASH,      State.OLD_CRASH,  Fail.GENERATION_A_BIG,     Fail.GENERATION_A_BIG ) );
-        data.add( array( State.OLD_CRASH,  State.CRASH,      Fail.GENERATION_B_BIG,     Fail.GENERATION_B_BIG ) );
-        data.add( array( State.CRASH,      State.CRASH,      Fail.GENERATION_EQUAL,     Fail.GENERATION_EQUAL ) );
-        data.add( array( State.CRASH,      State.BROKEN,     Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ) );
-        data.add( array( State.BROKEN,     State.EMPTY,      Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ) );
-        data.add( array( State.BROKEN,     State.UNSTABLE,   Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ) );
-        data.add( array( State.BROKEN,     State.STABLE,     Success.B,          Success.A ) );
-        data.add( array( State.BROKEN,     State.CRASH,      Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ) );
-        data.add( array( State.BROKEN,     State.BROKEN,     Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ) );
-
-        return data;
+        return List.of(
+            //        ┌─────────────────┬─────────────────┬─────────────────-------──┬───────------────────────────┐
+            //        │ State A         │ State B         │ Read outcome             │ Write outcome               │
+            //        └─────────────────┴─────────────────┴──────────────────-------─┴────────────────────------───┘
+            arguments( State.EMPTY,      State.EMPTY,      Fail.GENERATION_DISREGARD, Success.A ),
+            arguments( State.EMPTY,      State.UNSTABLE,   Success.B,                 Success.B ),
+            arguments( State.EMPTY,      State.STABLE,     Success.B,                 Success.A ),
+            arguments( State.EMPTY,      State.CRASH,      Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ),
+            arguments( State.EMPTY,      State.BROKEN,     Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ),
+            arguments( State.UNSTABLE,   State.EMPTY,      Success.A,                 Success.A ),
+            arguments( State.UNSTABLE,   State.UNSTABLE,   Fail.GENERATION_EQUAL,     Fail.GENERATION_EQUAL ),
+            arguments( State.UNSTABLE,   State.STABLE,     Success.A,                  Success.A ),
+            arguments( State.UNSTABLE,   State.CRASH,      Fail.GENERATION_A_BIG,     Fail.GENERATION_A_BIG ),
+            arguments( State.UNSTABLE,   State.BROKEN,     Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ),
+            arguments( State.STABLE,     State.EMPTY,      Success.A,                 Success.B ),
+            arguments( State.STABLE,     State.UNSTABLE,   Success.B,                 Success.B ),
+            arguments( State.STABLE,     State.OLD_STABLE, Success.A,                 Success.B ),
+            arguments( State.OLD_STABLE, State.STABLE,     Success.B,                 Success.A ),
+            arguments( State.STABLE,     State.STABLE,     Fail.GENERATION_EQUAL,     Fail.GENERATION_EQUAL ),
+            arguments( State.STABLE,     State.CRASH,      Success.A,                 Success.B ),
+            arguments( State.STABLE,     State.BROKEN,     Success.A,                 Success.B ),
+            arguments( State.CRASH,      State.EMPTY,      Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ),
+            arguments( State.CRASH,      State.UNSTABLE,   Fail.GENERATION_B_BIG,     Fail.GENERATION_B_BIG ),
+            arguments( State.CRASH,      State.STABLE,     Success.B,                 Success.A ),
+            arguments( State.CRASH,      State.OLD_CRASH,  Fail.GENERATION_A_BIG,     Fail.GENERATION_A_BIG ),
+            arguments( State.OLD_CRASH,  State.CRASH,      Fail.GENERATION_B_BIG,     Fail.GENERATION_B_BIG ),
+            arguments( State.CRASH,      State.CRASH,      Fail.GENERATION_EQUAL,     Fail.GENERATION_EQUAL ),
+            arguments( State.CRASH,      State.BROKEN,     Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ),
+            arguments( State.BROKEN,     State.EMPTY,      Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ),
+            arguments( State.BROKEN,     State.UNSTABLE,   Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ),
+            arguments( State.BROKEN,     State.STABLE,     Success.B,          Success.A ),
+            arguments( State.BROKEN,     State.CRASH,      Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD ),
+            arguments( State.BROKEN,     State.BROKEN,     Fail.GENERATION_DISREGARD, Fail.GENERATION_DISREGARD )
+        );
     }
-
-    @Parameter( 0 )
-    public State stateA;
-    @Parameter( 1 )
-    public State stateB;
-    @Parameter( 2 )
-    public Slot expectedReadOutcome;
-    @Parameter( 3 )
-    public Slot expectedWriteOutcome;
 
     private final PageCursor cursor = ByteArrayPageCursor.wrap( new byte[PAGE_SIZE] );
 
-    @Test
-    public void shouldReadWithLogicalPosition() throws Exception
-    {
-        // GIVEN
-        cursor.setOffset( SLOT_A_OFFSET );
-        long preStatePointerA = stateA.materialize( cursor, POINTER_A );
-        cursor.setOffset( SLOT_B_OFFSET );
-        long preStatePointerB = stateB.materialize( cursor, POINTER_B );
-        int pos = 1234;
-
-        // WHEN
-        cursor.setOffset( GSPP_OFFSET );
-        long result = GenerationSafePointerPair.read( cursor, STABLE_GENERATION, UNSTABLE_GENERATION, pos );
-
-        // THEN
-        expectedReadOutcome.verifyRead( cursor, result, stateA, stateB, preStatePointerA, preStatePointerB, pos );
-    }
-
-    @Test
-    public void shouldReadWithNoLogicalPosition() throws Exception
+    @ParameterizedTest
+    @MethodSource( "params" )
+    void shouldRead( State stateA, State stateB, Slot expectedReadOutcome, Slot expectedWriteOutcome )
     {
         // GIVEN
         cursor.setOffset( SLOT_A_OFFSET );
@@ -155,15 +122,16 @@ public class GenerationSafePointerPairTest
 
         // WHEN
         cursor.setOffset( GSPP_OFFSET );
-        long result = GenerationSafePointerPair.read( cursor, STABLE_GENERATION, UNSTABLE_GENERATION, NO_LOGICAL_POS );
+        GenerationKeeper generationKeeper = new GenerationKeeper();
+        long result = GenerationSafePointerPair.read( cursor, STABLE_GENERATION, UNSTABLE_GENERATION, generationKeeper );
 
         // THEN
-        expectedReadOutcome.verifyRead( cursor, result, stateA, stateB, preStatePointerA, preStatePointerB,
-                NO_LOGICAL_POS );
+        expectedReadOutcome.verifyRead( cursor, result, stateA, stateB, preStatePointerA, preStatePointerB, generationKeeper.generation );
     }
 
-    @Test
-    public void shouldWrite() throws Exception
+    @ParameterizedTest
+    @MethodSource( "params" )
+    void shouldWrite( State stateA, State stateB, Slot expectedReadOutcome, Slot expectedWriteOutcome )
     {
         // GIVEN
         cursor.setOffset( SLOT_A_OFFSET );
@@ -195,13 +163,13 @@ public class GenerationSafePointerPairTest
 
         // Failure description
         String failureDescription = failureDescription( result );
-        assertThat( failureDescription, containsString( isRead( result ) ? "READ" : "WRITE" ) );
+        assertThat( failureDescription ).contains( isRead( result ) ? "READ" : "WRITE" );
         if ( generationComparison != EXPECTED_GENERATION_DISREGARD )
         {
-            assertThat( failureDescription, containsString( generationComparisonName( generationComparison ) ) );
+            assertThat( failureDescription ).contains( generationComparisonName( generationComparison ) );
         }
-        assertThat( failureDescription, containsString( pointerStateName( pointerStateA ) ) );
-        assertThat( failureDescription, containsString( pointerStateName( pointerStateB ) ) );
+        assertThat( failureDescription ).contains( pointerStateName( pointerStateA ) );
+        assertThat( failureDescription ).contains( pointerStateName( pointerStateB ) );
     }
 
     private static String generationComparisonName( int generationComparison )
@@ -255,11 +223,6 @@ public class GenerationSafePointerPairTest
         return pointer;
     }
 
-    private static Object[] array( Object... array )
-    {
-        return array;
-    }
-
     enum State
     {
         EMPTY( GenerationSafePointerPair.EMPTY )
@@ -288,7 +251,7 @@ public class GenerationSafePointerPairTest
             }
 
             @Override
-            void verify( PageCursor cursor, long expectedPointer, boolean slotA, int logicalPos )
+            void verify( PageCursor cursor, long expectedPointer, boolean slotA )
             {
                 cursor.setOffset( slotA ? SLOT_A_OFFSET : SLOT_B_OFFSET );
 
@@ -370,9 +333,15 @@ public class GenerationSafePointerPairTest
          * @param expectedPointer expected pointer, as received from {@link #materialize(PageCursor, long)}.
          * @param slotA whether or not this is for slot A, otherwise B.
          */
-        void verify( PageCursor cursor, long expectedPointer, boolean slotA, int logicalPos )
+        void verify( PageCursor cursor, long expectedPointer, boolean slotA )
         {
             assertEquals( expectedPointer, slotA ? readSlotA( cursor ) : readSlotB( cursor ) );
+        }
+
+        public static long readGeneration( PageCursor cursor, boolean slotA )
+        {
+            cursor.setOffset( slotA ? SLOT_A_OFFSET : SLOT_B_OFFSET );
+            return GenerationSafePointer.readGeneration( cursor );
         }
     }
 
@@ -380,15 +349,14 @@ public class GenerationSafePointerPairTest
     {
         /**
          * @param cursor {@link PageCursor} to read actual result from.
-         * @param result read-result from {@link GenerationSafePointerPair#read(PageCursor, long, long, int)}.
+         * @param result read-result from {@link GenerationSafePointerPair#read(PageCursor, long, long, GBPTreeGenerationTarget)}.
          * @param stateA state of pointer A when read.
          * @param stateB state of pointer B when read.
          * @param preStatePointerA pointer A as it looked like in pre-state.
          * @param preStatePointerB pointer B as it looked like in pre-state.
-         * @param logicalPos expected logical pos.
+         * @param generation read generation.
          */
-        void verifyRead( PageCursor cursor, long result, State stateA, State stateB,
-                long preStatePointerA, long preStatePointerB, int logicalPos );
+        void verifyRead( PageCursor cursor, long result, State stateA, State stateB, long preStatePointerA, long preStatePointerB, long generation );
 
         /**
          * @param cursor {@link PageCursor} to read actual result from.
@@ -417,26 +385,15 @@ public class GenerationSafePointerPairTest
         }
 
         @Override
-        public void verifyRead( PageCursor cursor, long result, State stateA, State stateB,
-                long preStatePointerA, long preStatePointerB, int logicalPos )
+        public void verifyRead( PageCursor cursor, long result, State stateA, State stateB, long preStatePointerA, long preStatePointerB, long generation )
         {
             assertSuccess( result );
             long pointer = GenerationSafePointerPair.pointer( result );
             assertEquals( expectedPointer, pointer );
             assertEquals( expectedSlot == SLOT_A, GenerationSafePointerPair.resultIsFromSlotA( result ) );
-            if ( logicalPos == NO_LOGICAL_POS )
-            {
-                assertFalse( GenerationSafePointerPair.isLogicalPos( result ) );
-                assertEquals( GSPP_OFFSET, GenerationSafePointerPair.generationOffset( result ) );
-            }
-            else
-            {
-                assertTrue( GenerationSafePointerPair.isLogicalPos( result ) );
-                assertEquals( logicalPos, GenerationSafePointerPair.generationOffset( result ) );
-            }
-
-            stateA.verify( cursor, preStatePointerA, SLOT_A, logicalPos );
-            stateB.verify( cursor, preStatePointerB, SLOT_B, logicalPos );
+            stateA.verify( cursor, preStatePointerA, SLOT_A );
+            stateB.verify( cursor, preStatePointerB, SLOT_B );
+            assertEquals( State.readGeneration( cursor, expectedSlot ), generation );
         }
 
         @Override
@@ -483,12 +440,12 @@ public class GenerationSafePointerPairTest
         }
 
         @Override
-        public void verifyRead( PageCursor cursor, long result, State stateA, State stateB,
-                long preStatePointerA, long preStatePointerB, int logicalPos )
+        public void verifyRead( PageCursor cursor, long result, State stateA, State stateB, long preStatePointerA, long preStatePointerB, long generation )
         {
             assertFailure( result, FLAG_READ, generationComparison, stateA.byteValue, stateB.byteValue );
-            stateA.verify( cursor, preStatePointerA, SLOT_A, logicalPos );
-            stateB.verify( cursor, preStatePointerB, SLOT_B, logicalPos );
+            stateA.verify( cursor, preStatePointerA, SLOT_A );
+            stateB.verify( cursor, preStatePointerB, SLOT_B );
+            assertEquals( GenerationSafePointer.EMPTY_GENERATION, generation );
         }
 
         @Override
@@ -496,8 +453,8 @@ public class GenerationSafePointerPairTest
                 long preStatePointerA, long preStatePointerB )
         {
             assertFailure( result, FLAG_WRITE, generationComparison, stateA.byteValue, stateB.byteValue );
-            stateA.verify( cursor, preStatePointerA, SLOT_A, NO_LOGICAL_POS /*Don't care*/ );
-            stateB.verify( cursor, preStatePointerB, SLOT_B, NO_LOGICAL_POS /*Don't care*/ );
+            stateA.verify( cursor, preStatePointerA, SLOT_A );
+            stateB.verify( cursor, preStatePointerB, SLOT_B );
         }
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,12 +22,12 @@ package org.neo4j.io.pagecache;
 /**
  * These callback implementations are produced by the page cache and given to the page swappers, so that the correct
  * translation tables can be updated when pages are evicted. The PageSwapper implementations are responsible for
- * delegating their {@link PageSwapper#evicted(long, Page)} calls to these callback objects.
+ * delegating their {@link PageSwapper#evicted(long)} calls to these callback objects.
  */
 public interface PageEvictionCallback
 {
     /**
      * Notify that the file/memory page has been evicted.
      */
-    void onEvict( long filePageId, Page page );
+    void onEvict( long filePageId );
 }

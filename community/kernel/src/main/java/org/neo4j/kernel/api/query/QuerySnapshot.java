@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,48 +22,52 @@ package org.neo4j.kernel.api.query;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-import org.neo4j.kernel.impl.query.clientconnection.ClientConnectionInfo;
+import org.neo4j.graphdb.ExecutionPlanDescription;
+import org.neo4j.internal.kernel.api.connectioninfo.ClientConnectionInfo;
+import org.neo4j.kernel.database.NamedDatabaseId;
+import org.neo4j.kernel.impl.locking.ActiveLock;
+import org.neo4j.values.virtual.MapValue;
 
 public class QuerySnapshot
 {
     private final ExecutingQuery query;
-    private final PlannerInfo plannerInfo;
-    private final long planningTimeMillis;
-    private final long elapsedTimeMillis;
-    private final long cpuTimeMillis;
-    private final long waitTimeMillis;
+    private final CompilerInfo compilerInfo;
+    private final long compilationTimeMicros;
+    private final long elapsedTimeMicros;
+    private final long cpuTimeMicros;
+    private final long waitTimeMicros;
     private final String status;
     private final Map<String,Object> resourceInfo;
+    private final List<ActiveLock> waitingLocks;
     private final long activeLockCount;
     private final long allocatedBytes;
     private final PageCounterValues page;
+    private final Optional<String> obfuscatedQueryText;
+    private final Optional<MapValue> obfuscatedQueryParameters;
 
-    QuerySnapshot(
-            ExecutingQuery query,
-            PlannerInfo plannerInfo,
-            PageCounterValues page,
-            long planningTimeMillis,
-            long elapsedTimeMillis,
-            long cpuTimeMillis,
-            long waitTimeMillis,
-            String status,
-            Map<String,Object> resourceInfo,
-            long activeLockCount,
-            long allocatedBytes )
+    QuerySnapshot( ExecutingQuery query, CompilerInfo compilerInfo, PageCounterValues page, long compilationTimeMicros,
+                   long elapsedTimeMicros, long cpuTimeMicros, long waitTimeMicros, String status,
+                   Map<String,Object> resourceInfo, List<ActiveLock> waitingLocks, long activeLockCount, long allocatedBytes,
+                   Optional<String> obfuscatedQueryText, Optional<MapValue> obfuscatedQueryParameters )
     {
         this.query = query;
-        this.plannerInfo = plannerInfo;
+        this.compilerInfo = compilerInfo;
         this.page = page;
-        this.planningTimeMillis = planningTimeMillis;
-        this.elapsedTimeMillis = elapsedTimeMillis;
-        this.cpuTimeMillis = cpuTimeMillis;
-        this.waitTimeMillis = waitTimeMillis;
+        this.compilationTimeMicros = compilationTimeMicros;
+        this.elapsedTimeMicros = elapsedTimeMicros;
+        this.cpuTimeMicros = cpuTimeMicros;
+        this.waitTimeMicros = waitTimeMicros;
         this.status = status;
         this.resourceInfo = resourceInfo;
+        this.waitingLocks = waitingLocks;
         this.activeLockCount = activeLockCount;
         this.allocatedBytes = allocatedBytes;
+        this.obfuscatedQueryText = obfuscatedQueryText;
+        this.obfuscatedQueryParameters = obfuscatedQueryParameters;
     }
 
     public long internalQueryId()
@@ -71,19 +75,44 @@ public class QuerySnapshot
         return query.internalQueryId();
     }
 
-    public String queryText()
+    public String id()
     {
-        return query.queryText();
+        return query.id();
     }
 
-    public Map<String,Object> queryParameters()
+    public String rawQueryText()
     {
-        return query.queryParameters();
+        return query.rawQueryText();
+    }
+
+    public Optional<String> obfuscatedQueryText()
+    {
+        return obfuscatedQueryText;
+    }
+
+    public MapValue rawQueryParameters()
+    {
+        return query.rawQueryParameters();
+    }
+
+    public Optional<MapValue> obfuscatedQueryParameters()
+    {
+        return obfuscatedQueryParameters;
+    }
+
+    public Supplier<ExecutionPlanDescription> queryPlanSupplier()
+    {
+        return query.planDescriptionSupplier();
     }
 
     public String username()
     {
         return query.username();
+    }
+
+    public Optional<NamedDatabaseId> databaseId()
+    {
+        return query.databaseId();
     }
 
     public ClientConnectionInfo clientConnection()
@@ -103,23 +132,23 @@ public class QuerySnapshot
 
     public String planner()
     {
-        return plannerInfo == null ? null : plannerInfo.planner();
+        return compilerInfo == null ? null : compilerInfo.planner();
     }
 
     public String runtime()
     {
-        return plannerInfo == null ? null : plannerInfo.runtime();
+        return compilerInfo == null ? null : compilerInfo.runtime();
     }
 
     public List<Map<String,String>> indexes()
     {
-        if ( plannerInfo == null )
+        if ( compilerInfo == null )
         {
             return Collections.emptyList();
         }
-        return plannerInfo.indexes().stream()
-                .map( IndexUsage::asMap )
-                .collect( Collectors.toList() );
+        return compilerInfo.indexes().stream()
+                           .map( IndexUsage::asMap )
+                           .collect( Collectors.toList() );
     }
 
     public String status()
@@ -140,42 +169,42 @@ public class QuerySnapshot
     /**
      * The time spent planning the query, before the query actually starts executing.
      *
-     * @return the time in milliseconds spent planning the query.
+     * @return the time in microseconds spent planning the query.
      */
-    public long planningTimeMillis()
+    public long compilationTimeMicros()
     {
-        return planningTimeMillis;
+        return compilationTimeMicros;
     }
 
     /**
      * The time that has been spent waiting on locks or other queries, as opposed to actively executing this query.
      *
-     * @return the time in milliseconds spent waiting on locks.
+     * @return the time in microseconds spent waiting on locks.
      */
-    public long waitTimeMillis()
+    public long waitTimeMicros()
     {
-        return waitTimeMillis;
+        return waitTimeMicros;
     }
 
     /**
      * The time (wall time) that has elapsed since the execution of this query started.
      *
-     * @return the time in milliseconds since execution of this query started.
+     * @return the time in microseconds since execution of this query started.
      */
-    public long elapsedTimeMillis()
+    public long elapsedTimeMicros()
     {
-        return elapsedTimeMillis;
+        return elapsedTimeMicros;
     }
 
     /**
      * Time that the CPU has actively spent working on things related to this query.
      *
-     * @return the time in milliseconds that the CPU has spent on this query, or {@code null} if the cpu time could not
+     * @return the time in microseconds that the CPU has spent on this query, or {@code null} if the cpu time could not
      * be measured.
      */
-    public Long cpuTimeMillis()
+    public Long cpuTimeMicros()
     {
-        return cpuTimeMillis < 0 ? null : cpuTimeMillis;
+        return cpuTimeMicros < 0 ? null : cpuTimeMicros;
     }
 
     /**
@@ -188,23 +217,22 @@ public class QuerySnapshot
      * actually waiting on the lock rather than doing active work). In most cases such "lock bookkeeping time" is going
      * to be dwarfed by the idle time.
      *
-     * @return the time in milliseconds that this query was de-scheduled, or {@code null} if the cpu time could not be
+     * @return the time in microseconds that this query was de-scheduled, or {@code null} if the cpu time could not be
      * measured.
      */
-    public Long idleTimeMillis()
+    public Long idleTimeMicros()
     {
-        return cpuTimeMillis < 0 ? null : (elapsedTimeMillis - cpuTimeMillis - waitTimeMillis);
+        return cpuTimeMicros < 0 ? null : (elapsedTimeMicros - cpuTimeMicros - waitTimeMicros);
     }
 
     /**
      * The number of bytes allocated by the query.
      *
-     * @return the number of bytes allocated by the execution of the query, or {@code null} if the memory allocation
-     * could not be measured.
+     * @return the number of bytes allocated by the execution of the query, or Optional.empty() if measurement was not possible or not enabled.
      */
-    public Long allocatedBytes()
+    public long allocatedBytes()
     {
-        return allocatedBytes < 0 ? null : allocatedBytes;
+        return allocatedBytes;
     }
 
     public long pageHits()
@@ -215,5 +243,10 @@ public class QuerySnapshot
     public long pageFaults()
     {
         return page.faults;
+    }
+
+    public List<ActiveLock> waitingLocks()
+    {
+        return waitingLocks;
     }
 }

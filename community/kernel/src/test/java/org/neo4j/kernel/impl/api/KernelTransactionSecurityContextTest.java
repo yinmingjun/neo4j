@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,214 +19,156 @@
  */
 package org.neo4j.kernel.impl.api;
 
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.graphdb.security.AuthorizationViolationException;
-import org.neo4j.kernel.api.DataWriteOperations;
-import org.neo4j.kernel.api.ReadOperations;
-import org.neo4j.kernel.api.SchemaWriteOperations;
+import org.neo4j.internal.kernel.api.Read;
+import org.neo4j.internal.kernel.api.SchemaWrite;
+import org.neo4j.internal.kernel.api.TokenRead;
 import org.neo4j.kernel.api.security.AnonymousContext;
 
-import static org.junit.Assert.assertNotNull;
-import static org.neo4j.kernel.api.security.SecurityContext.AUTH_DISABLED;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.neo4j.internal.kernel.api.security.LoginContext.AUTH_DISABLED;
 
-public class KernelTransactionSecurityContextTest extends KernelTransactionTestBase
+class KernelTransactionSecurityContextTest extends KernelTransactionTestBase
 {
-    @Rule
-    public ExpectedException exception = ExpectedException.none();
-
     @Test
-    public void shouldNotAllowReadsInNoneMode() throws Throwable
+    void shouldAllowReadsInAccessMode()
     {
         // Given
-        KernelTransactionImplementation tx = newTransaction( AnonymousContext.none() );
+        KernelTransactionImplementation tx = newTransaction( AnonymousContext.access() );
 
-        // Expect
-        exception.expect( AuthorizationViolationException.class );
-
-        // When
-        tx.acquireStatement().readOperations();
-    }
-
-    @Test
-    public void shouldNotAllowWritesInNoneMode() throws Throwable
-    {
-        // Given
-        KernelTransactionImplementation tx = newTransaction( AnonymousContext.none() );
-
-        // Expect
-        exception.expect( AuthorizationViolationException.class );
-
-        // When
-        tx.acquireStatement().dataWriteOperations();
-    }
-
-    @Test
-    public void shouldNotAllowSchemaWritesInNoneMode() throws Throwable
-    {
-        // Given
-        KernelTransactionImplementation tx = newTransaction( AnonymousContext.none() );
-
-        // Expect
-        exception.expect( AuthorizationViolationException.class );
-
-        // When
-        tx.acquireStatement().schemaWriteOperations();
-    }
-
-    @Test
-    public void shouldAllowReadsInReadMode() throws Throwable
-    {
-        // Given
-        KernelTransactionImplementation tx = newTransaction( AnonymousContext.read() );
-
-        // When
-        ReadOperations reads = tx.acquireStatement().readOperations();
+        // This is allowed, but will see an empty graph
+        Read reads = tx.dataRead();
 
         // Then
         assertNotNull( reads );
     }
 
     @Test
-    public void shouldNotAllowWriteAccessInReadMode() throws Throwable
+    void shouldAllowTokenReadsInAccessMode()
     {
         // Given
-        KernelTransactionImplementation tx = newTransaction( AnonymousContext.read() );
-
-        // Expect
-        exception.expect( AuthorizationViolationException.class );
+        KernelTransactionImplementation tx = newTransaction( AnonymousContext.access() );
 
         // When
-        tx.acquireStatement().dataWriteOperations();
-    }
-
-    @Test
-    public void shouldNotAllowSchemaWriteAccessInReadMode() throws Throwable
-    {
-        // Given
-        KernelTransactionImplementation tx = newTransaction( AnonymousContext.read() );
-
-        // Expect
-        exception.expect( AuthorizationViolationException.class );
-
-        // When
-        tx.acquireStatement().schemaWriteOperations();
-    }
-
-    @Test
-    public void shouldNotAllowReadAccessInWriteOnlyMode() throws Throwable
-    {
-        // Given
-        KernelTransactionImplementation tx = newTransaction( AnonymousContext.writeOnly() );
-
-        // Expect
-        exception.expect( AuthorizationViolationException.class );
-
-        // When
-        tx.acquireStatement().readOperations();
-    }
-
-    @Test
-    public void shouldAllowWriteAccessInWriteOnlyMode() throws Throwable
-    {
-        // Given
-        KernelTransactionImplementation tx = newTransaction( AnonymousContext.writeOnly() );
-
-        // When
-        DataWriteOperations writes = tx.acquireStatement().dataWriteOperations();
+        TokenRead tokenRead = tx.tokenRead();
 
         // Then
-        assertNotNull( writes );
+        assertNotNull( tokenRead );
     }
 
     @Test
-    public void shouldNotAllowSchemaWriteAccessInWriteOnlyMode() throws Throwable
+    void shouldNotAllowSchemaWritesInAccessMode()
     {
         // Given
-        KernelTransactionImplementation tx = newTransaction( AnonymousContext.writeOnly() );
+        KernelTransactionImplementation tx = newTransaction( AnonymousContext.access() );
 
-        // Expect
-        exception.expect( AuthorizationViolationException.class );
-
-        // When
-        tx.acquireStatement().schemaWriteOperations();
+        assertThrows( AuthorizationViolationException.class, tx::schemaWrite );
     }
 
     @Test
-    public void shouldAllowReadsInWriteMode() throws Throwable
+    void shouldAllowReadsInReadMode()
     {
         // Given
-        KernelTransactionImplementation tx = newTransaction( AnonymousContext.write() );
+        KernelTransactionImplementation tx = newTransaction( AnonymousContext.read() );
 
         // When
-        ReadOperations reads = tx.acquireStatement().readOperations();
+        Read reads = tx.dataRead();
 
         // Then
         assertNotNull( reads );
     }
 
     @Test
-    public void shouldAllowWritesInWriteMode() throws Throwable
+    void shouldNotAllowSchemaWriteAccessInReadMode()
     {
         // Given
-        KernelTransactionImplementation tx = newTransaction( AnonymousContext.write() );
+        KernelTransactionImplementation tx = newTransaction( AnonymousContext.read() );
+
+        assertThrows( AuthorizationViolationException.class, tx::schemaWrite );
+    }
+
+    @Test
+    void shouldAllowReadAccessInWriteOnlyMode()
+    {
+        // Given
+        KernelTransactionImplementation tx = newTransaction( AnonymousContext.writeOnly() );
 
         // When
-        DataWriteOperations writes = tx.acquireStatement().dataWriteOperations();
+        Read reads = tx.dataRead();
 
         // Then
-        assertNotNull( writes );
+        // This is allowed, but will see an empty graph
+        assertNotNull( reads );
     }
 
     @Test
-    public void shouldNotAllowSchemaWriteAccessInWriteMode() throws Throwable
+    void shouldAllowTokenReadAccessInWriteOnlyMode()
+    {
+        // Given
+        KernelTransactionImplementation tx = newTransaction( AnonymousContext.writeOnly() );
+
+        // When
+        TokenRead tokenRead = tx.tokenRead();
+
+        // Then
+        assertNotNull( tokenRead );
+    }
+
+    @Test
+    void shouldNotAllowSchemaWriteAccessInWriteOnlyMode()
+    {
+        // Given
+        KernelTransactionImplementation tx = newTransaction( AnonymousContext.writeOnly() );
+
+        assertThrows( AuthorizationViolationException.class, tx::schemaWrite );
+    }
+
+    @Test
+    void shouldAllowReadsInWriteMode()
     {
         // Given
         KernelTransactionImplementation tx = newTransaction( AnonymousContext.write() );
 
-        // Expect
-        exception.expect( AuthorizationViolationException.class );
-
         // When
-        tx.acquireStatement().schemaWriteOperations();
-    }
-
-    @Test
-    public void shouldAllowReadsInFullMode() throws Throwable
-    {
-        // Given
-        KernelTransactionImplementation tx = newTransaction( AUTH_DISABLED );
-
-        // When
-        ReadOperations reads = tx.acquireStatement().readOperations();
+        Read reads = tx.dataRead();
 
         // Then
         assertNotNull( reads );
     }
 
     @Test
-    public void shouldAllowWritesInFullMode() throws Throwable
+    void shouldNotAllowSchemaWriteAccessInWriteMode()
     {
         // Given
-        KernelTransactionImplementation tx = newTransaction( AUTH_DISABLED );
+        KernelTransactionImplementation tx = newTransaction( AnonymousContext.write() );
 
-        // When
-        DataWriteOperations writes = tx.acquireStatement().dataWriteOperations();
-
-        // Then
-        assertNotNull( writes );
+        assertThrows( AuthorizationViolationException.class, tx::schemaWrite );
     }
 
     @Test
-    public void shouldAllowSchemaWriteAccessInFullMode() throws Throwable
+    void shouldAllowReadsInFullMode()
     {
         // Given
         KernelTransactionImplementation tx = newTransaction( AUTH_DISABLED );
 
         // When
-        SchemaWriteOperations writes = tx.acquireStatement().schemaWriteOperations();
+        Read reads = tx.dataRead();
+
+        // Then
+        assertNotNull( reads );
+    }
+
+    @Test
+    void shouldAllowSchemaWriteAccessInFullMode() throws Throwable
+    {
+        // Given
+        KernelTransactionImplementation tx = newTransaction( AUTH_DISABLED );
+
+        // When
+        SchemaWrite writes = tx.schemaWrite();
 
         // Then
         assertNotNull( writes );

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,13 +19,20 @@
  */
 package org.neo4j.io.pagecache.impl.muninn;
 
-import org.neo4j.io.ByteUnit;
 import org.neo4j.io.fs.FileSystemAbstraction;
+import org.neo4j.io.mem.MemoryAllocator;
 import org.neo4j.io.pagecache.PageCache;
+import org.neo4j.io.pagecache.PageSwapperFactory;
 import org.neo4j.io.pagecache.impl.SingleFilePageSwapperFactory;
 import org.neo4j.io.pagecache.tracing.PageCacheTracer;
-import org.neo4j.io.pagecache.tracing.cursor.DefaultPageCursorTracerSupplier;
-import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracerSupplier;
+import org.neo4j.io.pagecache.tracing.cursor.context.EmptyVersionContextSupplier;
+import org.neo4j.io.pagecache.tracing.cursor.context.VersionContextSupplier;
+import org.neo4j.memory.EmptyMemoryTracker;
+import org.neo4j.scheduler.JobScheduler;
+import org.neo4j.time.Clocks;
+
+import static org.neo4j.io.ByteUnit.MebiByte;
+import static org.neo4j.io.pagecache.buffer.IOBufferFactory.DISABLED_BUFFER_FACTORY;
 
 /*
  * This class is an helper to allow to construct properly a page cache in the few places we need it without all
@@ -40,25 +47,34 @@ public final class StandalonePageCacheFactory
     {
     }
 
-    public static PageCache createPageCache( FileSystemAbstraction fileSystem )
+    public static PageCache createPageCache( FileSystemAbstraction fileSystem, JobScheduler jobScheduler, PageCacheTracer cacheTracer )
     {
-        return createPageCache( fileSystem, null, PageCacheTracer.NULL, DefaultPageCursorTracerSupplier.INSTANCE );
+        SingleFilePageSwapperFactory factory = new SingleFilePageSwapperFactory( fileSystem );
+        int pageSize = PageCache.PAGE_SIZE;
+        return createPageCache( factory, jobScheduler, cacheTracer, pageSize );
     }
 
-    public static PageCache createPageCache( FileSystemAbstraction fileSystem, Integer pageSize )
+    public static PageCache createPageCache( FileSystemAbstraction fileSystem, JobScheduler jobScheduler )
     {
-        return createPageCache( fileSystem, pageSize, PageCacheTracer.NULL, DefaultPageCursorTracerSupplier.INSTANCE );
+        SingleFilePageSwapperFactory factory = new SingleFilePageSwapperFactory( fileSystem );
+        PageCacheTracer cacheTracer = PageCacheTracer.NULL;
+        int pageSize = PageCache.PAGE_SIZE;
+        return createPageCache( factory, jobScheduler, cacheTracer, pageSize );
     }
 
-    public static PageCache createPageCache( FileSystemAbstraction fileSystem, Integer pageSize,
-            PageCacheTracer tracer, PageCursorTracerSupplier cursorTracerSupplier )
+    public static PageCache createPageCache( FileSystemAbstraction fileSystem, JobScheduler jobScheduler, int pageSize )
     {
-        SingleFilePageSwapperFactory factory = new SingleFilePageSwapperFactory();
-        factory.setFileSystemAbstraction( fileSystem );
+        SingleFilePageSwapperFactory factory = new SingleFilePageSwapperFactory( fileSystem );
+        PageCacheTracer cacheTracer = PageCacheTracer.NULL;
+        return createPageCache( factory, jobScheduler, cacheTracer, pageSize );
+    }
 
-        int cachePageSize = pageSize != null ? pageSize : factory.getCachePageSizeHint();
-        long pageCacheMemory = ByteUnit.mebiBytes( 8 );
-        long pageCount = pageCacheMemory / cachePageSize;
-        return new MuninnPageCache( factory, (int) pageCount, cachePageSize, tracer, cursorTracerSupplier );
+    private static PageCache createPageCache( PageSwapperFactory factory, JobScheduler jobScheduler, PageCacheTracer cacheTracer, int pageSize )
+    {
+        VersionContextSupplier versionContextSupplier = EmptyVersionContextSupplier.EMPTY;
+        long expectedMemory = Math.max( MebiByte.toBytes( 8 ), 10 * pageSize );
+        MemoryAllocator memoryAllocator = MemoryAllocator.createAllocator( expectedMemory, EmptyMemoryTracker.INSTANCE );
+        return new MuninnPageCache( factory, memoryAllocator, pageSize, cacheTracer, versionContextSupplier, jobScheduler, Clocks.nanoClock(),
+                EmptyMemoryTracker.INSTANCE, DISABLED_BUFFER_FACTORY );
     }
 }

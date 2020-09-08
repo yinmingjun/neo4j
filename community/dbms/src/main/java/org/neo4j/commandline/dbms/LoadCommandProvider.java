@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,51 +19,26 @@
  */
 package org.neo4j.commandline.dbms;
 
-import java.nio.file.Path;
-
-import org.neo4j.commandline.admin.AdminCommand;
-import org.neo4j.commandline.admin.AdminCommandSection;
-import org.neo4j.commandline.admin.OutsideWorld;
-import org.neo4j.commandline.arguments.Arguments;
+import org.neo4j.annotations.service.ServiceProvider;
+import org.neo4j.cli.Command.CommandType;
+import org.neo4j.cli.CommandProvider;
+import org.neo4j.cli.ExecutionContext;
 import org.neo4j.dbms.archive.Loader;
 
-public class LoadCommandProvider extends AdminCommand.Provider
+import static org.neo4j.cli.Command.CommandType.LOAD;
+
+@ServiceProvider
+public class LoadCommandProvider implements CommandProvider<LoadCommand>
 {
-    public LoadCommandProvider()
+    @Override
+    public LoadCommand createCommand( ExecutionContext ctx )
     {
-        super( "load" );
+        return new LoadCommand( ctx, new Loader( ctx.err() ) );
     }
 
     @Override
-    public Arguments allArguments()
+    public CommandType commandType()
     {
-        return LoadCommand.arguments();
-    }
-
-    @Override
-    public String description()
-    {
-        return "Load a database from an archive. <archive-path> must be an archive created with the dump " +
-                "command. <database> is the name of the database to create. Existing databases can be replaced " +
-                "by specifying --force. It is not possible to replace a database that is mounted in a running " +
-                "Neo4j server.";
-    }
-
-    @Override
-    public String summary()
-    {
-        return "Load a database from an archive created with the dump command.";
-    }
-
-    @Override
-    public AdminCommandSection commandSection()
-    {
-        return OffineBackupCommandSection.instance();
-    }
-
-    @Override
-    public AdminCommand create( Path homeDir, Path configDir, OutsideWorld outsideWorld )
-    {
-        return new LoadCommand( homeDir, configDir, new Loader() );
+        return LOAD;
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,94 +19,30 @@
  */
 package org.neo4j.logging;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-public class DuplicatingLogTest
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+
+class DuplicatingLogTest
 {
+    final Log log1 = mock( Log.class );
+    final Log log2 = mock( Log.class );
+
     @Test
-    public void shouldOutputToMultipleLogs()
+    void shouldOutputToMultipleLogs()
     {
         // Given
-        AssertableLogProvider logProvider = new AssertableLogProvider();
-        Log log1 = logProvider.getLog( "log 1" );
-        Log log2 = logProvider.getLog( "log 2" );
-
         DuplicatingLog log = new DuplicatingLog( log1, log2 );
 
         // When
         log.info( "When the going gets weird" );
 
         // Then
-        logProvider.assertExactly(
-                AssertableLogProvider.inLog( "log 1" ).info( "When the going gets weird" ),
-                AssertableLogProvider.inLog( "log 2" ).info( "When the going gets weird" )
-        );
-    }
-
-    @Test
-    public void shouldBulkOutputToMultipleLogs()
-    {
-        // Given
-        AssertableLogProvider logProvider = new AssertableLogProvider();
-        Log log1 = logProvider.getLog( "log 1" );
-        Log log2 = logProvider.getLog( "log 2" );
-
-        DuplicatingLog log = new DuplicatingLog( log1, log2 );
-
-        // When
-        log.bulk( bulkLog -> bulkLog.info( "When the going gets weird" ) );
-
-        // Then
-        logProvider.assertExactly(
-                AssertableLogProvider.inLog( "log 1" ).info( "When the going gets weird" ),
-                AssertableLogProvider.inLog( "log 2" ).info( "When the going gets weird" )
-        );
-    }
-
-    @Test
-    public void shouldRemoveLogFromDuplication()
-    {
-        // Given
-        AssertableLogProvider logProvider = new AssertableLogProvider();
-        Log log1 = logProvider.getLog( "log 1" );
-        Log log2 = logProvider.getLog( "log 2" );
-
-        DuplicatingLog log = new DuplicatingLog( log1, log2 );
-
-        // When
-        log.info( "When the going gets weird" );
-        log.remove( log1 );
-        log.info( "The weird turn pro" );
-
-        // Then
-        logProvider.assertExactly(
-                AssertableLogProvider.inLog( "log 1" ).info( "When the going gets weird" ),
-                AssertableLogProvider.inLog( "log 2" ).info( "When the going gets weird" ),
-                AssertableLogProvider.inLog( "log 2" ).info( "The weird turn pro" )
-        );
-    }
-
-    @Test
-    public void shouldRemoveLoggersFromDuplication()
-    {
-        // Given
-        AssertableLogProvider logProvider = new AssertableLogProvider();
-        Log log1 = logProvider.getLog( "log 1" );
-        Log log2 = logProvider.getLog( "log 2" );
-
-        DuplicatingLog log = new DuplicatingLog( log1, log2 );
-        Logger logger = log.infoLogger();
-
-        // When
-        logger.log( "When the going gets weird" );
-        log.remove( log1 );
-        logger.log( "The weird turn pro" );
-
-        // Then
-        logProvider.assertExactly(
-                AssertableLogProvider.inLog( "log 1" ).info( "When the going gets weird" ),
-                AssertableLogProvider.inLog( "log 2" ).info( "When the going gets weird" ),
-                AssertableLogProvider.inLog( "log 2" ).info( "The weird turn pro" )
-        );
+        verify( log1 ).info( "When the going gets weird" );
+        verify( log2 ).info( "When the going gets weird" );
+        verifyNoMoreInteractions( log1 );
+        verifyNoMoreInteractions( log2 );
     }
 }

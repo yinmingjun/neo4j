@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -25,11 +25,11 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileLock;
 import java.nio.channels.GatheringByteChannel;
 import java.nio.channels.InterruptibleChannel;
+import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.ScatteringByteChannel;
 import java.nio.channels.SeekableByteChannel;
 
-public interface StoreChannel
-        extends Flushable, SeekableByteChannel, GatheringByteChannel, ScatteringByteChannel, InterruptibleChannel
+public interface StoreChannel extends Flushable, SeekableByteChannel, GatheringByteChannel, ScatteringByteChannel, InterruptibleChannel
 {
     /**
      * Attempts to acquire an exclusive lock on this channel's file.
@@ -38,12 +38,6 @@ public interface StoreChannel
      * @throws java.nio.channels.ClosedChannelException if the channel is closed.
      */
     FileLock tryLock() throws IOException;
-
-    /**
-     * NOTE: If you want to write bytes to disk, use #writeAll(), this does not guarantee all bytes will be written,
-     * and you are responsible for handling the return value of this call (which tells you how many bytes were written).
-     */
-    int write( ByteBuffer src, long position ) throws IOException;
 
     /**
      * Same as #write(), except this method will write the full contents of the buffer in chunks if the OS fails to
@@ -62,9 +56,49 @@ public interface StoreChannel
      */
     int read( ByteBuffer dst, long position ) throws IOException;
 
+    /**
+     * Try to Read a sequence of bytes from channel into the given buffer, till the buffer will be full.
+     * In case if end of channel will be reached during reading {@link IllegalStateException} will be thrown.
+     *
+     * @param dst destination buffer.
+     * @throws IOException if an I/O exception occurs.
+     * @throws IllegalStateException if end of stream reached during reading.
+     * @see ReadableByteChannel#read(ByteBuffer)
+     */
+    void readAll( ByteBuffer dst ) throws IOException;
+
     void force( boolean metaData ) throws IOException;
 
+    @Override
     StoreChannel position( long newPosition ) throws IOException;
 
+    @Override
     StoreChannel truncate( long size ) throws IOException;
+
+    /**
+     * Get the OS file descriptor for this channel.
+     * @return the file descriptor.
+     */
+    int getFileDescriptor();
+
+    /**
+     * Returns {@code true} if {@link #getPositionLock} returns a valid position lock object.
+     * @return {@code true} if this channel has a valid position lock.
+     */
+    boolean hasPositionLock();
+
+    /**
+     * Return the position lock object for this channel, if any.
+     * This method only returns something meaningful if {@link #hasPositionLock()} returns {@code true}.
+     * The position lock object works by synchronizing on the object.
+     * The file position is guaranteed to not be concurrently modified by other threads in the critical section.
+     * @return The position lock object, if any.
+     */
+    Object getPositionLock();
+
+    /**
+     * Make this channel uninterruptible, if possible.
+     * An uninterruptible channel will not automatically close itself if a calling thread is interrupted before or during an IO operation.
+     */
+    void tryMakeUninterruptible();
 }

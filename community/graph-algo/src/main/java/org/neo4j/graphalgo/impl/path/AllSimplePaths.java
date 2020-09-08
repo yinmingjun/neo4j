@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,14 +19,15 @@
  */
 package org.neo4j.graphalgo.impl.path;
 
+import org.neo4j.graphalgo.EvaluationContext;
 import org.neo4j.graphdb.PathExpander;
 import org.neo4j.graphdb.traversal.Uniqueness;
 
 public class AllSimplePaths extends AllPaths
 {
-    public AllSimplePaths( int maxDepth, PathExpander expander )
+    public AllSimplePaths( EvaluationContext context, int maxDepth, PathExpander expander )
     {
-        super( maxDepth, expander );
+        super( context, maxDepth, expander );
     }
 
     @Override

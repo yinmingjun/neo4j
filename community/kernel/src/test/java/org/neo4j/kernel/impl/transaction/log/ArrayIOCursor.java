@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,8 +19,6 @@
  */
 package org.neo4j.kernel.impl.transaction.log;
 
-import java.io.IOException;
-
 import org.neo4j.cursor.IOCursor;
 
 /**
@@ -29,7 +27,7 @@ import org.neo4j.cursor.IOCursor;
 public class ArrayIOCursor<T> implements IOCursor<T>
 {
     private final T[] entries;
-    private int pos = 0;
+    private int pos;
     private boolean closed;
 
     public ArrayIOCursor( T... entries )
@@ -45,14 +43,14 @@ public class ArrayIOCursor<T> implements IOCursor<T>
     }
 
     @Override
-    public boolean next() throws IOException
+    public boolean next()
     {
         assert !closed;
         return pos++ < entries.length;
     }
 
     @Override
-    public void close() throws IOException
+    public void close()
     {
         closed = true;
     }

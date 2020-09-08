@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,43 +19,40 @@
  */
 package org.neo4j.server.configuration;
 
-import java.io.File;
-import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Map;
-import java.util.Optional;
 
-import org.neo4j.dbms.DatabaseManagementSystemSettings;
+import org.neo4j.configuration.GraphDatabaseSettings;
 import org.neo4j.graphdb.config.Setting;
-import org.neo4j.helpers.collection.MapUtil;
-import org.neo4j.server.ServerTestUtils;
+import org.neo4j.internal.helpers.collection.MapUtil;
+import org.neo4j.server.WebContainerTestUtils;
 
 public class ConfigFileBuilder
 {
-    private final File directory;
+    private final Path directory;
     private final Map<String,String> config;
 
-    public static ConfigFileBuilder builder( File directory )
+    public static ConfigFileBuilder builder( Path directory )
     {
         return new ConfigFileBuilder( directory );
     }
 
-    private ConfigFileBuilder( File directory )
+    private ConfigFileBuilder( Path directory )
     {
         this.directory = directory;
 
         //initialize config with defaults that doesn't pollute
         //workspace with generated data
         this.config = MapUtil.stringMap(
-                DatabaseManagementSystemSettings.data_directory.name(), directory.getAbsolutePath() + "/data",
-                ServerSettings.management_api_path.name(), "http://localhost:7474/db/manage/",
-                ServerSettings.rest_api_path.name(), "http://localhost:7474/db/data/" );
+                GraphDatabaseSettings.data_directory.name(), directory.toAbsolutePath().toString() + "/data",
+                ServerSettings.db_api_path.name(), "http://localhost:7474/db/data/" );
     }
 
-    public Optional<File> build() throws IOException
+    public Path build()
     {
-        File file = new File( directory, "config" );
-        ServerTestUtils.writeConfigToFile( config, file );
-        return Optional.of( file );
+        Path path = directory.resolve( "config" );
+        WebContainerTestUtils.writeConfigToFile( config, path );
+        return path;
     }
 
     public ConfigFileBuilder withNameValue( String name, String value )
@@ -64,13 +61,13 @@ public class ConfigFileBuilder
         return this;
     }
 
-    public ConfigFileBuilder withSetting( Setting setting, String value )
+    public ConfigFileBuilder withSetting( Setting<?> setting, String value )
     {
         config.put( setting.name(), value );
         return this;
     }
 
-    public ConfigFileBuilder withoutSetting( Setting setting )
+    public ConfigFileBuilder withoutSetting( Setting<?> setting )
     {
         config.remove( setting.name() );
         return this;

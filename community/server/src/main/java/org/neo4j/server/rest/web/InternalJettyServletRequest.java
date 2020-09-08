@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,11 +19,11 @@
  */
 package org.neo4j.server.rest.web;
 
+import org.eclipse.jetty.http.HttpFields;
 import org.eclipse.jetty.http.HttpURI;
-import org.eclipse.jetty.server.HttpChannelState;
+import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Response;
-import org.eclipse.jetty.server.handler.RequestLogHandler;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -40,7 +40,6 @@ import javax.servlet.ReadListener;
 import javax.servlet.ServletInputStream;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.core.MediaType;
 
 import org.neo4j.string.UTF8;
@@ -51,7 +50,7 @@ public class InternalJettyServletRequest extends Request
     {
 
         private final byte[] bytes;
-        private int position = 0;
+        private int position;
         private ReadListener readListener;
 
         Input( String data )
@@ -59,11 +58,12 @@ public class InternalJettyServletRequest extends Request
             bytes = UTF8.encode( data );
         }
 
+        @Override
         public int read() throws IOException
         {
             if ( bytes.length > position )
             {
-                return (int) bytes[position++];
+                return bytes[position++];
             }
 
             if ( readListener != null )
@@ -81,7 +81,7 @@ public class InternalJettyServletRequest extends Request
 
         public long contentRead()
         {
-            return (long) position;
+            return position;
         }
 
         @Override
@@ -110,24 +110,6 @@ public class InternalJettyServletRequest extends Request
             }
         }
     }
-
-    private static final HttpChannelState DUMMY_HTTP_CHANNEL_STATE = new HttpChannelState( null )
-    {
-        /**
-         * This method is called when request logging is turned on.
-         * It is done to examine if the request is a continuation request in
-         * {@link RequestLogHandler#handle(String, Request, HttpServletRequest, HttpServletResponse)} method.
-         * If this request is a continuation and it is the one that started the call than it is simply logged,
-         * else a listener is installed on a continuation completion and this listener does the actual logging.
-         *
-         * We do not use the continuations/async requests so always return false in this method.
-         */
-        @Override
-        public boolean isAsync()
-        {
-            return false;
-        }
-    };
 
     private final Map<String, Object> headers;
     private final Cookie[] cookies;
@@ -163,13 +145,13 @@ public class InternalJettyServletRequest extends Request
 
         this.headers = new HashMap<>();
 
-        setUri( uri );
         setCharacterEncoding( encoding );
-        setRequestURI( null );
-        setQueryString( null );
-
-        setScheme(uri.getScheme());
         setDispatcherType( DispatcherType.REQUEST );
+
+        MetaData.Request request = new MetaData.Request( new HttpFields() );
+        request.setMethod( method );
+        request.setURI( uri );
+        setMetaData( request );
     }
 
     @Override
@@ -184,18 +166,20 @@ public class InternalJettyServletRequest extends Request
         return contentType;
     }
 
+    @Override
     public void setContentType( String contentType )
     {
         this.contentType = contentType;
     }
 
+    @Override
     public long getContentRead()
     {
         return input.contentRead();
     }
 
     @Override
-    public ServletInputStream getInputStream() throws IOException
+    public ServletInputStream getInputStream()
     {
         return input;
     }
@@ -207,7 +191,7 @@ public class InternalJettyServletRequest extends Request
     }
 
     @Override
-    public BufferedReader getReader() throws IOException
+    public BufferedReader getReader()
     {
         return inputReader;
     }
@@ -267,9 +251,21 @@ public class InternalJettyServletRequest extends Request
         return cookies;
     }
 
-    public void addHeader(String header, String value)
+    public void addHeader( String header, String value )
     {
-        headers.put(header, value);
+        headers.put( header, value );
+    }
+
+    @Override
+    public boolean isAsyncSupported()
+    {
+        return false;
+    }
+
+    @Override
+    public boolean isAsyncStarted()
+    {
+        return false;
     }
 
     @Override
@@ -356,13 +352,7 @@ public class InternalJettyServletRequest extends Request
     @Override
     public String toString()
     {
-        return String.format( "%s %s %s\n%s", getMethod(), getUri(), getProtocol(), getHttpFields() );
-    }
-
-    @Override
-    public HttpChannelState getHttpChannelState()
-    {
-        return DUMMY_HTTP_CHANNEL_STATE;
+        return String.format( "%s %s %s\n%s", getMethod(), this.getHttpURI(), getProtocol(), getHttpFields() );
     }
 
     public static class RequestData

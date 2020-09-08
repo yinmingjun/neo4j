@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -56,6 +56,11 @@ public interface PageCacheCounters
     long flushes();
 
     /**
+     * @return The number of page merges observed so far
+     */
+    long merges();
+
+    /**
      * @return The sum total of bytes read in through page faults thus far.
      */
     long bytesRead();
@@ -79,4 +84,15 @@ public interface PageCacheCounters
      * @return The number of page evictions that have thrown exceptions thus far.
      */
     long evictionExceptions();
+
+    /**
+     * @return The cache hit ratio observed thus far.
+     */
+    double hitRatio();
+
+    /**
+     * @return The current usage ration of number of used pages to the total number of pages or {@code 0} if it cannot
+     * be determined.
+     */
+    double usageRatio();
 }

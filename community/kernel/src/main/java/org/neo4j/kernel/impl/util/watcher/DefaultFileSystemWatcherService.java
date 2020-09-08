@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,7 +22,8 @@ package org.neo4j.kernel.impl.util.watcher;
 import java.util.concurrent.ThreadFactory;
 
 import org.neo4j.io.fs.watcher.FileWatcher;
-import org.neo4j.kernel.impl.util.JobScheduler;
+import org.neo4j.scheduler.Group;
+import org.neo4j.scheduler.JobScheduler;
 
 /**
  * Factory used for construction of proper adaptor for available {@link FileWatcher}.
@@ -45,13 +46,13 @@ public class DefaultFileSystemWatcherService implements FileSystemWatcherService
     }
 
     @Override
-    public void init() throws Throwable
+    public void init()
     {
-        fileWatchers = jobScheduler.threadFactory( JobScheduler.Groups.fileWatch );
+        fileWatchers = jobScheduler.threadFactory( Group.FILE_WATCHER );
     }
 
     @Override
-    public void start() throws Throwable
+    public synchronized void start()
     {
         assert watcher == null;
         watcher = fileWatchers.newThread( eventWatcher );
@@ -59,7 +60,7 @@ public class DefaultFileSystemWatcherService implements FileSystemWatcherService
     }
 
     @Override
-    public void stop() throws Throwable
+    public synchronized void stop() throws Exception
     {
         eventWatcher.stopWatching();
         if ( watcher != null )
@@ -71,7 +72,7 @@ public class DefaultFileSystemWatcherService implements FileSystemWatcherService
     }
 
     @Override
-    public void shutdown() throws Throwable
+    public void shutdown() throws Exception
     {
         fileWatcher.close();
     }

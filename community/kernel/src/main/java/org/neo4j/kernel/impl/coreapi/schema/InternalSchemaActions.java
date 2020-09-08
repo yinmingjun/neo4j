@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,16 +19,15 @@
  */
 package org.neo4j.kernel.impl.coreapi.schema;
 
+import org.neo4j.exceptions.KernelException;
 import org.neo4j.graphdb.Label;
 import org.neo4j.graphdb.RelationshipType;
 import org.neo4j.graphdb.schema.ConstraintDefinition;
 import org.neo4j.graphdb.schema.IndexDefinition;
-import org.neo4j.kernel.api.exceptions.KernelException;
-import org.neo4j.kernel.api.exceptions.schema.AlreadyConstrainedException;
-import org.neo4j.kernel.api.exceptions.schema.AlreadyIndexedException;
-import org.neo4j.kernel.api.exceptions.schema.CreateConstraintFailureException;
-import org.neo4j.kernel.api.exceptions.schema.IllegalTokenNameException;
-import org.neo4j.kernel.api.exceptions.schema.TooManyLabelsException;
+import org.neo4j.graphdb.schema.IndexType;
+import org.neo4j.internal.schema.ConstraintDescriptor;
+import org.neo4j.internal.schema.IndexConfig;
+import org.neo4j.internal.schema.IndexDescriptor;
 
 /**
  * Implementations are used to configure {@link IndexCreatorImpl} and {@link BaseNodeConstraintCreator} for re-use
@@ -36,34 +35,25 @@ import org.neo4j.kernel.api.exceptions.schema.TooManyLabelsException;
  */
 public interface InternalSchemaActions
 {
-    IndexDefinition createIndexDefinition( Label label, String... propertyKey );
+    IndexDefinition createIndexDefinition( Label[] label, String indexName, IndexType indexType, IndexConfig indexConfig, String... propertyKey );
+
+    IndexDefinition createIndexDefinition( RelationshipType[] types, String indexName, IndexType indexType, IndexConfig indexConfig, String... propertyKey );
 
     void dropIndexDefinitions( IndexDefinition indexDefinition );
 
-    ConstraintDefinition createPropertyUniquenessConstraint( IndexDefinition indexDefinition )
-            throws IllegalTokenNameException, TooManyLabelsException, CreateConstraintFailureException,
-            AlreadyConstrainedException, AlreadyIndexedException;
+    ConstraintDefinition createPropertyUniquenessConstraint( IndexDefinition indexDefinition, String name, IndexType indexType, IndexConfig indexConfig );
 
-    ConstraintDefinition createNodeKeyConstraint( IndexDefinition indexDefinition )
-            throws IllegalTokenNameException, TooManyLabelsException, CreateConstraintFailureException,
-            AlreadyConstrainedException, AlreadyIndexedException;
+    ConstraintDefinition createNodeKeyConstraint( IndexDefinition indexDefinition, String name, IndexType indexType, IndexConfig indexConfig );
 
-    ConstraintDefinition createPropertyExistenceConstraint( Label label, String... propertyKey )
-            throws IllegalTokenNameException, TooManyLabelsException, CreateConstraintFailureException,
-            AlreadyConstrainedException;
+    ConstraintDefinition createPropertyExistenceConstraint( String name, Label label, String... propertyKey );
 
-    ConstraintDefinition createPropertyExistenceConstraint( RelationshipType type, String propertyKey )
-            throws CreateConstraintFailureException, AlreadyConstrainedException;
+    ConstraintDefinition createPropertyExistenceConstraint( String name, RelationshipType type, String propertyKey );
 
-    void dropPropertyUniquenessConstraint( Label label, String[] properties );
-
-    void dropNodeKeyConstraint( Label label, String[] properties );
-
-    void dropNodePropertyExistenceConstraint( Label label, String[] properties );
-
-    void dropRelationshipPropertyExistenceConstraint( RelationshipType type, String propertyKey );
+    void dropConstraint( ConstraintDescriptor constraint );
 
     String getUserMessage( KernelException e );
+
+    String getUserDescription( IndexDescriptor index );
 
     void assertInOpenTransaction();
 }

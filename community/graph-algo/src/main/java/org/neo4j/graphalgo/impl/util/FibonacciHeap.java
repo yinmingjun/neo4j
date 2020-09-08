@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -34,7 +34,6 @@ import java.util.List;
  * KeyType parameter, all it needs is a comparator for that type. To achieve the
  * stated running times, it is needed that this comparator can do comparisons in
  * constant time (usually the case).
- * @author Patrik Larsson
  * @param <KeyType>
  *            The datatype to be stored in this heap.
  */
@@ -47,10 +46,13 @@ public class FibonacciHeap<KeyType>
      */
     public class FibonacciHeapNode
     {
-        FibonacciHeapNode left, right, parent, child;
-        boolean marked = false;
+        FibonacciHeapNode left;
+        FibonacciHeapNode right;
+        FibonacciHeapNode parent;
+        FibonacciHeapNode child;
+        boolean marked;
         KeyType key;
-        int degree = 0;
+        int degree;
 
         public FibonacciHeapNode( KeyType key )
         {
@@ -71,7 +73,7 @@ public class FibonacciHeap<KeyType>
 
     Comparator<KeyType> keyComparator;
     FibonacciHeapNode minimum;
-    int nrNodes = 0;
+    int nrNodes;
 
     public FibonacciHeap( Comparator<KeyType> keyComparator )
     {
@@ -228,13 +230,12 @@ public class FibonacciHeap<KeyType>
         // arraySize = (int) Math.log( (double) nrNodes )+1;
         // FibonacciHeapNode[] A = (FibonacciHeapNode[]) new Object[arraySize];
         // FibonacciHeapNode[] A = new FibonacciHeapNode[arraySize];
-        ArrayList<FibonacciHeapNode> A = new ArrayList<FibonacciHeapNode>(
-            arraySize );
+        List<FibonacciHeapNode> nodes = new ArrayList<>( arraySize );
         for ( int i = 0; i < arraySize; ++i )
         {
-            A.add( null );
+            nodes.add( null );
         }
-        List<FibonacciHeapNode> rootNodes = new LinkedList<FibonacciHeapNode>();
+        List<FibonacciHeapNode> rootNodes = new LinkedList<>();
         rootNodes.add( minimum );
         for ( FibonacciHeapNode n = minimum.right; !n.equals( minimum ); n = n.right )
         {
@@ -248,9 +249,9 @@ public class FibonacciHeap<KeyType>
                 continue;
             }
             int d = node.degree;
-            while ( A.get( d ) != null )
+            while ( nodes.get( d ) != null )
             {
-                FibonacciHeapNode y = A.get( d );
+                FibonacciHeapNode y = nodes.get( d );
                 // swap?
                 if ( keyComparator.compare( node.key, y.key ) > 0 )
                 {
@@ -259,15 +260,15 @@ public class FibonacciHeap<KeyType>
                     y = tmp;
                 }
                 link( y, node );
-                A.set( d, null );
+                nodes.set( d, null );
                 ++d;
             }
-            A.set( d, node );
+            nodes.set( d, node );
         }
         // throw away the root list
         minimum = null;
         // and rebuild it from A
-        for ( FibonacciHeapNode node : A )
+        for ( FibonacciHeapNode node : nodes )
         {
             if ( node != null )
             {
@@ -307,7 +308,7 @@ public class FibonacciHeap<KeyType>
     /**
      * Raises the priority for an entry.
      * @param node
-     *            The entry to recieve a higher priority.
+     *            The entry to receive a higher priority.
      * @param newKey
      *            The new value.
      */

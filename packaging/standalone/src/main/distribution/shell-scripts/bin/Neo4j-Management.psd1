@@ -1,5 +1,5 @@
-# Copyright (c) 2002-2016 "Neo Technology,"
-# Network Engine for Objects in Lund AB [http://neotechnology.com]
+# Copyright (c) 2002-2020 "Neo4j,"
+# Neo4j Sweden AB [http://neo4j.com]
 #
 # This file is part of Neo4j.
 #
@@ -15,7 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#
+
 # Module manifest for module 'Neo4j-Management'
 #
 
@@ -40,9 +40,7 @@ NestedModules = @('Neo4j-Management\Neo4j-Management.psm1')
 FunctionsToExport = @(
 'Invoke-Neo4j',
 'Invoke-Neo4jAdmin',
-'Invoke-Neo4jShell',
-'Invoke-Neo4jBackup',
-'Invoke-Neo4jImport'
+'Get-Args'
 )
 
 CmdletsToExport = ''

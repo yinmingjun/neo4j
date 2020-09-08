@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,82 +19,63 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeoutException;
 
-import org.neo4j.helpers.FutureAdapter;
-import org.neo4j.kernel.api.ReadOperations;
-import org.neo4j.kernel.api.exceptions.index.IndexNotFoundKernelException;
-import org.neo4j.kernel.api.index.InternalIndexState;
-import org.neo4j.kernel.api.index.SchemaIndexProvider;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.kernel.configuration.Config;
-import org.neo4j.kernel.extension.KernelExtensionFactory;
-import org.neo4j.kernel.impl.spi.KernelContext;
+import org.neo4j.configuration.Config;
+import org.neo4j.internal.kernel.api.InternalIndexState;
+import org.neo4j.internal.kernel.api.SchemaRead;
+import org.neo4j.internal.kernel.api.exceptions.schema.IndexNotFoundKernelException;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.kernel.api.index.IndexProvider;
+import org.neo4j.kernel.extension.ExtensionFactory;
+import org.neo4j.kernel.extension.ExtensionType;
+import org.neo4j.kernel.extension.context.ExtensionContext;
 import org.neo4j.kernel.lifecycle.Lifecycle;
+import org.neo4j.kernel.recovery.RecoveryExtension;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 public class SchemaIndexTestHelper
 {
-    public static KernelExtensionFactory<SingleInstanceSchemaIndexProviderFactoryDependencies> singleInstanceSchemaIndexProviderFactory(
-            String key, final SchemaIndexProvider provider )
+    private SchemaIndexTestHelper()
     {
-        return new SingleInstanceSchemaIndexProviderFactory( key, provider );
     }
 
-    public interface SingleInstanceSchemaIndexProviderFactoryDependencies
+    public static ExtensionFactory<SingleInstanceIndexProviderFactoryDependencies> singleInstanceIndexProviderFactory(
+            String key, final IndexProvider provider )
+    {
+        return new SingleInstanceIndexProviderFactory( key, provider );
+    }
+
+    public interface SingleInstanceIndexProviderFactoryDependencies
     {
         Config config();
     }
 
-    private static class SingleInstanceSchemaIndexProviderFactory
-        extends KernelExtensionFactory<SingleInstanceSchemaIndexProviderFactoryDependencies>
+    @RecoveryExtension
+    private static class SingleInstanceIndexProviderFactory
+        extends ExtensionFactory<SingleInstanceIndexProviderFactoryDependencies>
     {
-        private final SchemaIndexProvider provider;
+        private final IndexProvider provider;
 
-        private SingleInstanceSchemaIndexProviderFactory( String key, SchemaIndexProvider provider )
+        private SingleInstanceIndexProviderFactory( String key, IndexProvider provider )
         {
-            super( key );
+            super( ExtensionType.DATABASE, key );
             this.provider = provider;
         }
 
         @Override
-        public Lifecycle newInstance( KernelContext context,
-                SingleInstanceSchemaIndexProviderFactoryDependencies dependencies ) throws Throwable
+        public Lifecycle newInstance( ExtensionContext context,
+                SingleInstanceIndexProviderFactoryDependencies dependencies )
         {
             return provider;
         }
     }
 
-    public static IndexProxy mockIndexProxy() throws IOException
+    public static IndexProxy mockIndexProxy()
     {
-        IndexProxy result = mock( IndexProxy.class );
-        when( result.drop() ).thenReturn( FutureAdapter.VOID );
-        when( result.close() ).thenReturn( FutureAdapter.VOID );
-        return result;
-    }
-
-    public static <T> T awaitFuture( Future<T> future )
-    {
-        try
-        {
-            return future.get( 10, SECONDS );
-        }
-        catch ( InterruptedException e )
-        {
-            Thread.interrupted();
-            throw new RuntimeException( e );
-        }
-        catch ( ExecutionException | TimeoutException e )
-        {
-            throw new RuntimeException( e );
-        }
+        return mock( IndexProxy.class );
     }
 
     public static boolean awaitLatch( CountDownLatch latch )
@@ -110,16 +91,12 @@ public class SchemaIndexTestHelper
         }
     }
 
-    public static void awaitIndexOnline( ReadOperations readOperations, IndexDescriptor index )
+    public static void awaitIndexOnline( SchemaRead schemaRead, IndexDescriptor index )
             throws IndexNotFoundKernelException
     {
         long start = System.currentTimeMillis();
-        while ( true )
+        while ( schemaRead.indexGetState( index ) != InternalIndexState.ONLINE )
         {
-            if ( readOperations.indexGetState( index ) == InternalIndexState.ONLINE )
-            {
-                break;
-            }
 
             if ( start + 1000 * 10 < System.currentTimeMillis() )
             {

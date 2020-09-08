@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,6 +21,7 @@ package org.neo4j.codegen;
 
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,7 +88,7 @@ public class MethodTemplate
                     ExpressionTemplate.invokeSuperConstructor( new ExpressionTemplate[]{}, TypeReference.NO_TYPES ) );
         }
 
-        public Builder invokeSuper( ExpressionTemplate[] parameters, Class<?>[] parameterTypes)
+        public Builder invokeSuper( ExpressionTemplate[] parameters, Class<?>[] parameterTypes )
         {
             TypeReference[] references = new TypeReference[parameterTypes.length];
             for ( int i = 0; i < parameterTypes.length; i++ )
@@ -98,7 +99,7 @@ public class MethodTemplate
             return invokeSuper( parameters, references );
         }
 
-        public Builder invokeSuper( ExpressionTemplate[] parameters, TypeReference[] parameterTypes)
+        public Builder invokeSuper( ExpressionTemplate[] parameters, TypeReference[] parameterTypes )
         {
             return expression( ExpressionTemplate.invokeSuperConstructor( parameters, parameterTypes ) );
         }
@@ -131,7 +132,7 @@ public class MethodTemplate
             }
             else
             {
-                this.parameters = parameters.clone();
+                this.parameters = Arrays.copyOf( parameters, parameters.length );
             }
             for ( int i = 0; i < this.parameters.length; i++ )
             {
@@ -164,7 +165,7 @@ public class MethodTemplate
             return this;
         }
 
-        public Builder modiferes(int modifiers)
+        public Builder modifiers( int modifiers )
         {
             this.modifiers = modifiers;
             return this;
@@ -244,7 +245,7 @@ public class MethodTemplate
         this.name = name;
         this.declaration = builder.declaration();
         this.parameters = builder.parameters;
-        this.statements = builder.statements.toArray( new Statement[builder.statements.size()] );
+        this.statements = builder.statements.toArray( new Statement[0] );
         this.modifiers = builder.modifiers;
     }
 }

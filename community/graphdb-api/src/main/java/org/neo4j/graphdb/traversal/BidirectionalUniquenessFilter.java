@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -34,5 +34,5 @@ public interface BidirectionalUniquenessFilter extends UniquenessFilter
      * @return {@code true} if the {@code path} fulfills the uniqueness contract,
      *         otherwise {@code false}.
      */
-    boolean checkFull(Path path);
+    boolean checkFull( Path path );
 }

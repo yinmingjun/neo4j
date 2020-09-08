@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,24 +19,22 @@
  */
 package org.neo4j.dbms;
 
-import java.io.File;
+import org.junit.jupiter.api.Test;
 
-import org.junit.Test;
+import java.nio.file.Path;
 
-import org.neo4j.kernel.configuration.Config;
+import org.neo4j.configuration.Config;
+import org.neo4j.configuration.GraphDatabaseInternalSettings;
+import org.neo4j.configuration.GraphDatabaseSettings;
 
-import static org.hamcrest.core.IsEqual.equalTo;
-import static org.junit.Assert.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
-import static org.neo4j.helpers.collection.MapUtil.stringMap;
-
-public class DatabaseManagementSystemSettingsTest
+class DatabaseManagementSystemSettingsTest
 {
     @Test
-    public void shouldPutDatabaseDirectoriesIntoDataDatabases()
+    void shouldPutDatabasesDirectoriesIntoData()
     {
-        Config config = Config.embeddedDefaults( stringMap( DatabaseManagementSystemSettings.data_directory.name(), "the-data-directory" ) );
-        assertThat( config.get( DatabaseManagementSystemSettings.database_path ),
-                equalTo( new File( "the-data-directory/databases/graph.db" ) ) );
+        Config config = Config.defaults( GraphDatabaseSettings.data_directory, Path.of( "the-data-directory" ) );
+        assertThat( config.get( GraphDatabaseInternalSettings.databases_root_path ) ).isEqualTo( Path.of( "the-data-directory/databases/" ).toAbsolutePath() );
     }
 }

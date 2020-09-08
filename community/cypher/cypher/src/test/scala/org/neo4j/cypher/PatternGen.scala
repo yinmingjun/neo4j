@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,20 +21,24 @@ package org.neo4j.cypher
 
 import java.util.concurrent.atomic.AtomicInteger
 
-import org.neo4j.cypher.internal.frontend.v3_2.SemanticDirection
-import org.neo4j.cypher.internal.frontend.v3_2.SemanticDirection.{BOTH, INCOMING, OUTGOING}
-import org.scalacheck.Gen._
-import org.scalacheck.{Gen, Shrink}
+import org.neo4j.cypher.internal.expressions.SemanticDirection
+import org.neo4j.cypher.internal.expressions.SemanticDirection.BOTH
+import org.neo4j.cypher.internal.expressions.SemanticDirection.INCOMING
+import org.neo4j.cypher.internal.expressions.SemanticDirection.OUTGOING
+import org.scalacheck.Gen
+import org.scalacheck.Gen.alphaLowerChar
+import org.scalacheck.Gen.alphaUpperChar
+import org.scalacheck.Shrink
 import org.scalatest.prop.PropertyChecks
 
-trait PatternGen extends  PropertyChecks {
+trait PatternGen extends PropertyChecks {
   protected def minPatternLength = 2
   protected def maxPatternLength = 8
   protected def numberOfTestRuns = 100
   protected def maxDiscardedInputs = 500
   protected def maxSize = 10
 
-  override implicit val generatorDrivenConfig = PropertyCheckConfig(
+  override implicit val generatorDrivenConfig: PropertyCheckConfiguration = PropertyCheckConfig(
     minSuccessful = numberOfTestRuns, maxDiscarded = maxDiscardedInputs, maxSize = maxSize
   )
 

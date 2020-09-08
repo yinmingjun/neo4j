@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,49 +19,49 @@
  */
 package org.neo4j.harness.internal;
 
-import java.util.LinkedList;
+import java.util.ArrayList;
 import java.util.List;
 
-import org.neo4j.kernel.api.exceptions.KernelException;
-import org.neo4j.kernel.impl.proc.Procedures;
+import org.neo4j.exceptions.KernelException;
+import org.neo4j.kernel.api.procedure.GlobalProcedures;
 
-public class HarnessRegisteredProcs
+class HarnessRegisteredProcs
 {
-    private final List<Class<?>> procs = new LinkedList<>();
-    private final List<Class<?>> functions = new LinkedList<>();
-    private final List<Class<?>> aggregationFunctions = new LinkedList<>();
+    private final List<Class<?>> procs = new ArrayList<>();
+    private final List<Class<?>> functions = new ArrayList<>();
+    private final List<Class<?>> aggregationFunctions = new ArrayList<>();
 
-    public void addProcedure( Class<?> procedureClass )
+    void addProcedure( Class<?> procedureClass )
     {
         this.procs.add( procedureClass );
     }
 
-    public void addFunction( Class<?> functionClass )
+    void addFunction( Class<?> functionClass )
     {
         this.functions.add( functionClass );
     }
 
-    public void addAggregationFunction( Class<?> functionClass )
+    void addAggregationFunction( Class<?> functionClass )
     {
         this.aggregationFunctions.add( functionClass );
     }
 
     @SuppressWarnings( "deprecation" )
-    public void applyTo( Procedures procedures ) throws KernelException
+    void applyTo( GlobalProcedures globalProcedures ) throws KernelException
     {
         for ( Class<?> cls : procs )
         {
-            procedures.registerProcedure( cls );
+            globalProcedures.registerProcedure( cls );
         }
 
         for ( Class<?> cls : functions )
         {
-            procedures.registerFunction( cls );
+            globalProcedures.registerFunction( cls );
         }
 
         for ( Class<?> cls : aggregationFunctions )
         {
-            procedures.registerAggregationFunction( cls );
+            globalProcedures.registerAggregationFunction( cls );
         }
     }
 }

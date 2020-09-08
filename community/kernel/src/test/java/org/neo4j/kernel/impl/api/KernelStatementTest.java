@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,68 +19,151 @@
  */
 package org.neo4j.kernel.impl.api;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
+import org.neo4j.configuration.Config;
 import org.neo4j.graphdb.NotInTransactionException;
-import org.neo4j.graphdb.TransactionTerminatedException;
-import org.neo4j.kernel.api.exceptions.Status;
-import org.neo4j.kernel.api.txstate.TxStateHolder;
-import org.neo4j.kernel.impl.factory.AccessCapability;
-import org.neo4j.kernel.impl.factory.CanWrite;
-import org.neo4j.kernel.impl.locking.LockTracer;
-import org.neo4j.kernel.impl.proc.Procedures;
-import org.neo4j.storageengine.api.StorageStatement;
+import org.neo4j.io.pagecache.tracing.DefaultPageCacheTracer;
+import org.neo4j.io.pagecache.tracing.cursor.DefaultPageCursorTracer;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.io.pagecache.tracing.cursor.context.EmptyVersionContextSupplier;
+import org.neo4j.kernel.api.query.ExecutingQuery;
+import org.neo4j.kernel.database.TestDatabaseIdRepository;
+import org.neo4j.kernel.impl.locking.SimpleStatementLocks;
+import org.neo4j.kernel.impl.locking.StatementLocks;
+import org.neo4j.kernel.impl.locking.community.CommunityLockClient;
+import org.neo4j.lock.LockTracer;
+import org.neo4j.resources.CpuClock;
+import org.neo4j.time.Clocks;
+import org.neo4j.values.virtual.MapValue;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.neo4j.kernel.api.security.SecurityContext.AUTH_DISABLED;
 
-public class KernelStatementTest
+class KernelStatementTest
 {
-    @Test(expected = TransactionTerminatedException.class)
-    public void shouldThrowTerminateExceptionWhenTransactionTerminated() throws Exception
-    {
-        KernelTransactionImplementation transaction = mock( KernelTransactionImplementation.class );
-        when( transaction.getReasonIfTerminated() ).thenReturn( Optional.of( Status.Transaction.Terminated ) );
-        when( transaction.securityContext() ).thenReturn( AUTH_DISABLED );
-
-        KernelStatement statement = new KernelStatement( transaction, null, mock( StorageStatement.class ), null, new CanWrite(),
-                LockTracer.NONE );
-        statement.acquire();
-
-        statement.readOperations().nodeExists( 0 );
-    }
+    private final AtomicReference<CpuClock> cpuClockRef = new AtomicReference<>( CpuClock.NOT_AVAILABLE );
 
     @Test
-    public void shouldReleaseStorageStatementWhenForceClosed() throws Exception
+    void shouldReleaseResourcesWhenForceClosed()
     {
         // given
-        StorageStatement storeStatement = mock( StorageStatement.class );
-        KernelStatement statement = new KernelStatement( mock( KernelTransactionImplementation.class ),
-                null, storeStatement, new Procedures(), new CanWrite(), LockTracer.NONE );
+        KernelTransactionImplementation transaction = mock( KernelTransactionImplementation.class );
+        when( transaction.isSuccess() ).thenReturn( true );
+        KernelStatement statement = createStatement( transaction );
         statement.acquire();
 
         // when
-        statement.forceClose();
+        assertThrows( KernelStatement.StatementNotClosedException.class, statement::forceClose );
 
         // then
-        verify( storeStatement ).release();
+        verify( transaction ).releaseStatementResources();
     }
 
-    @Test(expected = NotInTransactionException.class)
-    public void assertStatementIsNotOpenWhileAcquireIsNotInvoked()
+    @Test
+    void assertStatementIsNotOpenWhileAcquireIsNotInvoked()
     {
         KernelTransactionImplementation transaction = mock( KernelTransactionImplementation.class );
-        TxStateHolder txStateHolder = mock( TxStateHolder.class );
-        StorageStatement storeStatement = mock( StorageStatement.class );
-        AccessCapability accessCapability = mock( AccessCapability.class );
-        Procedures procedures = mock( Procedures.class );
-        KernelStatement statement = new KernelStatement( transaction, txStateHolder,
-                storeStatement, procedures, accessCapability, LockTracer.NONE );
+        KernelStatement statement = createStatement( transaction );
 
-        statement.assertOpen();
+        assertThrows( NotInTransactionException.class, statement::assertOpen );
+    }
+
+    @Test
+    void reportQueryWaitingTimeToTransactionStatisticWhenFinishQueryExecution()
+    {
+        KernelTransactionImplementation transaction = mock( KernelTransactionImplementation.class );
+
+        KernelTransactionImplementation.Statistics statistics = new KernelTransactionImplementation.Statistics( transaction, cpuClockRef );
+        when( transaction.getStatistics() ).thenReturn( statistics );
+        when( transaction.executingQuery() ).thenReturn( Optional.empty() );
+
+        KernelStatement statement = createStatement( transaction );
+        statement.acquire();
+
+        ExecutingQuery query = getQueryWithWaitingTime();
+        ExecutingQuery query2 = getQueryWithWaitingTime();
+        ExecutingQuery query3 = getQueryWithWaitingTime();
+
+        statement.stopQueryExecution( query );
+        statement.stopQueryExecution( query2 );
+        statement.stopQueryExecution( query3 );
+
+        assertEquals( 3, statistics.getWaitingTimeNanos( 1 ) );
+    }
+
+    @Test
+    void emptyPageCacheStatisticOnClosedStatement()
+    {
+        var transaction = mock( KernelTransactionImplementation.class, RETURNS_DEEP_STUBS );
+        try ( var statement = createStatement( transaction ) )
+        {
+            var cursorTracer = new DefaultPageCursorTracer( new DefaultPageCacheTracer(), "test" );
+            statement.initialize( Mockito.mock( StatementLocks.class ), cursorTracer, 100 );
+            statement.acquire();
+
+            cursorTracer.beginPin( false, 1, null ).hit();
+            cursorTracer.beginPin( false, 1, null ).hit();
+            cursorTracer.beginPin( false, 1, null ).beginPageFault().done();
+            assertEquals( 2, statement.getHits() );
+            assertEquals( 1, statement.getFaults() );
+
+            statement.close();
+
+            assertEquals( 0, statement.getHits() );
+            assertEquals( 0, statement.getFaults() );
+        }
+    }
+
+    @Test
+    void trackSequentialQueriesInStatement()
+    {
+        var queryFactory = new ExecutingQueryFactory( Clocks.nanoClock(), cpuClockRef, Config.defaults() );
+        var transaction = mock( KernelTransactionImplementation.class, RETURNS_DEEP_STUBS );
+        var statement = createStatement( transaction );
+        statement.initialize( new SimpleStatementLocks( mock( CommunityLockClient.class ) ), PageCursorTracer.NULL, 100 );
+
+        var query1 = queryFactory.createForStatement( statement, "test1", MapValue.EMPTY );
+        var query2 = queryFactory.createForStatement( statement, "test2", MapValue.EMPTY );
+        var query3 = queryFactory.createForStatement( statement, "test3", MapValue.EMPTY );
+
+        statement.startQueryExecution( query1 );
+        statement.startQueryExecution( query2 );
+        assertSame( query2, statement.executingQuery().orElseThrow() );
+
+        statement.startQueryExecution( query3 );
+        assertSame( query3, statement.executingQuery().orElseThrow() );
+
+        statement.stopQueryExecution( query3 );
+        assertSame( query2, statement.executingQuery().orElseThrow() );
+
+        statement.stopQueryExecution( query2 );
+        assertSame( query1, statement.executingQuery().orElseThrow() );
+
+        statement.stopQueryExecution( query1 );
+        assertFalse( statement.executingQuery().isPresent() );
+    }
+
+    private KernelStatement createStatement( KernelTransactionImplementation transaction )
+    {
+        return new KernelStatement( transaction, LockTracer.NONE, new ClockContext(), EmptyVersionContextSupplier.EMPTY,
+                                    cpuClockRef, new TestDatabaseIdRepository().defaultDatabase(), Config.defaults() );
+    }
+
+    private static ExecutingQuery getQueryWithWaitingTime()
+    {
+        ExecutingQuery executingQuery = mock( ExecutingQuery.class );
+        when( executingQuery.reportedWaitingTimeNanos() ).thenReturn( 1L );
+        return executingQuery;
     }
 }

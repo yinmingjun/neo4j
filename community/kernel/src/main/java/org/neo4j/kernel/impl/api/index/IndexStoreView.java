@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,21 +19,19 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import java.util.Collection;
 import java.util.function.IntPredicate;
 
-import org.neo4j.collection.primitive.PrimitiveIntSet;
-import org.neo4j.helpers.collection.Visitor;
-import org.neo4j.kernel.api.exceptions.EntityNotFoundException;
-import org.neo4j.kernel.api.index.IndexEntryUpdate;
-import org.neo4j.kernel.api.index.PropertyAccessor;
-import org.neo4j.kernel.api.labelscan.NodeLabelUpdate;
-import org.neo4j.kernel.api.properties.Property;
-import org.neo4j.register.Register.DoubleLongRegister;
-import org.neo4j.storageengine.api.schema.PopulationProgress;
+import org.neo4j.internal.helpers.collection.Visitor;
+import org.neo4j.internal.kernel.api.PopulationProgress;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.memory.MemoryTracker;
+import org.neo4j.storageengine.api.EntityTokenUpdate;
+import org.neo4j.storageengine.api.EntityUpdates;
+import org.neo4j.storageengine.api.IndexEntryUpdate;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
 
 /** The indexing services view of the universe. */
-public interface IndexStoreView extends PropertyAccessor, PropertyLoader
+public interface IndexStoreView
 {
     /**
      * Retrieve all nodes in the database which has got one or more of the given labels AND
@@ -42,39 +40,43 @@ public interface IndexStoreView extends PropertyAccessor, PropertyLoader
      *
      * @param labelIds array of label ids to generate updates for. Empty array means all.
      * @param propertyKeyIdFilter property key ids to generate updates for.
-     * @param propertyUpdateVisitor visitor which will see all generated {@link NodeUpdates}.
-     * @param labelUpdateVisitor visitor which will see all generated {@link NodeLabelUpdate}.
+     * @param propertyUpdateVisitor visitor which will see all generated {@link EntityUpdates}.
+     * @param labelUpdateVisitor visitor which will see all generated {@link EntityTokenUpdate}.
      * @param forceStoreScan overrides decision about which source to scan from. If {@code true}
      * then store scan will be used, otherwise if {@code false} then the best suited will be used.
+     * @param cursorTracer underlying page cursor events tracer.
      * @return a {@link StoreScan} to start and to stop the scan.
      */
     <FAILURE extends Exception> StoreScan<FAILURE> visitNodes(
             int[] labelIds, IntPredicate propertyKeyIdFilter,
-            Visitor<NodeUpdates, FAILURE> propertyUpdateVisitor,
-            Visitor<NodeLabelUpdate, FAILURE> labelUpdateVisitor,
-            boolean forceStoreScan );
+            Visitor<EntityUpdates, FAILURE> propertyUpdateVisitor,
+            Visitor<EntityTokenUpdate, FAILURE> labelUpdateVisitor,
+            boolean forceStoreScan, PageCursorTracer cursorTracer, MemoryTracker memoryTracker );
 
     /**
-     * Produces {@link NodeUpdates} objects from reading node {@code nodeId}, its labels and properties
-     * and puts those updates into {@code target}.
+     * Retrieve all relationships in the database which has any of the the given relationship types AND
+     * one or more of the given property key ids.
      *
-     * @param nodeId id of node to load.
-     * @param target {@link Collection} to add updates into.
+     * @param relationshipTypeIds array of relationship type ids to generate updates for. Empty array means all.
+     * @param propertyKeyIdFilter property key ids to generate updates for.
+     * @param propertyUpdateVisitor visitor which will see all generated {@link EntityUpdates}
+     * @param relationshipTypeUpdateVisitor visitor which will see all generated {@link EntityTokenUpdate}.
+     * @param forceStoreScan overrides decision about which source to scan from. If {@code true}
+     * then store scan will be used, otherwise if {@code false} then the best suited will be used.
+     * @param cursorTracer underlying page cursor events tracer.
+     * @return a {@link StoreScan} to start and to stop the scan.
      */
-    void nodeAsUpdates( long nodeId, Collection<NodeUpdates> target );
+    <FAILURE extends Exception> StoreScan<FAILURE> visitRelationships( int[] relationshipTypeIds, IntPredicate propertyKeyIdFilter,
+            Visitor<EntityUpdates,FAILURE> propertyUpdateVisitor, Visitor<EntityTokenUpdate,FAILURE> relationshipTypeUpdateVisitor,
+            boolean forceStoreScan, PageCursorTracer cursorTracer, MemoryTracker memoryTracker );
 
-    DoubleLongRegister indexUpdatesAndSize( long indexId, DoubleLongRegister output );
+    NodePropertyAccessor newPropertyAccessor( PageCursorTracer cursorTracer, MemoryTracker memoryTracker );
 
-    DoubleLongRegister indexSample( long indexId, DoubleLongRegister output );
-
-    void replaceIndexCounts( long indexId, long uniqueElements, long maxUniqueElements, long indexSize );
-
-    void incrementIndexUpdates( long indexId, long updatesDelta );
-
+    @SuppressWarnings( "rawtypes" )
     StoreScan EMPTY_SCAN = new StoreScan()
     {
         @Override
-        public void run() throws Exception
+        public void run()
         {
         }
 
@@ -94,61 +96,34 @@ public interface IndexStoreView extends PropertyAccessor, PropertyLoader
         {
             return PopulationProgress.DONE;
         }
-
-        @Override
-        public void configure( Collection collection )
-        {
-        }
     };
 
-    IndexStoreView EMPTY = new IndexStoreView()
+    IndexStoreView EMPTY = new Adaptor();
+
+    class Adaptor implements IndexStoreView
     {
-        @Override
-        public void loadProperties( long nodeId, PrimitiveIntSet propertyIds, PropertyLoadSink sink )
-        {
-        }
-
-        @Override
-        public Property getProperty( long nodeId, int propertyKeyId ) throws EntityNotFoundException
-        {
-            return Property.noNodeProperty( nodeId, propertyKeyId );
-        }
-
+        @SuppressWarnings( "unchecked" )
         @Override
         public <FAILURE extends Exception> StoreScan<FAILURE> visitNodes( int[] labelIds,
-                IntPredicate propertyKeyIdFilter, Visitor<NodeUpdates,FAILURE> propertyUpdateVisitor,
-                Visitor<NodeLabelUpdate,FAILURE> labelUpdateVisitor, boolean forceStoreScan )
+                IntPredicate propertyKeyIdFilter, Visitor<EntityUpdates,FAILURE> propertyUpdateVisitor,
+                Visitor<EntityTokenUpdate,FAILURE> labelUpdateVisitor, boolean forceStoreScan, PageCursorTracer cursorTracer, MemoryTracker memoryTracker )
+        {
+            return EMPTY_SCAN;
+        }
+
+        @SuppressWarnings( "unchecked" )
+        @Override
+        public <FAILURE extends Exception> StoreScan<FAILURE> visitRelationships( int[] relationshipTypeIds, IntPredicate propertyKeyIdFilter,
+                Visitor<EntityUpdates,FAILURE> propertyUpdateVisitor, Visitor<EntityTokenUpdate,FAILURE> relationshipTypeUpdateVisitor,
+                boolean forceStoreScan, PageCursorTracer cursorTracer, MemoryTracker memoryTracker )
         {
             return EMPTY_SCAN;
         }
 
         @Override
-        public void replaceIndexCounts( long indexId, long uniqueElements, long maxUniqueElements,
-                long indexSize )
+        public NodePropertyAccessor newPropertyAccessor( PageCursorTracer cursorTracer, MemoryTracker memoryTracker )
         {
+            return NodePropertyAccessor.EMPTY;
         }
-
-        @Override
-        public void nodeAsUpdates( long nodeId, Collection<NodeUpdates> target )
-        {
-        }
-
-        @Override
-        public DoubleLongRegister indexUpdatesAndSize( long indexId, DoubleLongRegister output )
-        {
-            return output;
-        }
-
-        @Override
-        public DoubleLongRegister indexSample( long indexId, DoubleLongRegister output )
-        {
-            return output;
-        }
-
-        @Override
-        public void incrementIndexUpdates( long indexId, long updatesDelta )
-        {
-        }
-
-    };
+    }
 }

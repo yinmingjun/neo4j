@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,112 +19,91 @@
  */
 package org.neo4j.kernel.impl.transaction.log;
 
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.zip.Checksum;
 
-import org.neo4j.graphdb.mockfs.EphemeralFileSystemAbstraction;
-import org.neo4j.io.fs.FileSystemAbstraction;
+import org.neo4j.io.fs.ChecksumMismatchException;
+import org.neo4j.io.fs.EphemeralFileSystemAbstraction;
+import org.neo4j.io.fs.ReadAheadChannel;
+import org.neo4j.io.fs.ReadPastEndException;
 import org.neo4j.io.fs.StoreChannel;
-import org.neo4j.storageengine.api.ReadPastEndException;
-import org.neo4j.test.rule.fs.EphemeralFileSystemRule;
+import org.neo4j.io.memory.ByteBuffers;
+import org.neo4j.io.memory.HeapScopedBuffer;
+import org.neo4j.io.memory.NativeScopedBuffer;
+import org.neo4j.io.memory.ScopedBuffer;
+import org.neo4j.test.extension.EphemeralFileSystemExtension;
+import org.neo4j.test.extension.Inject;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.neo4j.io.fs.ChecksumWriter.CHECKSUM_FACTORY;
+import static org.neo4j.io.fs.ReadAheadChannel.DEFAULT_READ_AHEAD_SIZE;
+import static org.neo4j.memory.EmptyMemoryTracker.INSTANCE;
 
-public class ReadAheadChannelTest
+@ExtendWith( EphemeralFileSystemExtension.class )
+class ReadAheadChannelTest
 {
-    @Rule
-    public final EphemeralFileSystemRule fileSystemRule = new EphemeralFileSystemRule();
+    @Inject
+    protected EphemeralFileSystemAbstraction fileSystem;
 
-    @Test
-    public void shouldThrowExceptionForReadAfterEOFIfNotEnoughBytesExist() throws Exception
+    @ParameterizedTest
+    @EnumSource( Constructors.class )
+    void shouldThrowExceptionForReadAfterEOFIfNotEnoughBytesExist( Constructor constructor ) throws Exception
     {
         // Given
-        FileSystemAbstraction fileSystem = fileSystemRule.get();
-        StoreChannel storeChannel = fileSystem.open( new File( "foo.txt" ), "rw" );
-        ByteBuffer buffer = ByteBuffer.allocate( 1 );
+        File bytesReadTestFile = new File( "bytesReadTest.txt" );
+        StoreChannel storeChannel = fileSystem.write( bytesReadTestFile.toPath() );
+        ByteBuffer buffer = ByteBuffers.allocate( 1, INSTANCE );
         buffer.put( (byte) 1 );
         buffer.flip();
         storeChannel.writeAll( buffer );
         storeChannel.force( false );
         storeChannel.close();
 
-        storeChannel = fileSystem.open( new File( "foo.txt" ), "r" );
+        storeChannel = fileSystem.read( bytesReadTestFile.toPath() );
 
-        ReadAheadChannel<StoreChannel> channel = new ReadAheadChannel<>( storeChannel );
+        ReadAheadChannel<StoreChannel> channel = constructor.apply( storeChannel, DEFAULT_READ_AHEAD_SIZE );
         assertEquals( (byte) 1, channel.get() );
 
-        try
-        {
-            channel.get();
-            fail( "Should have thrown exception signalling end of file reached" );
-        }
-        catch ( ReadPastEndException endOfFile )
-        {
-            // outstanding
-        }
-
-        try
-        {
-            channel.get();
-            fail( "Should have thrown exception signalling end of file reached" );
-        }
-        catch ( ReadPastEndException endOfFile )
-        {
-            // outstanding
-        }
+        assertThrows( ReadPastEndException.class, channel::get );
+        assertThrows( ReadPastEndException.class, channel::get );
     }
 
-    @Test
-    public void shouldReturnValueIfSufficientBytesAreBufferedEvenIfEOFHasBeenEncountered() throws Exception
+    @ParameterizedTest
+    @EnumSource( Constructors.class )
+    void shouldReturnValueIfSufficientBytesAreBufferedEvenIfEOFHasBeenEncountered( Constructor constructor ) throws Exception
     {
         // Given
-        FileSystemAbstraction fileSystem = fileSystemRule.get();
-        StoreChannel storeChannel = fileSystem.open( new File( "foo.txt" ), "rw" );
-        ByteBuffer buffer = ByteBuffer.allocate( 1 );
+        File shortReadTestFile = new File( "shortReadTest.txt" );
+        StoreChannel storeChannel = fileSystem.write( shortReadTestFile.toPath() );
+        ByteBuffer buffer = ByteBuffers.allocate( 1, INSTANCE );
         buffer.put( (byte) 1 );
         buffer.flip();
         storeChannel.writeAll( buffer );
         storeChannel.force( false );
         storeChannel.close();
 
-        storeChannel = fileSystem.open( new File( "foo.txt" ), "r" );
-        ReadAheadChannel<StoreChannel> channel = new ReadAheadChannel<>( storeChannel );
+        storeChannel = fileSystem.read( shortReadTestFile.toPath() );
+        ReadAheadChannel<StoreChannel> channel = constructor.apply( storeChannel, DEFAULT_READ_AHEAD_SIZE );
 
-        try
-        {
-            channel.getShort();
-            fail("Should have thrown exception signalling end of file reached");
-        }
-        catch ( ReadPastEndException endOfFile )
-        {
-            // outstanding
-        }
-
+        assertThrows( ReadPastEndException.class, channel::getShort );
         assertEquals( (byte) 1, channel.get() );
-
-        try
-        {
-            channel.get();
-            fail( "Should have thrown exception signalling end of file reached" );
-        }
-        catch ( ReadPastEndException endOfFile )
-        {
-            // outstanding
-        }
+        assertThrows( ReadPastEndException.class, channel::get );
     }
 
-    @Test
-    public void shouldHandleRunningOutOfBytesWhenRequestSpansMultipleFiles() throws Exception
+    @ParameterizedTest
+    @EnumSource( Constructors.class )
+    void shouldHandleRunningOutOfBytesWhenRequestSpansMultipleFiles( Constructor constructor ) throws Exception
     {
         // Given
-        FileSystemAbstraction fileSystem = fileSystemRule.get();
-        StoreChannel storeChannel1 = fileSystem.open( new File( "foo.1" ), "rw" );
-        ByteBuffer buffer = ByteBuffer.allocate( 2 );
+        StoreChannel storeChannel1 = fileSystem.write( new File( "foo.1" ).toPath() );
+        ByteBuffer buffer = ByteBuffers.allocate( 2, INSTANCE );
         buffer.put( (byte) 0 );
         buffer.put( (byte) 0 );
         buffer.flip();
@@ -134,7 +113,7 @@ public class ReadAheadChannelTest
 
         buffer.flip();
 
-        StoreChannel storeChannel2 = fileSystem.open( new File( "foo.2" ), "r" );
+        StoreChannel storeChannel2 = fileSystem.read( new File( "foo.2" ).toPath() );
         buffer.put( (byte) 0 );
         buffer.put( (byte) 1 );
         buffer.flip();
@@ -142,53 +121,29 @@ public class ReadAheadChannelTest
         storeChannel2.force( false );
         storeChannel2.close();
 
-        storeChannel1 = fileSystem.open( new File( "foo.1" ), "r" );
-        final StoreChannel storeChannel2Copy = fileSystem.open( new File( "foo.2" ), "r" );
+        storeChannel1 = fileSystem.read( new File( "foo.1" ).toPath() );
+        final StoreChannel storeChannel2Copy = fileSystem.read( new File( "foo.2" ).toPath() );
 
-        ReadAheadChannel<StoreChannel> channel = new ReadAheadChannel<StoreChannel>( storeChannel1 )
-        {
-            @Override
-            protected StoreChannel next( StoreChannel channel ) throws IOException
-            {
-                return storeChannel2Copy;
-            }
-        };
+        HookedReadAheadChannel channel = constructor.apply( storeChannel1, DEFAULT_READ_AHEAD_SIZE );
+        channel.nextChannelHook = storeChannel2Copy;
 
-        try
-        {
-            channel.getLong();
-            fail("Should have thrown exception signalling end of file reached");
-        }
-        catch ( ReadPastEndException endOfFile )
-        {
-            // outstanding
-        }
-
+        assertThrows( ReadPastEndException.class, channel::getLong );
         assertEquals( 1, channel.getInt() );
-
-        try
-        {
-            channel.get();
-            fail("Should have thrown exception signalling end of file reached");
-        }
-        catch ( ReadPastEndException endOfFile )
-        {
-            // outstanding
-        }
+        assertThrows( ReadPastEndException.class, channel::get );
     }
 
-    @Test
-    public void shouldReturnPositionWithinBufferedStream() throws Exception
+    @ParameterizedTest
+    @EnumSource( Constructors.class )
+    void shouldReturnPositionWithinBufferedStream( Constructor constructor ) throws Exception
     {
         // given
-        EphemeralFileSystemAbstraction fsa = fileSystemRule.get();
         File file = new File( "foo.txt" );
 
         int readAheadSize = 512;
         int fileSize = readAheadSize * 8;
 
-        createFile( fsa, file, fileSize );
-        ReadAheadChannel<StoreChannel> bufferedReader = new ReadAheadChannel<>( fsa.open( file, "r" ), readAheadSize );
+        createFile( fileSystem, file, fileSize );
+        ReadAheadChannel<StoreChannel> bufferedReader = constructor.apply( fileSystem.read( file.toPath() ), readAheadSize );
 
         // when
         for ( int i = 0; i < fileSize / Long.BYTES; i++ )
@@ -198,24 +153,107 @@ public class ReadAheadChannelTest
         }
 
         assertEquals( fileSize, bufferedReader.position() );
-
-        try
-        {
-            bufferedReader.getLong();
-            fail();
-        }
-        catch ( ReadPastEndException e )
-        {
-            // expected
-        }
-
+        assertThrows( ReadPastEndException.class, bufferedReader::getLong );
         assertEquals( fileSize, bufferedReader.position() );
+    }
+
+    @ParameterizedTest
+    @EnumSource( Constructors.class )
+    void validateChecksumOverStream( Constructor constructor ) throws Exception
+    {
+        // given
+        Checksum checksum = CHECKSUM_FACTORY.get();
+        int checksumValue;
+        File file = new File( "foo.1" );
+        try ( StoreChannel storeChannel = fileSystem.write( file.toPath() ) )
+        {
+            ByteBuffer buffer = ByteBuffers.allocate( 6, INSTANCE );
+            buffer.put( (byte) 1 );
+            checksum.update( 1 );
+            buffer.put( (byte) 2 );
+            checksum.update( 2 );
+            checksumValue = (int) checksum.getValue();
+            buffer.putInt( checksumValue );
+            buffer.flip();
+            storeChannel.writeAll( buffer );
+            storeChannel.force( false );
+        }
+
+        ReadAheadChannel<StoreChannel> bufferedReader = constructor.apply( fileSystem.read( file.toPath() ), DEFAULT_READ_AHEAD_SIZE );
+
+        assertEquals( 1, bufferedReader.get() );
+        assertEquals( 2, bufferedReader.get() );
+        assertEquals( checksumValue, bufferedReader.endChecksumAndValidate() );
+        assertEquals( 6, bufferedReader.position() );
+    }
+
+    @ParameterizedTest
+    @EnumSource( Constructors.class )
+    void throwOnInvalidChecksum( Constructor constructor ) throws Exception
+    {
+        // given
+        Checksum checksum = CHECKSUM_FACTORY.get();
+        File file = new File( "foo.1" );
+        try ( StoreChannel storeChannel = fileSystem.write( file.toPath() ) )
+        {
+            ByteBuffer buffer = ByteBuffers.allocate( 6, INSTANCE );
+            buffer.put( (byte) 1 );
+            checksum.update( 1 );
+            buffer.put( (byte) 2 );
+            checksum.update( 2 );
+            int notChecksumValue = (int) checksum.getValue() + 1;
+            buffer.putInt( notChecksumValue );
+            buffer.flip();
+            storeChannel.writeAll( buffer );
+            storeChannel.force( false );
+        }
+
+        ReadAheadChannel<StoreChannel> bufferedReader = constructor.apply( fileSystem.read( file.toPath() ), DEFAULT_READ_AHEAD_SIZE );
+
+        assertEquals( 1, bufferedReader.get() );
+        assertEquals( 2, bufferedReader.get() );
+        assertThrows( ChecksumMismatchException.class, bufferedReader::endChecksumAndValidate );
+    }
+
+    @ParameterizedTest
+    @EnumSource( Constructors.class )
+    void checksumIsCalculatedCorrectlyOverBuffersLargerThanReadAheadSize( Constructor constructor ) throws Exception
+    {
+        // given
+        Checksum checksum = CHECKSUM_FACTORY.get();
+        int checksumValue;
+        File file = new File( "foo.1" );
+        int testSize = 100;
+        try ( StoreChannel storeChannel = fileSystem.write( file.toPath() ) )
+        {
+            ByteBuffer buffer = ByteBuffers.allocate( testSize + 4, INSTANCE );
+            for ( int i = 0; i < testSize; i++ )
+            {
+                buffer.put( (byte) i );
+                checksum.update( i );
+            }
+            checksumValue = (int) checksum.getValue();
+            buffer.putInt( checksumValue );
+            buffer.flip();
+            storeChannel.writeAll( buffer );
+            storeChannel.force( false );
+        }
+
+        ReadAheadChannel<StoreChannel> bufferedReader = constructor.apply( fileSystem.read( file.toPath() ), testSize / 2 );
+
+        byte[] in = new byte[testSize];
+        bufferedReader.get( in, testSize );
+        for ( int i = 0; i < testSize; i++ )
+        {
+            assertEquals( i, in[i] );
+        }
+        assertEquals( checksumValue, bufferedReader.endChecksumAndValidate() );
     }
 
     private void createFile( EphemeralFileSystemAbstraction fsa, File name, int bufferSize ) throws IOException
     {
-        StoreChannel storeChannel = fsa.open( name, "w" );
-        ByteBuffer buffer = ByteBuffer.allocate( bufferSize );
+        StoreChannel storeChannel = fsa.write( name.toPath() );
+        ByteBuffer buffer = ByteBuffers.allocate( bufferSize, INSTANCE );
         for ( int i = 0; i < bufferSize; i++ )
         {
             buffer.put( (byte) i );
@@ -223,5 +261,52 @@ public class ReadAheadChannelTest
         buffer.flip();
         storeChannel.writeAll( buffer );
         storeChannel.close();
+    }
+
+    private static class HookedReadAheadChannel extends ReadAheadChannel<StoreChannel>
+    {
+        StoreChannel nextChannelHook;
+
+        HookedReadAheadChannel( StoreChannel channel, ScopedBuffer scopedBuffer )
+        {
+            super( channel, scopedBuffer );
+        }
+
+        @Override
+        protected StoreChannel next( StoreChannel channel ) throws IOException
+        {
+            if ( nextChannelHook != null )
+            {
+                StoreChannel next = nextChannelHook;
+                nextChannelHook = null;
+                return next;
+            }
+            return super.next( channel );
+        }
+    }
+
+    interface Constructor
+    {
+        HookedReadAheadChannel apply( StoreChannel channel, int readAheadSize );
+    }
+
+    enum Constructors implements Constructor
+    {
+        HEAP_BUFFER
+                {
+                    @Override
+                    public HookedReadAheadChannel apply( StoreChannel channel, int readAheadSize )
+                    {
+                        return new HookedReadAheadChannel( channel, new HeapScopedBuffer( readAheadSize, INSTANCE ) );
+                    }
+                },
+        DIRECT_BUFFER
+                {
+                    @Override
+                    public HookedReadAheadChannel apply( StoreChannel channel, int readAheadSize )
+                    {
+                        return new HookedReadAheadChannel( channel, new NativeScopedBuffer( readAheadSize, INSTANCE ) );
+                    }
+                },
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,9 +19,10 @@
  */
 package org.neo4j.bolt.testing;
 
-import org.neo4j.bolt.v1.runtime.BoltResponseHandler;
-import org.neo4j.bolt.v1.runtime.Neo4jError;
-import org.neo4j.bolt.v1.runtime.spi.BoltResult;
+import org.neo4j.bolt.runtime.BoltResponseHandler;
+import org.neo4j.bolt.runtime.BoltResult;
+import org.neo4j.bolt.runtime.Neo4jError;
+import org.neo4j.values.AnyValue;
 
 /**
  * Used by tests when the response for a request is not relevant.
@@ -40,19 +41,19 @@ public class NullResponseHandler implements BoltResponseHandler
     }
 
     @Override
-    public void onStart()
+    public boolean onPullRecords( BoltResult result, long size )
     {
-        // this page intentionally left blank
+        return false;
     }
 
     @Override
-    public void onRecords( BoltResult result, boolean pull ) throws Exception
+    public boolean onDiscardRecords( BoltResult result, long size )
     {
-        // this page intentionally left blank
+        return false;
     }
 
     @Override
-    public void onMetadata( String key, Object value )
+    public void onMetadata( String key, AnyValue value )
     {
         // this page intentionally left blank
     }

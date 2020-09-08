@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,27 +19,24 @@
  */
 package org.neo4j.server.security.auth;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
+import org.neo4j.cypher.internal.security.FormatException;
 import org.neo4j.io.fs.FileSystemAbstraction;
 import org.neo4j.kernel.impl.security.User;
 import org.neo4j.logging.Log;
 import org.neo4j.logging.LogProvider;
-import org.neo4j.server.security.auth.exception.FormatException;
-
-import static org.neo4j.server.security.auth.ListSnapshot.FROM_MEMORY;
-import static org.neo4j.server.security.auth.ListSnapshot.FROM_PERSISTED;
 
 /**
  * Stores user auth data. In memory, but backed by persistent storage so changes to this repository will survive
  * JVM restarts and crashes.
  */
-public class FileUserRepository extends AbstractUserRepository
+public class FileUserRepository extends AbstractUserRepository implements FileRepository
 {
-    private final File authFile;
+    private final Path authFile;
     private final FileSystemAbstraction fileSystem;
 
     // TODO: We could improve concurrency by using a ReadWriteLock
@@ -48,17 +45,20 @@ public class FileUserRepository extends AbstractUserRepository
 
     private final UserSerialization serialization = new UserSerialization();
 
-    public FileUserRepository( FileSystemAbstraction fileSystem, File file, LogProvider logProvider )
+    public FileUserRepository( FileSystemAbstraction fileSystem, Path path, LogProvider logProvider )
     {
         this.fileSystem = fileSystem;
-        this.authFile = file;
+        this.authFile = path;
         this.log = logProvider.getLog( getClass() );
     }
 
     @Override
-    public void start() throws Throwable
+    public void start() throws Exception
     {
         clear();
+
+        FileRepository.assertNotMigrated( authFile, fileSystem, log );
+
         ListSnapshot<User> onDiskUsers = readPersistedUsers();
         if ( onDiskUsers != null )
         {
@@ -75,29 +75,32 @@ public class FileUserRepository extends AbstractUserRepository
             List<User> readUsers;
             try
             {
+                log.debug( "Reading users from %s", authFile );
                 readTime = fileSystem.lastModifiedTime( authFile );
                 readUsers = serialization.loadRecordsFromFile( fileSystem, authFile );
             }
             catch ( FormatException e )
             {
                 log.error( "Failed to read authentication file \"%s\" (%s)",
-                        authFile.getAbsolutePath(), e.getMessage() );
+                        authFile.toAbsolutePath(), e.getMessage() );
                 throw new IllegalStateException( "Failed to read authentication file: " + authFile );
             }
 
-            return new ListSnapshot<>( readTime, readUsers, FROM_PERSISTED );
+            return new ListSnapshot<>( readTime, readUsers );
         }
+        log.debug( "Did not find any file named %s in %s", authFile.getFileName(), authFile.getParent() );
         return null;
     }
 
     @Override
     protected void persistUsers() throws IOException
     {
+        log.debug( "Persisting %s users into %s", users.size(), authFile );
         serialization.saveRecordsToFile( fileSystem, authFile, users );
     }
 
     @Override
-    public ListSnapshot<User> getPersistedSnapshot() throws IOException
+    public ListSnapshot<User> getSnapshot() throws IOException
     {
         if ( lastLoaded.get() < fileSystem.lastModifiedTime( authFile ) )
         {
@@ -105,7 +108,7 @@ public class FileUserRepository extends AbstractUserRepository
         }
         synchronized ( this )
         {
-            return new ListSnapshot<>( lastLoaded.get(), users.stream().collect( Collectors.toList() ), FROM_MEMORY );
+            return new ListSnapshot<>( lastLoaded.get(), new ArrayList<>( users ) );
         }
     }
 }

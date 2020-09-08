@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,21 +19,19 @@
  */
 package org.neo4j.kernel.impl.transaction.log.stresstest.workload;
 
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
-import org.neo4j.kernel.impl.api.TransactionHeaderInformation;
+import org.neo4j.kernel.impl.api.TestCommand;
 import org.neo4j.kernel.impl.api.TransactionToApply;
-import org.neo4j.kernel.impl.store.record.NodeRecord;
-import org.neo4j.kernel.impl.transaction.command.Command;
 import org.neo4j.kernel.impl.transaction.log.PhysicalTransactionRepresentation;
 import org.neo4j.storageengine.api.StorageCommand;
 
 import static java.lang.System.currentTimeMillis;
-import static org.neo4j.kernel.impl.transaction.TransactionHeaderInformationFactory.DEFAULT;
+import static org.neo4j.internal.kernel.api.security.AuthSubject.ANONYMOUS;
+import static org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer.NULL;
 
 class TransactionRepresentationFactory
 {
@@ -41,12 +39,9 @@ class TransactionRepresentationFactory
 
     TransactionToApply nextTransaction( long txId )
     {
-        PhysicalTransactionRepresentation representation =
-                new PhysicalTransactionRepresentation( createRandomCommands() );
-        TransactionHeaderInformation headerInfo = DEFAULT.create();
-        representation.setHeader( headerInfo.getAdditionalHeader(), headerInfo.getMasterId(),
-                headerInfo.getAuthorId(), headerInfo.getAuthorId(), txId, currentTimeMillis(), 42 );
-        return new TransactionToApply( representation );
+        PhysicalTransactionRepresentation representation = new PhysicalTransactionRepresentation( createRandomCommands() );
+        representation.setHeader( new byte[0], currentTimeMillis(), txId, currentTimeMillis(), 42, ANONYMOUS );
+        return new TransactionToApply( representation, NULL );
     }
 
     private Collection<StorageCommand> createRandomCommands()
@@ -62,22 +57,14 @@ class TransactionRepresentationFactory
 
     private static class CommandGenerator
     {
-        private NodeRecordGenerator nodeRecordGenerator = new NodeRecordGenerator();
+        private final ThreadLocalRandom random = ThreadLocalRandom.current();
 
-        Command nextCommand()
+        StorageCommand nextCommand()
         {
-            return new Command.NodeCommand(nodeRecordGenerator.nextRecord(), nodeRecordGenerator.nextRecord());
-        }
-    }
-
-    private static class NodeRecordGenerator
-    {
-
-        NodeRecord nextRecord()
-        {
-            ThreadLocalRandom random = ThreadLocalRandom.current();
-            return new NodeRecord( random.nextLong(), random.nextBoolean(), random.nextBoolean(),
-                    random.nextLong(), random.nextLong(), random.nextLong() );
+            int length = random.nextInt( 100 + 1 );
+            byte[] bytes = new byte[length];
+            random.nextBytes( bytes );
+            return new TestCommand( bytes );
         }
     }
 }

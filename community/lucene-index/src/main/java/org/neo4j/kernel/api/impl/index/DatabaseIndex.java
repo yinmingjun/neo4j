@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,19 +20,22 @@
 package org.neo4j.kernel.api.impl.index;
 
 import java.io.Closeable;
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 
 import org.neo4j.graphdb.ResourceIterator;
+import org.neo4j.internal.schema.IndexDescriptor;
 import org.neo4j.kernel.api.impl.index.backup.WritableIndexSnapshotFileIterator;
 import org.neo4j.kernel.api.impl.index.partition.AbstractIndexPartition;
+import org.neo4j.kernel.api.impl.schema.writer.LuceneIndexWriter;
+import org.neo4j.kernel.api.index.IndexReader;
 
 /**
  * Lucene index that may consist of one or multiple separate lucene indexes that are represented as independent
  * {@link AbstractIndexPartition partitions}.
  */
-public interface DatabaseIndex extends Closeable
+public interface DatabaseIndex<READER extends IndexReader> extends Closeable
 {
     /**
      * Creates new index.
@@ -83,10 +86,8 @@ public interface DatabaseIndex extends Closeable
 
     /**
      * Close index and deletes all it's partitions.
-     *
-     * @throws IOException
      */
-    void drop() throws IOException;
+    void drop();
 
     /**
      * Commits all index partitions.
@@ -109,7 +110,7 @@ public interface DatabaseIndex extends Closeable
      * @throws IOException
      * @see WritableIndexSnapshotFileIterator
      */
-    ResourceIterator<File> snapshot() throws IOException;
+    ResourceIterator<Path> snapshot() throws IOException;
 
     /**
      * Refresh all partitions to make newly inserted data visible for readers.
@@ -123,4 +124,33 @@ public interface DatabaseIndex extends Closeable
      * @return list of index partition
      */
     List<AbstractIndexPartition> getPartitions();
+
+    LuceneIndexWriter getIndexWriter();
+
+    READER getIndexReader() throws IOException;
+
+    IndexDescriptor getDescriptor();
+
+    /**
+     * Check if this index is marked as online.
+     *
+     * @return <code>true</code> if index is online, <code>false</code> otherwise
+     * @throws IOException
+     */
+    boolean isOnline() throws IOException;
+
+    /**
+     * Marks index as online by including "status" -> "online" map into commit metadata of the first partition.
+     *
+     * @throws IOException
+     */
+    void markAsOnline() throws IOException;
+
+    /**
+     * Writes the given failure message to the failure storage.
+     *
+     * @param failure the failure message.
+     * @throws IOException
+     */
+    void markAsFailed( String failure ) throws IOException;
 }

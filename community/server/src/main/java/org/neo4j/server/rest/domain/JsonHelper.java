@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,24 +19,34 @@
  */
 package org.neo4j.server.rest.domain;
 
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonLocation;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.MappingJsonFactory;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.io.IOException;
+import java.io.OutputStream;
 import java.io.StringWriter;
+import java.io.UncheckedIOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
-import org.codehaus.jackson.JsonGenerator;
-import org.codehaus.jackson.JsonLocation;
-import org.codehaus.jackson.JsonNode;
-import org.codehaus.jackson.map.ObjectMapper;
-
 import org.neo4j.server.rest.web.PropertyValueException;
 
-public class JsonHelper
+public final class JsonHelper
 {
-    static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final JsonFactory JSON_FACTORY = new MappingJsonFactory( OBJECT_MAPPER );
 
-    public static JsonNode jsonNode(String json) throws JsonParseException
+    private JsonHelper()
+    {
+    }
+
+    public static JsonNode jsonNode( String json ) throws JsonParseException
     {
         try
         {
@@ -49,15 +59,15 @@ public class JsonHelper
     }
 
     @SuppressWarnings( "unchecked" )
-    public static Map<String, Object> jsonToMap( String json ) throws JsonParseException
-    {
-        return (Map<String, Object>) readJson( json );
-    }
-
-    @SuppressWarnings( "unchecked" )
     public static List<Map<String, Object>> jsonToList( String json ) throws JsonParseException
     {
         return (List<Map<String, Object>>) readJson( json );
+    }
+
+    @SuppressWarnings( "unchecked" )
+    public static Map<String, Object> jsonToMap( String json ) throws JsonParseException
+    {
+        return (Map<String, Object>) readJson( json );
     }
 
     public static Object readJson( String json ) throws JsonParseException
@@ -66,11 +76,12 @@ public class JsonHelper
         {
             return OBJECT_MAPPER.readValue( json, Object.class );
         }
-        catch ( org.codehaus.jackson.JsonParseException e )
+        catch ( com.fasterxml.jackson.core.JsonParseException e )
         {
             String message = e.getMessage().split( "\\r?\\n" )[0];
             JsonLocation location = e.getLocation();
-            throw new JsonParseException( String.format( "%s [line: %d, column: %d]", message, location.getLineNr(), location.getColumnNr() ), e );
+            throw new JsonParseException( String.format( "%s [line: %d, column: %d]", message, location.getLineNr(),
+                    location.getColumnNr() ), e );
         }
         catch ( IOException e )
         {
@@ -105,17 +116,11 @@ public class JsonHelper
         try
         {
             StringWriter writer = new StringWriter();
-            try
-            {
-                JsonGenerator generator = OBJECT_MAPPER.getJsonFactory()
-                    .createJsonGenerator( writer )
-                    .useDefaultPrettyPrinter();
-                writeValue( generator, data );
-            }
-            finally
-            {
-                writer.close();
-            }
+            JsonGenerator generator = OBJECT_MAPPER.getFactory()
+                .createGenerator( writer )
+                .useDefaultPrettyPrinter();
+            writeValue( generator, data );
+
             return writer.getBuffer().toString();
         }
         catch ( IOException e )
@@ -129,8 +134,27 @@ public class JsonHelper
         OBJECT_MAPPER.writeValue( jgen, value );
     }
 
-    public static String prettyPrint( Object item ) throws IOException
+    public static String writeValueAsString( Object item )
     {
-        return OBJECT_MAPPER.writer().withDefaultPrettyPrinter().writeValueAsString( item );
+        try
+        {
+            return OBJECT_MAPPER.writeValueAsString( item );
+        }
+        catch ( JsonProcessingException e )
+        {
+            throw new UncheckedIOException( e );
+        }
+    }
+
+    public static JsonGenerator newJsonGenerator( OutputStream out )
+    {
+        try
+        {
+            return JSON_FACTORY.createGenerator( out );
+        }
+        catch ( IOException e )
+        {
+            throw new UncheckedIOException( e );
+        }
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,8 +19,10 @@
  */
 package org.neo4j.kernel.impl.locking.community;
 
-import org.neo4j.helpers.MathUtil;
-import org.neo4j.storageengine.api.lock.ResourceType;
+import java.util.Objects;
+
+import org.neo4j.internal.helpers.MathUtil;
+import org.neo4j.lock.ResourceType;
 
 public class LockResource
 {
@@ -47,18 +49,14 @@ public class LockResource
         {
             return false;
         }
-
         LockResource that = (LockResource) o;
         return resourceId == that.resourceId && resourceType.equals( that.resourceType );
-
     }
 
     @Override
     public int hashCode()
     {
-        int result = resourceType.hashCode();
-        result = 31 * result + (int) (resourceId ^ (resourceId >>> 32));
-        return result;
+        return Objects.hash( resourceType, resourceId );
     }
 
     @Override
@@ -82,7 +80,7 @@ public class LockResource
         return resourceId;
     }
 
-    public ResourceType type()
+    public ResourceType resourceType()
     {
         return resourceType;
     }

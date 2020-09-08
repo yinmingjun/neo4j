@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,280 +20,226 @@
 package org.neo4j.kernel.impl.query;
 
 import org.apache.commons.lang3.mutable.MutableObject;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 import org.mockito.internal.stubbing.defaultanswers.ReturnsDeepStubs;
 
-import java.util.Collections;
 import java.util.Optional;
 
-import org.neo4j.graphdb.DependencyResolver;
+import org.neo4j.common.DependencyResolver;
 import org.neo4j.graphdb.TransactionTerminatedException;
-import org.neo4j.io.pagecache.tracing.cursor.DefaultPageCursorTracer;
+import org.neo4j.internal.kernel.api.ExecutionStatistics;
+import org.neo4j.internal.kernel.api.connectioninfo.ClientConnectionInfo;
+import org.neo4j.internal.kernel.api.exceptions.TransactionFailureException;
+import org.neo4j.internal.kernel.api.security.SecurityContext;
 import org.neo4j.kernel.GraphDatabaseQueryService;
-import org.neo4j.kernel.api.ExecutionStatisticsOperations;
 import org.neo4j.kernel.api.KernelTransaction;
-import org.neo4j.kernel.api.QueryRegistryOperations;
+import org.neo4j.kernel.api.QueryRegistry;
 import org.neo4j.kernel.api.Statement;
 import org.neo4j.kernel.api.exceptions.Status;
 import org.neo4j.kernel.api.query.ExecutingQuery;
-import org.neo4j.kernel.api.security.SecurityContext;
-import org.neo4j.kernel.guard.Guard;
+import org.neo4j.kernel.database.NamedDatabaseId;
+import org.neo4j.kernel.database.TestDatabaseIdRepository;
 import org.neo4j.kernel.impl.api.KernelStatement;
-import org.neo4j.kernel.impl.core.ThreadToStatementContextBridge;
 import org.neo4j.kernel.impl.coreapi.InternalTransaction;
-import org.neo4j.kernel.impl.coreapi.PropertyContainerLocker;
+import org.neo4j.kernel.impl.factory.KernelTransactionFactory;
 import org.neo4j.kernel.impl.query.statistic.StatisticProvider;
 
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-public class Neo4jTransactionalContextTest
+class Neo4jTransactionalContextTest
 {
     private GraphDatabaseQueryService queryService;
-    private Guard guard;
-    private KernelStatement initialStatement;
-    private ConfiguredPageCursorTracer tracer;
-    private ThreadToStatementContextBridge txBridge;
+    private KernelStatement statement;
+    private ConfiguredExecutionStatistics statistics;
+    private final KernelTransactionFactory transactionFactory = mock( KernelTransactionFactory.class );
+    private final NamedDatabaseId namedDatabaseId = TestDatabaseIdRepository.randomNamedDatabaseId();
 
-    @Before
-    public void setUp()
+    @BeforeEach
+    void setUp()
     {
         setUpMocks();
     }
 
     @Test
-    public void checkKernelStatementOnCheck() throws Exception
+    void contextRollbackClosesAndRollbackTransaction()
     {
-        InternalTransaction initialTransaction = mock( InternalTransaction.class, new ReturnsDeepStubs() );
+        ExecutingQuery executingQuery = mock( ExecutingQuery.class );
+        InternalTransaction internalTransaction = mock( InternalTransaction.class, new ReturnsDeepStubs() );
+        KernelTransaction kernelTransaction = mockTransaction( statement );
+        when( internalTransaction.kernelTransaction() ).thenReturn( kernelTransaction );
 
         Neo4jTransactionalContext transactionalContext =
-            new Neo4jTransactionalContext(
-                null,
-                null,
-                guard,
-                null,
-                null,
-                initialTransaction, initialStatement,
-                null
-            );
+                new Neo4jTransactionalContext( null, internalTransaction, statement, executingQuery, transactionFactory );
 
-        transactionalContext.check();
+        transactionalContext.rollback();
 
-        verify( guard ).check( initialStatement );
+        verify( internalTransaction ).rollback();
+        assertFalse( transactionalContext.isOpen() );
     }
 
-    @SuppressWarnings( "ConstantConditions" )
     @Test
-    public void neverStopsExecutingQueryDuringCommitAndRestartTx()
+    void neverStopsExecutingQueryDuringCommitAndRestartTx() throws TransactionFailureException
     {
         // Given
-        KernelTransaction initialKTX = mock( KernelTransaction.class );
-        InternalTransaction initialTransaction = mock( InternalTransaction.class, new ReturnsDeepStubs() );
-        KernelTransaction.Type transactionType = KernelTransaction.Type.implicit;
+        KernelTransaction initialKTX = mockTransaction( statement );
+        InternalTransaction userTransaction = mock( InternalTransaction.class, new ReturnsDeepStubs() );
+        KernelTransaction.Type transactionType = KernelTransaction.Type.IMPLICIT;
         SecurityContext securityContext = SecurityContext.AUTH_DISABLED;
-        when( initialTransaction.transactionType() ).thenReturn( transactionType );
-        when( initialTransaction.securityContext() ).thenReturn( securityContext );
-        when( initialTransaction.terminationReason() ).thenReturn( Optional.empty() );
-        QueryRegistryOperations initialQueryRegistry = mock( QueryRegistryOperations.class );
+        ClientConnectionInfo connectionInfo = ClientConnectionInfo.EMBEDDED_CONNECTION;
+        when( userTransaction.transactionType() ).thenReturn( transactionType );
+        when( userTransaction.securityContext() ).thenReturn( securityContext );
+        when( userTransaction.terminationReason() ).thenReturn( Optional.empty() );
+        when( userTransaction.clientInfo() ).thenReturn( connectionInfo );
+        QueryRegistry initialQueryRegistry = mock( QueryRegistry.class );
         ExecutingQuery executingQuery = mock( ExecutingQuery.class );
-        PropertyContainerLocker locker = null;
-        ThreadToStatementContextBridge txBridge = mock( ThreadToStatementContextBridge.class );
 
-        KernelTransaction secondKTX = mock( KernelTransaction.class );
-        InternalTransaction secondTransaction = mock( InternalTransaction.class );
-        when( secondTransaction.terminationReason() ).thenReturn( Optional.empty() );
-        Statement secondStatement = mock( Statement.class );
-        QueryRegistryOperations secondQueryRegistry = mock( QueryRegistryOperations.class );
+        KernelStatement secondStatement = mock( KernelStatement.class );
+        KernelTransaction secondKTX = mockTransaction( secondStatement );
+        QueryRegistry secondQueryRegistry = mock( QueryRegistry.class );
 
-        when( executingQuery.queryText() ).thenReturn( "X" );
-        when( executingQuery.queryParameters() ).thenReturn( Collections.emptyMap() );
-        when( initialStatement.queryRegistration() ).thenReturn( initialQueryRegistry );
-        when( queryService.beginTransaction( transactionType, securityContext ) ).thenReturn( secondTransaction );
-        when( txBridge.getKernelTransactionBoundToThisThread( true ) ).thenReturn( initialKTX, secondKTX );
-        when( txBridge.get() ).thenReturn( secondStatement );
+        when( transactionFactory.beginKernelTransaction( transactionType, securityContext, connectionInfo ) ).thenReturn( secondKTX );
+        when( executingQuery.databaseId() ).thenReturn( Optional.of( namedDatabaseId ) );
+        when( statement.queryRegistration() ).thenReturn( initialQueryRegistry );
+        when( userTransaction.kernelTransaction() ).thenReturn( initialKTX, initialKTX, secondKTX );
         when( secondStatement.queryRegistration() ).thenReturn( secondQueryRegistry );
 
-        Neo4jTransactionalContext context = new Neo4jTransactionalContext( queryService,
-                null,
-                guard,
-                txBridge,
-                locker,
-                initialTransaction,
-                initialStatement,
-                executingQuery
-        );
+        Neo4jTransactionalContext context =
+                new Neo4jTransactionalContext( queryService, userTransaction, statement,
+                                               executingQuery, transactionFactory );
 
         // When
         context.commitAndRestartTx();
 
         // Then
-        Object[] mocks =
-                { txBridge, initialTransaction, initialQueryRegistry, initialKTX, secondQueryRegistry, secondKTX };
+        Object[] mocks = {userTransaction, initialKTX, initialQueryRegistry, secondQueryRegistry, secondKTX};
         InOrder order = Mockito.inOrder( mocks );
 
         // (0) Constructor
-        order.verify( initialTransaction ).transactionType();
-        order.verify( initialTransaction ).securityContext();
-        order.verify( initialTransaction ).terminationReason(); // not terminated check
+        order.verify( userTransaction ).transactionType();
+        order.verify( userTransaction ).securityContext();
+        order.verify( userTransaction ).clientInfo();
+        order.verify( userTransaction ).terminationReason(); // not terminated check
 
-        // (1) Unbind old
-        order.verify( txBridge ).getKernelTransactionBoundToThisThread( true );
-        order.verify( txBridge ).unbindTransactionFromCurrentThread();
+        // (1) Collect stats
+        order.verify( initialKTX ).executionStatistics();
 
-        // (2) Register and unbind new
-        order.verify( txBridge ).get();
+        // (3) Register new
+        order.verify( secondKTX ).acquireStatement( );
         order.verify( secondQueryRegistry ).registerExecutingQuery( executingQuery );
-        order.verify( txBridge ).getKernelTransactionBoundToThisThread( true );
-        order.verify( txBridge ).unbindTransactionFromCurrentThread();
 
-        // (3) Rebind, unregister, and close old
-        order.verify( txBridge ).bindTransactionToCurrentThread( initialKTX );
+        // (4) Unregister, and close old
         order.verify( initialQueryRegistry ).unregisterExecutingQuery( executingQuery );
-        order.verify( initialTransaction ).success();
-        order.verify( initialTransaction ).close();
-        order.verify( txBridge ).unbindTransactionFromCurrentThread();
-
-        // (4) Rebind new
-        order.verify( txBridge ).bindTransactionToCurrentThread( secondKTX );
-        verifyNoMoreInteractions( mocks );
+        order.verify( initialKTX ).commit();
     }
 
     @SuppressWarnings( "ConstantConditions" )
     @Test
-    public void rollsBackNewlyCreatedTransactionIfTerminationDetectedOnCloseDuringPeriodicCommit()
+    void rollsBackNewlyCreatedTransactionIfTerminationDetectedOnCloseDuringPeriodicCommit() throws TransactionFailureException
     {
         // Given
-        InternalTransaction initialTransaction = mock( InternalTransaction.class, new ReturnsDeepStubs() );
-        KernelTransaction.Type transactionType = KernelTransaction.Type.implicit;
+        InternalTransaction userTransaction = mock( InternalTransaction.class, new ReturnsDeepStubs() );
+        KernelTransaction.Type transactionType = KernelTransaction.Type.IMPLICIT;
         SecurityContext securityContext = SecurityContext.AUTH_DISABLED;
-        when( initialTransaction.transactionType() ).thenReturn( transactionType );
-        when( initialTransaction.securityContext() ).thenReturn( securityContext );
-        when( initialTransaction.terminationReason() ).thenReturn( Optional.empty() );
+        ClientConnectionInfo connectionInfo = ClientConnectionInfo.EMBEDDED_CONNECTION;
+        when( userTransaction.transactionType() ).thenReturn( transactionType );
+        when( userTransaction.clientInfo() ).thenReturn( connectionInfo );
+        when( userTransaction.securityContext() ).thenReturn( securityContext );
+        when( userTransaction.terminationReason() ).thenReturn( Optional.empty() );
 
         GraphDatabaseQueryService queryService = mock( GraphDatabaseQueryService.class );
-        KernelTransaction initialKTX = mock( KernelTransaction.class );
-        Statement initialStatement = mock( Statement.class );
-        QueryRegistryOperations initialQueryRegistry = mock( QueryRegistryOperations.class );
-        ExecutionStatisticsOperations initialExecutionStatisticOperations = mock( ExecutionStatisticsOperations.class );
+        KernelStatement initialStatement = mock( KernelStatement.class );
+        KernelTransaction initialKTX = mockTransaction( initialStatement );
+        QueryRegistry initialQueryRegistry = mock( QueryRegistry.class );
         ExecutingQuery executingQuery = mock( ExecutingQuery.class );
-        PropertyContainerLocker locker = new PropertyContainerLocker();
-        ThreadToStatementContextBridge txBridge = mock( ThreadToStatementContextBridge.class );
 
-        KernelTransaction secondKTX = mock( KernelTransaction.class );
-        InternalTransaction secondTransaction = mock( InternalTransaction.class );
-        when( secondTransaction.terminationReason() ).thenReturn( Optional.empty() );
-        Statement secondStatement = mock( Statement.class );
-        QueryRegistryOperations secondQueryRegistry = mock( QueryRegistryOperations.class );
+        KernelStatement secondStatement = mock( KernelStatement.class );
+        KernelTransaction secondKTX = mockTransaction( secondStatement );
+        QueryRegistry secondQueryRegistry = mock( QueryRegistry.class );
 
-        when( executingQuery.queryText() ).thenReturn( "X" );
-        when( executingQuery.queryParameters() ).thenReturn( Collections.emptyMap() );
-        Mockito.doThrow( RuntimeException.class ).when( initialTransaction ).close();
+        when( transactionFactory.beginKernelTransaction( transactionType, securityContext, connectionInfo ) ).thenReturn( secondKTX );
+        when( executingQuery.databaseId() ).thenReturn( Optional.of( namedDatabaseId ) );
+        Mockito.doThrow( RuntimeException.class ).when( initialKTX ).commit();
         when( initialStatement.queryRegistration() ).thenReturn( initialQueryRegistry );
-        when( initialStatement.executionStatisticsOperations() ).thenReturn( initialExecutionStatisticOperations );
-        when( initialExecutionStatisticOperations.getPageCursorTracer() ).thenReturn( tracer );
-        when( queryService.beginTransaction( transactionType, securityContext ) ).thenReturn( secondTransaction );
-        when( txBridge.getKernelTransactionBoundToThisThread( true ) ).thenReturn( initialKTX, secondKTX );
-        when( txBridge.get() ).thenReturn( secondStatement );
+        when( userTransaction.kernelTransaction() ).thenReturn( initialKTX, initialKTX, secondKTX );
         when( secondStatement.queryRegistration() ).thenReturn( secondQueryRegistry );
 
-        Neo4jTransactionalContext context = new Neo4jTransactionalContext(
-            queryService,
-            null,
-            guard,
-            txBridge,
-            locker,
-            initialTransaction,
-            initialStatement,
-            executingQuery
-        );
+        Neo4jTransactionalContext context =
+                new Neo4jTransactionalContext( queryService, userTransaction, initialStatement,
+                                               executingQuery, transactionFactory );
 
         // When
-        try
-        {
-            context.commitAndRestartTx();
-            throw new AssertionError( "Expected RuntimeException to be thrown" );
-        }
-        catch ( RuntimeException e )
-        {
-            // Then
-            Object[] mocks =
-                { txBridge, initialTransaction, initialQueryRegistry, initialKTX,
-                  secondQueryRegistry, secondKTX, secondTransaction };
-            InOrder order = Mockito.inOrder( mocks );
+        assertThrows(RuntimeException.class, context::commitAndRestartTx );
 
-            // (0) Constructor
-            order.verify( initialTransaction ).transactionType();
-            order.verify( initialTransaction ).securityContext();
-            order.verify( initialTransaction ).terminationReason(); // not terminated check
+        Object[] mocks =
+                {userTransaction, initialQueryRegistry, initialKTX,
+                        secondQueryRegistry, secondKTX};
+        InOrder order = Mockito.inOrder( mocks );
 
-            // (1) Unbind old
-            order.verify( txBridge ).getKernelTransactionBoundToThisThread( true );
-            order.verify( txBridge ).unbindTransactionFromCurrentThread();
+        // (0) Constructor
+        order.verify( userTransaction ).transactionType();
+        order.verify( userTransaction ).securityContext();
+        order.verify( userTransaction ).clientInfo();
+        order.verify( userTransaction ).terminationReason(); // not terminated check
 
-            // (2) Register and unbind new
-            order.verify( txBridge ).get();
-            order.verify( secondQueryRegistry ).registerExecutingQuery( executingQuery );
-            order.verify( txBridge ).getKernelTransactionBoundToThisThread( true );
-            order.verify( txBridge ).unbindTransactionFromCurrentThread();
+        // (1) Collect statistics
+        order.verify( initialKTX ).executionStatistics();
 
-            // (3) Rebind, unregister, and close old
-            order.verify( txBridge ).bindTransactionToCurrentThread( initialKTX );
-            order.verify( initialQueryRegistry ).unregisterExecutingQuery( executingQuery );
-            order.verify( initialTransaction ).success();
-            order.verify( initialTransaction ).close();
-            order.verify( txBridge ).bindTransactionToCurrentThread( secondKTX );
-            order.verify( secondTransaction ).failure();
-            order.verify( secondTransaction ).close();
-            order.verify( txBridge ).unbindTransactionFromCurrentThread();
+        // (3) Register new
+        order.verify( secondKTX ).acquireStatement();
+        order.verify( secondQueryRegistry ).registerExecutingQuery( executingQuery );
 
-            verifyNoMoreInteractions( mocks );
-        }
+        // (4) Unregister, and close old
+        order.verify( initialQueryRegistry ).unregisterExecutingQuery( executingQuery );
+        order.verify( userTransaction ).rollback();
     }
 
     @Test
-    public void accumulateExecutionStatisticOverCommitAndRestart()
+    void accumulateExecutionStatisticOverCommitAndRestart()
     {
-        InternalTransaction initialTransaction = mock( InternalTransaction.class, new ReturnsDeepStubs() );
-        when( initialTransaction.terminationReason() ).thenReturn( Optional.empty() );
-        Neo4jTransactionalContext transactionalContext = new Neo4jTransactionalContext( queryService, null,
-                guard, txBridge, null, initialTransaction,
-                initialStatement, null );
+        InternalTransaction userTransaction = mock( InternalTransaction.class, new ReturnsDeepStubs() );
+        when( userTransaction.terminationReason() ).thenReturn( Optional.empty() );
+        var statementMock = mock( KernelStatement.class, new ReturnsDeepStubs() );
+        var transaction = mockTransaction( statementMock );
+        when( userTransaction.kernelTransaction() ).thenReturn( transaction );
+        when( transactionFactory.beginKernelTransaction( any(), any(), any() ) ).thenReturn( transaction );
+        ExecutingQuery executingQuery = mock( ExecutingQuery.class );
+        when( executingQuery.databaseId() ).thenReturn( Optional.of( namedDatabaseId ) );
+        Neo4jTransactionalContext transactionalContext = new Neo4jTransactionalContext( queryService,
+                userTransaction, statement, executingQuery, transactionFactory );
 
-        tracer.setFaults( 2 );
-        tracer.setHits( 5 );
+        statistics.setFaults( 2 );
+        statistics.setHits( 5 );
 
         transactionalContext.commitAndRestartTx();
 
-        tracer.setFaults( 2 );
-        tracer.setHits( 5 );
+        statistics.setFaults( 2 );
+        statistics.setHits( 5 );
 
         transactionalContext.commitAndRestartTx();
 
-        tracer.setFaults( 2 );
-        tracer.setHits( 5 );
+        statistics.setFaults( 2 );
+        statistics.setHits( 5 );
 
         StatisticProvider statisticProvider = transactionalContext.kernelStatisticProvider();
 
-        assertEquals( "Expect to see accumulated number of page cache misses.",6, statisticProvider.getPageCacheMisses() );
-        assertEquals( "Expected to see accumulated number of page cache hits.", 15, statisticProvider.getPageCacheHits() );
+        assertEquals( 6, statisticProvider.getPageCacheMisses(), "Expect to see accumulated number of page cache misses." );
+        assertEquals( 15, statisticProvider.getPageCacheHits(), "Expected to see accumulated number of page cache hits." );
     }
 
     @Test
-    public void shouldBeOpenAfterCreation()
+    void shouldBeOpenAfterCreation()
     {
         InternalTransaction tx = mock( InternalTransaction.class );
 
@@ -303,10 +249,10 @@ public class Neo4jTransactionalContextTest
     }
 
     @Test
-    public void shouldBeTopLevelWithImplicitTx()
+    void shouldBeTopLevelWithImplicitTx()
     {
         InternalTransaction tx = mock( InternalTransaction.class );
-        when( tx.transactionType() ).thenReturn( KernelTransaction.Type.implicit );
+        when( tx.transactionType() ).thenReturn( KernelTransaction.Type.IMPLICIT );
 
         Neo4jTransactionalContext context = newContext( tx );
 
@@ -314,10 +260,10 @@ public class Neo4jTransactionalContextTest
     }
 
     @Test
-    public void shouldNotBeTopLevelWithExplicitTx()
+    void shouldNotBeTopLevelWithExplicitTx()
     {
         InternalTransaction tx = mock( InternalTransaction.class );
-        when( tx.transactionType() ).thenReturn( KernelTransaction.Type.explicit );
+        when( tx.transactionType() ).thenReturn( KernelTransaction.Type.EXPLICIT );
 
         Neo4jTransactionalContext context = newContext( tx );
 
@@ -325,10 +271,10 @@ public class Neo4jTransactionalContextTest
     }
 
     @Test
-    public void shouldNotCloseTransactionDuringTermination()
+    void shouldNotCloseTransactionDuringTermination()
     {
         InternalTransaction tx = mock( InternalTransaction.class );
-        when( tx.transactionType() ).thenReturn( KernelTransaction.Type.implicit );
+        when( tx.transactionType() ).thenReturn( KernelTransaction.Type.IMPLICIT );
 
         Neo4jTransactionalContext context = newContext( tx );
 
@@ -339,10 +285,10 @@ public class Neo4jTransactionalContextTest
     }
 
     @Test
-    public void shouldBePossibleToCloseAfterTermination()
+    void shouldBePossibleToCloseAfterTermination()
     {
         InternalTransaction tx = mock( InternalTransaction.class );
-        when( tx.transactionType() ).thenReturn( KernelTransaction.Type.implicit );
+        when( tx.transactionType() ).thenReturn( KernelTransaction.Type.IMPLICIT );
 
         Neo4jTransactionalContext context = newContext( tx );
 
@@ -351,27 +297,23 @@ public class Neo4jTransactionalContextTest
         verify( tx ).terminate();
         verify( tx, never() ).close();
 
-        context.close( false );
-        verify( tx ).failure();
-        verify( tx ).close();
+        context.close();
     }
 
     @Test
-    public void shouldBePossibleToTerminateWithoutActiveTransaction()
+    void shouldBePossibleToTerminateWithoutActiveTransaction()
     {
         InternalTransaction tx = mock( InternalTransaction.class );
         Neo4jTransactionalContext context = newContext( tx );
 
-        context.close( true );
-        verify( tx ).success();
-        verify( tx ).close();
+        context.close();
 
         context.terminate();
         verify( tx, never() ).terminate();
     }
 
     @Test
-    public void shouldThrowWhenRestartedAfterTermination()
+    void shouldThrowWhenRestartedAfterTermination()
     {
         MutableObject<Status> terminationReason = new MutableObject<>();
         InternalTransaction tx = mock( InternalTransaction.class );
@@ -386,19 +328,11 @@ public class Neo4jTransactionalContextTest
 
         context.terminate();
 
-        try
-        {
-            context.commitAndRestartTx();
-            fail( "Exception expected" );
-        }
-        catch ( Exception e )
-        {
-            assertThat( e, instanceOf( TransactionTerminatedException.class ) );
-        }
+        assertThrows( TransactionTerminatedException.class, context::commitAndRestartTx );
     }
 
     @Test
-    public void shouldThrowWhenGettingTxAfterTermination()
+    void shouldThrowWhenGettingTxAfterTermination()
     {
         MutableObject<Status> terminationReason = new MutableObject<>();
         InternalTransaction tx = mock( InternalTransaction.class );
@@ -413,77 +347,69 @@ public class Neo4jTransactionalContextTest
 
         context.terminate();
 
-        try
-        {
-            context.getOrBeginNewIfClosed();
-            fail( "Exception expected" );
-        }
-        catch ( Exception e )
-        {
-            assertThat( e, instanceOf( TransactionTerminatedException.class ) );
-        }
+        assertThrows( TransactionTerminatedException.class, context::getOrBeginNewIfClosed );
     }
 
     @Test
-    public void shouldNotBePossibleToCloseMultipleTimes()
+    void shouldNotBePossibleToCloseMultipleTimes()
     {
         InternalTransaction tx = mock( InternalTransaction.class );
         Neo4jTransactionalContext context = newContext( tx );
 
-        context.close( false );
-        context.close( true );
-        context.close( false );
+        context.close();
+        context.close();
+        context.close();
 
-        verify( tx ).failure();
-        verify( tx, never() ).success();
-        verify( tx ).close();
     }
 
     private void setUpMocks()
     {
         queryService = mock( GraphDatabaseQueryService.class );
         DependencyResolver resolver = mock( DependencyResolver.class );
-        txBridge = mock( ThreadToStatementContextBridge.class );
-        guard = mock( Guard.class );
-        initialStatement = mock( KernelStatement.class );
-        tracer = new ConfiguredPageCursorTracer();
-        QueryRegistryOperations queryRegistryOperations = mock( QueryRegistryOperations.class );
-        ExecutionStatisticsOperations executionStatisticsOperations = mock( ExecutionStatisticsOperations.class );
+        statement = mock( KernelStatement.class );
+
+        statistics = new ConfiguredExecutionStatistics();
+        QueryRegistry queryRegistry = mock( QueryRegistry.class );
         InternalTransaction internalTransaction = mock( InternalTransaction.class );
         when( internalTransaction.terminationReason() ).thenReturn( Optional.empty() );
 
-        when( initialStatement.queryRegistration() ).thenReturn( queryRegistryOperations );
-        when( initialStatement.executionStatisticsOperations() ).thenReturn( executionStatisticsOperations );
-        when( executionStatisticsOperations.getPageCursorTracer() ).thenReturn( tracer );
+        when( statement.queryRegistration() ).thenReturn( queryRegistry );
         when( queryService.getDependencyResolver() ).thenReturn( resolver );
-        when( resolver.resolveDependency( ThreadToStatementContextBridge.class ) ).thenReturn( txBridge );
-        when( resolver.resolveDependency( Guard.class ) ).thenReturn( guard );
-        when( queryService.beginTransaction( any(), any()) ).thenReturn( internalTransaction );
+        when( queryService.beginTransaction( any(), any(), any() ) ).thenReturn( internalTransaction );
 
-        when( txBridge.get() ).thenReturn( initialStatement );
+        KernelTransaction mockTransaction = mockTransaction( statement );
     }
 
     private Neo4jTransactionalContext newContext( InternalTransaction initialTx )
     {
-        return new Neo4jTransactionalContext( queryService, null, guard,
-                txBridge, new PropertyContainerLocker(), initialTx, initialStatement, null );
+        ExecutingQuery executingQuery = mock( ExecutingQuery.class );
+        when( executingQuery.databaseId() ).thenReturn( Optional.of( namedDatabaseId ) );
+        return new Neo4jTransactionalContext( queryService, initialTx, statement, executingQuery, transactionFactory );
     }
 
-    private class ConfiguredPageCursorTracer extends DefaultPageCursorTracer
+    private KernelTransaction mockTransaction( Statement statement )
+    {
+        KernelTransaction kernelTransaction = mock( KernelTransaction.class, new ReturnsDeepStubs() );
+        when( kernelTransaction.executionStatistics() ).thenReturn( statistics );
+        when( kernelTransaction.acquireStatement() ).thenReturn( statement );
+        return kernelTransaction;
+    }
+
+    private static class ConfiguredExecutionStatistics implements ExecutionStatistics
     {
         private long hits;
         private long faults;
 
         @Override
-        public long hits()
+        public long pageHits()
         {
-            return super.hits() + hits;
+            return hits;
         }
 
         @Override
-        public long faults()
+        public long pageFaults()
         {
-            return super.faults() + faults;
+            return faults;
         }
 
         void setHits( long hits )

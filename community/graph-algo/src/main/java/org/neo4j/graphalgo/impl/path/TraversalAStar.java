@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,10 +19,9 @@
  */
 package org.neo4j.graphalgo.impl.path;
 
-import java.util.Iterator;
-
 import org.neo4j.graphalgo.CostEvaluator;
 import org.neo4j.graphalgo.EstimateEvaluator;
+import org.neo4j.graphalgo.EvaluationContext;
 import org.neo4j.graphalgo.PathFinder;
 import org.neo4j.graphalgo.WeightedPath;
 import org.neo4j.graphalgo.impl.util.BestFirstSelectorFactory;
@@ -30,7 +29,6 @@ import org.neo4j.graphalgo.impl.util.PathInterest;
 import org.neo4j.graphalgo.impl.util.PathInterestFactory;
 import org.neo4j.graphalgo.impl.util.WeightedPathIterator;
 import org.neo4j.graphdb.Direction;
-import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.PathExpander;
 import org.neo4j.graphdb.traversal.InitialBranchState;
@@ -39,50 +37,45 @@ import org.neo4j.graphdb.traversal.TraversalDescription;
 import org.neo4j.graphdb.traversal.TraversalMetadata;
 import org.neo4j.graphdb.traversal.Traverser;
 import org.neo4j.graphdb.traversal.Uniqueness;
-import org.neo4j.helpers.collection.Iterables;
+import org.neo4j.internal.helpers.collection.Iterables;
 
 import static org.neo4j.graphdb.traversal.Evaluators.includeWhereEndNodeIs;
 import static org.neo4j.graphdb.traversal.InitialBranchState.NO_STATE;
+import static org.neo4j.internal.helpers.MathUtil.DEFAULT_EPSILON;
 
 /**
  * Implementation of A* algorithm, see {@link AStar}, but using the traversal
  * framework. It's still in an experimental state.
  */
-public class TraversalAStar implements PathFinder<WeightedPath>
+public class TraversalAStar<T>  implements PathFinder<WeightedPath>
 {
+    private final EvaluationContext context;
     private final CostEvaluator<Double> costEvaluator;
-    private final PathExpander expander;
-    private final InitialBranchState initialState;
+    private final PathExpander<T> expander;
+    private final InitialBranchState<T> initialState;
     private Traverser lastTraverser;
 
     private final EstimateEvaluator<Double> estimateEvaluator;
-    private boolean stopAfterLowestWeight;
+    private final boolean stopAfterLowestWeight;
 
     @SuppressWarnings( "unchecked" )
-    public <T> TraversalAStar( PathExpander<T> expander,
+    public TraversalAStar( EvaluationContext context, PathExpander<T> expander,
             CostEvaluator<Double> costEvaluator, EstimateEvaluator<Double> estimateEvaluator )
     {
-        this( expander, NO_STATE, costEvaluator, estimateEvaluator, true );
+        this( context, expander, (InitialBranchState<T>)NO_STATE, costEvaluator, estimateEvaluator, true );
     }
 
-    public <T> TraversalAStar( PathExpander<T> expander, InitialBranchState<T> initialState,
+    public TraversalAStar( EvaluationContext context, PathExpander<T> expander, InitialBranchState<T> initialState,
             CostEvaluator<Double> costEvaluator, EstimateEvaluator<Double> estimateEvaluator )
     {
-        this( expander, initialState, costEvaluator, estimateEvaluator, true );
+        this( context, expander, initialState, costEvaluator, estimateEvaluator, true );
     }
 
-    @SuppressWarnings( "unchecked" )
-    public <T> TraversalAStar( PathExpander<T> expander,
+    private TraversalAStar( EvaluationContext context, PathExpander<T> expander, InitialBranchState<T> initialState,
             CostEvaluator<Double> costEvaluator, EstimateEvaluator<Double> estimateEvaluator,
             boolean stopAfterLowestWeight )
     {
-        this( expander, NO_STATE, costEvaluator, estimateEvaluator, stopAfterLowestWeight );
-    }
-
-    public <T> TraversalAStar( PathExpander<T> expander, InitialBranchState<T> initialState,
-            CostEvaluator<Double> costEvaluator, EstimateEvaluator<Double> estimateEvaluator,
-            boolean stopAfterLowestWeight )
-    {
+        this.context = context;
         this.costEvaluator = costEvaluator;
         this.estimateEvaluator = estimateEvaluator;
         this.stopAfterLowestWeight = stopAfterLowestWeight;
@@ -104,32 +97,24 @@ public class TraversalAStar implements PathFinder<WeightedPath>
 
     private Iterable<WeightedPath> findPaths( Node start, Node end, boolean multiplePaths )
     {
-        PathInterest interest;
+        PathInterest<PositionData> interest;
         if ( multiplePaths )
         {
-            interest = stopAfterLowestWeight ? PathInterestFactory.allShortest() : PathInterestFactory.all();
+            interest = (PathInterest<PositionData>) (stopAfterLowestWeight ? PathInterestFactory.allShortest() : PathInterestFactory.all() );
         }
         else
         {
-            interest = PathInterestFactory.single();
+            interest = (PathInterest<PositionData>) PathInterestFactory.single();
         }
 
-        GraphDatabaseService db = start.getGraphDatabase();
-        TraversalDescription traversalDescription = db.traversalDescription().uniqueness( Uniqueness.NONE )
+        TraversalDescription traversalDescription = context.transaction().traversalDescription().uniqueness( Uniqueness.NONE )
                 .expand( expander, initialState );
 
         lastTraverser = traversalDescription.order(
                 new SelectorFactory( end, interest ) )
                 .evaluator( includeWhereEndNodeIs( end ) )
                 .traverse( start );
-        return new Iterable<WeightedPath>()
-        {
-            @Override
-            public Iterator<WeightedPath> iterator()
-            {
-                return new WeightedPathIterator( lastTraverser.iterator(), costEvaluator, stopAfterLowestWeight );
-            }
-        };
+        return () -> new WeightedPathIterator( lastTraverser.iterator(), costEvaluator, DEFAULT_EPSILON, stopAfterLowestWeight );
     }
 
     @Override
@@ -171,7 +156,7 @@ public class TraversalAStar implements PathFinder<WeightedPath>
     {
         private final Node end;
 
-        SelectorFactory( Node end, PathInterest interest )
+        SelectorFactory( Node end, PathInterest<PositionData> interest )
         {
             super( interest );
             this.end = end;

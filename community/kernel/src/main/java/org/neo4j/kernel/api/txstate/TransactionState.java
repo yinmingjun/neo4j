@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,14 +19,14 @@
  */
 package org.neo4j.kernel.api.txstate;
 
-import org.neo4j.kernel.api.properties.DefinedProperty;
-import org.neo4j.kernel.api.properties.Property;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
-import org.neo4j.kernel.api.schema.OrderedPropertyValues;
-import org.neo4j.kernel.api.schema.constaints.ConstraintDescriptor;
-import org.neo4j.kernel.api.schema.constaints.IndexBackedConstraintDescriptor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
+import org.neo4j.internal.schema.ConstraintDescriptor;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.internal.schema.SchemaDescriptor;
+import org.neo4j.internal.schema.constraints.IndexBackedConstraintDescriptor;
+import org.neo4j.memory.MemoryTracker;
 import org.neo4j.storageengine.api.txstate.ReadableTransactionState;
+import org.neo4j.values.storable.Value;
+import org.neo4j.values.storable.ValueTuple;
 
 /**
  * Kernel transaction state, please see {@link org.neo4j.kernel.impl.api.state.TxState} for implementation details.
@@ -50,48 +50,47 @@ public interface TransactionState extends ReadableTransactionState
 
     void nodeDoDelete( long nodeId );
 
-    void nodeDoAddProperty( long nodeId, DefinedProperty newProperty );
+    void nodeDoAddProperty( long nodeId, int newPropertyKeyId, Value value );
 
-    void nodeDoChangeProperty( long nodeId, DefinedProperty replacedProperty, DefinedProperty newProperty );
+    void nodeDoChangeProperty( long nodeId, int propertyKeyId, Value newValue );
 
-    void relationshipDoReplaceProperty( long relationshipId,
-                                        Property replacedProperty, DefinedProperty newProperty );
+    void relationshipDoReplaceProperty( long relationshipId, int propertyKeyId, Value replacedValue, Value newValue );
 
-    void graphDoReplaceProperty( Property replacedProperty, DefinedProperty newProperty );
+    void nodeDoRemoveProperty( long nodeId, int propertyKeyId );
 
-    void nodeDoRemoveProperty( long nodeId, DefinedProperty removedProperty );
+    void relationshipDoRemoveProperty( long relationshipId, int propertyKeyId );
 
-    void relationshipDoRemoveProperty( long relationshipId, DefinedProperty removedProperty );
+    void nodeDoAddLabel( long labelId, long nodeId );
 
-    void graphDoRemoveProperty( DefinedProperty removedProperty );
-
-    void nodeDoAddLabel( int labelId, long nodeId );
-
-    void nodeDoRemoveLabel( int labelId, long nodeId );
+    void nodeDoRemoveLabel( long labelId, long nodeId );
 
     // TOKEN RELATED
 
-    void labelDoCreateForName( String labelName, int id );
+    void labelDoCreateForName( String labelName, boolean internal, long id );
 
-    void propertyKeyDoCreateForName( String propertyKeyName, int id );
+    void propertyKeyDoCreateForName( String propertyKeyName, boolean internal, int id );
 
-    void relationshipTypeDoCreateForName( String relationshipTypeName, int id );
+    void relationshipTypeDoCreateForName( String relationshipTypeName, boolean internal, int id );
 
     // SCHEMA RELATED
 
-    void indexRuleDoAdd( IndexDescriptor descriptor );
+    void indexDoAdd( IndexDescriptor index );
 
-    void indexDoDrop( IndexDescriptor descriptor );
+    void indexDoDrop( IndexDescriptor index );
 
-    boolean indexDoUnRemove( IndexDescriptor constraint );
+    boolean indexDoUnRemove( IndexDescriptor index );
 
     void constraintDoAdd( ConstraintDescriptor constraint );
 
-    void constraintDoAdd( IndexBackedConstraintDescriptor constraint, long indexId );
+    void constraintDoAdd( IndexBackedConstraintDescriptor constraint, IndexDescriptor index );
 
     void constraintDoDrop( ConstraintDescriptor constraint );
 
     boolean constraintDoUnRemove( ConstraintDescriptor constraint );
 
-    void indexDoUpdateEntry( LabelSchemaDescriptor descriptor, long nodeId, OrderedPropertyValues before, OrderedPropertyValues after );
+    void indexDoUpdateEntry( SchemaDescriptor descriptor, long nodeId, ValueTuple before, ValueTuple after );
+
+    // MEMORY TRACKING
+
+    MemoryTracker memoryTracker();
 }

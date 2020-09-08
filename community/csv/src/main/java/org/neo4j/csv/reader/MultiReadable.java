@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,38 +19,68 @@
  */
 package org.neo4j.csv.reader;
 
-import java.io.Closeable;
 import java.io.IOException;
-import java.io.Reader;
-import java.util.Iterator;
 
 import org.neo4j.collection.RawIterator;
 
 /**
- * Have multiple {@link CharReadable} instances look like one. The provided {@link CharReadable readables} should
- * be opened lazily, in {@link Iterator#next()}, and will be closed in here, if they implement {@link Closeable}.
+ * Joins multiple {@link CharReadable} into one. There will never be one read which reads from multiple sources.
+ * If the end of one source is reached those (smaller amount of) characters are returned as one read and the next
+ * read will start reading from the new source.
+ *
+ * Newline will be injected in between two sources, even if the former doesn't end with such. This to not have the
+ * last line in the former and first in the latter to look like one long line, if reading characters off of this
+ * reader character by character (w/o knowing that there are multiple sources underneath).
  */
-public class MultiReadable extends CharReadable.Adapter implements Closeable
+public class MultiReadable implements CharReadable
 {
-    private final RawIterator<Reader,IOException> actual;
-    private Reader current;
-    private boolean requiresNewLine;
-    private long position;
-    private String currentSourceDescription = Readables.EMPTY.sourceDescription();
+    private final RawIterator<CharReadable,IOException> actual;
 
-    public MultiReadable( RawIterator<Reader,IOException> actual ) throws IOException
+    private CharReadable current = CharReadable.EMPTY;
+    private boolean requiresNewLine;
+    private long previousPosition;
+
+    public MultiReadable( RawIterator<CharReadable,IOException> readers )
     {
-        this.actual = actual;
-        goToNextSource();
+        this.actual = readers;
+    }
+
+    @Override
+    public void close() throws IOException
+    {
+        closeCurrent();
+    }
+
+    private void closeCurrent() throws IOException
+    {
+        if ( current != null )
+        {
+            current.close();
+        }
+    }
+
+    @Override
+    public String sourceDescription()
+    {
+        return current.sourceDescription();
+    }
+
+    @Override
+    public long position()
+    {
+        return previousPosition + current.position();
     }
 
     private boolean goToNextSource() throws IOException
     {
         if ( actual.hasNext() )
         {
+            if ( current != null )
+            {
+                previousPosition += current.position();
+            }
             closeCurrent();
             current = actual.next();
-            currentSourceDescription = current.toString();
             return true;
         }
         return false;
@@ -59,13 +89,12 @@ public class MultiReadable extends CharReadable.Adapter implements Closeable
     @Override
     public SectionedCharBuffer read( SectionedCharBuffer buffer, int from ) throws IOException
     {
-        buffer.compact( buffer, from );
-        while ( current != null )
+        while ( true )
         {
-            buffer.readFrom( current );
+            current.read( buffer, from );
             if ( buffer.hasAvailable() )
             {
-                position += buffer.available();
+                // OK we read something from the current reader
                 checkNewLineRequirement( buffer.array(), buffer.front() - 1);
                 return buffer;
             }
@@ -76,7 +105,6 @@ public class MultiReadable extends CharReadable.Adapter implements Closeable
             if ( requiresNewLine )
             {
                 buffer.append( '\n' );
-                position++;
                 requiresNewLine = false;
                 return buffer;
             }
@@ -85,6 +113,7 @@ public class MultiReadable extends CharReadable.Adapter implements Closeable
             {
                 break;
             }
+            from = buffer.pivot();
         }
         return buffer;
     }
@@ -99,49 +128,43 @@ public class MultiReadable extends CharReadable.Adapter implements Closeable
     public int read( char[] into, int offset, int length ) throws IOException
     {
         int totalRead = 0;
-        while ( totalRead < length && current != null )
+        while ( totalRead < length )
         {
             int read = current.read( into, offset + totalRead, length - totalRead );
             if ( read == -1 )
             {
+                if ( totalRead > 0 )
+                {
+                    // Something has been read, but we couldn't fulfill the request with the current source.
+                    // Return what we've read so far so that we don't mix multiple sources into the same read,
+                    // for source traceability reasons.
+                    return totalRead;
+                }
+
                 if ( !goToNextSource() )
                 {
                     break;
                 }
+
+                if ( requiresNewLine )
+                {
+                    into[offset + totalRead] = '\n';
+                    totalRead++;
+                    requiresNewLine = false;
+                }
             }
-            else
+            else if ( read > 0 )
             {
                 totalRead += read;
                 checkNewLineRequirement( into, offset + totalRead - 1 );
-                return totalRead;
             }
         }
         return totalRead;
     }
 
-    private void closeCurrent() throws IOException
-    {
-        if ( current != null )
-        {
-            current.close();
-        }
-    }
-
     @Override
-    public void close() throws IOException
+    public long length()
     {
-        closeCurrent();
-    }
-
-    @Override
-    public long position()
-    {
-        return position;
-    }
-
-    @Override
-    public String sourceDescription()
-    {
-        return currentSourceDescription;
+        return current.length();
     }
 }

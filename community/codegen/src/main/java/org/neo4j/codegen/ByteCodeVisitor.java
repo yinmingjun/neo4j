@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -32,7 +32,6 @@ import java.io.PrintWriter;
 import java.lang.reflect.Modifier;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.Objects;
 
 import static org.objectweb.asm.Type.getType;
 
@@ -106,11 +105,9 @@ interface ByteCodeVisitor
 
     abstract class Printer extends ClassVisitor implements ByteCodeVisitor, CodeGeneratorOption
     {
-        private static final int API = Opcodes.ASM4;
-
         private Printer()
         {
-            super( API );
+            super( Opcodes.ASM4 );
         }
 
         @Override
@@ -150,7 +147,8 @@ interface ByteCodeVisitor
         @Override
         public FieldVisitor visitField( int access, String name, String desc, String signature, Object value )
         {
-            printf( "  %s %s %s%s;%n", Modifier.toString( access ), getType( desc ).getClassName(), name, value == null ? "" : (" = " + value) );
+            printf( "  %s %s %s%s;%n", Modifier.toString( access ), getType( desc ).getClassName(), name,
+                    value == null ? "" : (" = " + value) );
             return super.visitField( access, name, desc, signature, value );
         }
 
@@ -158,7 +156,7 @@ interface ByteCodeVisitor
         public MethodVisitor visitMethod( int access, String name, String desc, String signature, String[] exceptions )
         {
             printf( "  %s %s%s%n  {%n", Modifier.toString( access ), name, desc );
-            return new MethodVisitor( API )
+            return new MethodVisitor( api )
             {
                 int offset;
 
@@ -236,10 +234,10 @@ interface ByteCodeVisitor
                     prefix = "";
                     for ( int i = 0; i < nStack; i++ )
                     {
-                        frame.append( prefix ).append( Objects.toString( stack[i] ) );
+                        frame.append( prefix ).append( stack[i] );
                         prefix = ", ";
                     }
-                    println( frame.append( "]" ) );
+                    println( frame.append( ']' ) );
                 }
 
                 @Override

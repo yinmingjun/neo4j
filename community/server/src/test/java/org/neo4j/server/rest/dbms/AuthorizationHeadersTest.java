@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,24 +19,25 @@
  */
 package org.neo4j.server.rest.dbms;
 
-import com.sun.jersey.core.util.Base64;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import org.neo4j.string.UTF8;
+import java.util.Base64;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import org.neo4j.test.server.HTTP;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.neo4j.server.rest.dbms.AuthorizationHeaders.decode;
 
-public class AuthorizationHeadersTest
+class AuthorizationHeadersTest
 {
     @Test
-    public void shouldParseHappyPath() throws Exception
+    void shouldParseHappyPath()
     {
         // Given
         String username = "jake";
         String password = "qwerty123456";
-        String header = "Basic " + base64( username + ":" + password );
+        String header = HTTP.basicAuthHeader( username, password );
 
         // When
         String[] parsed = decode( header );
@@ -47,17 +48,12 @@ public class AuthorizationHeadersTest
     }
 
     @Test
-    public void shouldHandleSadPaths() throws Exception
+    void shouldHandleSadPaths()
     {
         // When & then
         assertNull( decode( "" ) );
         assertNull( decode( "Basic" ) );
         assertNull( decode( "Basic not valid value" ) );
-        assertNull( decode( "Basic " + base64( "" ) ) );
-    }
-
-    private String base64( String value )
-    {
-        return UTF8.decode( Base64.encode( value ) );
+        assertNull( decode( "Basic " + Base64.getEncoder().encodeToString( "".getBytes() ) ) );
     }
 }

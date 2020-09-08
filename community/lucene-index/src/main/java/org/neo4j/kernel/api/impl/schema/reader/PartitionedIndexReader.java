@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,21 +21,24 @@ package org.neo4j.kernel.api.impl.schema.reader;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import org.neo4j.collection.primitive.PrimitiveLongCollections;
-import org.neo4j.collection.primitive.PrimitiveLongIterator;
-import org.neo4j.helpers.TaskCoordinator;
+import org.neo4j.internal.kernel.api.IndexQuery;
+import org.neo4j.internal.kernel.api.IndexQueryConstraints;
+import org.neo4j.internal.kernel.api.QueryContext;
+import org.neo4j.internal.kernel.api.exceptions.schema.IndexNotApplicableKernelException;
+import org.neo4j.internal.schema.IndexDescriptor;
 import org.neo4j.io.IOUtils;
-import org.neo4j.kernel.api.exceptions.index.IndexNotApplicableKernelException;
-import org.neo4j.kernel.api.impl.index.partition.PartitionSearcher;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.kernel.api.impl.index.SearcherReference;
 import org.neo4j.kernel.api.impl.index.sampler.AggregatingIndexSampler;
-import org.neo4j.kernel.api.schema.IndexQuery;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.kernel.impl.api.index.sampling.IndexSamplingConfig;
-import org.neo4j.storageengine.api.schema.IndexReader;
-import org.neo4j.storageengine.api.schema.IndexSampler;
+import org.neo4j.kernel.api.impl.schema.TaskCoordinator;
+import org.neo4j.kernel.api.index.AbstractIndexReader;
+import org.neo4j.kernel.api.index.BridgingIndexProgressor;
+import org.neo4j.kernel.api.index.IndexProgressor;
+import org.neo4j.kernel.api.index.IndexSampler;
+import org.neo4j.kernel.impl.api.index.IndexSamplingConfig;
+import org.neo4j.values.storable.Value;
 
 /**
  * Index reader that is able to read/sample multiple partitions of a partitioned Lucene index.
@@ -43,33 +46,46 @@ import org.neo4j.storageengine.api.schema.IndexSampler;
  *
  * @see SimpleIndexReader
  */
-public class PartitionedIndexReader implements IndexReader
+public class PartitionedIndexReader extends AbstractIndexReader
 {
-
     private final List<SimpleIndexReader> indexReaders;
 
-    public PartitionedIndexReader( List<PartitionSearcher> partitionSearchers,
+    public PartitionedIndexReader( List<SearcherReference> partitionSearchers,
             IndexDescriptor descriptor,
             IndexSamplingConfig samplingConfig,
             TaskCoordinator taskCoordinator )
     {
-        this( partitionSearchers.stream()
+        this( descriptor, partitionSearchers.stream()
                 .map( partitionSearcher -> new SimpleIndexReader( partitionSearcher, descriptor,
                         samplingConfig, taskCoordinator ) )
                 .collect( Collectors.toList() ) );
     }
 
-    PartitionedIndexReader( List<SimpleIndexReader> readers )
+    PartitionedIndexReader( IndexDescriptor descriptor, List<SimpleIndexReader> readers )
     {
+        super( descriptor );
         this.indexReaders = readers;
     }
 
     @Override
-    public PrimitiveLongIterator query( IndexQuery... predicates ) throws IndexNotApplicableKernelException
+    public void query( QueryContext context, IndexProgressor.EntityValueClient client, IndexQueryConstraints constraints,
+            IndexQuery... query ) throws IndexNotApplicableKernelException
     {
         try
         {
-            return partitionedOperation( reader -> innerQuery( reader, predicates ) );
+            BridgingIndexProgressor bridgingIndexProgressor = new BridgingIndexProgressor( client, descriptor.schema().getPropertyIds() );
+            indexReaders.parallelStream().forEach( reader ->
+            {
+                try
+                {
+                    reader.query( context, bridgingIndexProgressor, constraints, query );
+                }
+                catch ( IndexNotApplicableKernelException e )
+                {
+                    throw new InnerException( e );
+                }
+            } );
+            client.initialize( descriptor, bridgingIndexProgressor, query, constraints, false );
         }
         catch ( InnerException e )
         {
@@ -77,16 +93,10 @@ public class PartitionedIndexReader implements IndexReader
         }
     }
 
-    private PrimitiveLongIterator innerQuery( IndexReader reader, IndexQuery[] predicates )
+    @Override
+    public boolean hasFullValuePrecision( IndexQuery... predicates )
     {
-        try
-        {
-            return reader.query( predicates );
-        }
-        catch ( IndexNotApplicableKernelException e )
-        {
-            throw new InnerException( e );
-        }
+        return false;
     }
 
     private static final class InnerException extends RuntimeException
@@ -104,10 +114,10 @@ public class PartitionedIndexReader implements IndexReader
     }
 
     @Override
-    public long countIndexedNodes( long nodeId, Object... propertyValues )
+    public long countIndexedNodes( long nodeId, PageCursorTracer cursorTracer, int[] propertyKeyIds, Value... propertyValues )
     {
         return indexReaders.parallelStream()
-                .mapToLong( reader -> reader.countIndexedNodes( nodeId, propertyValues ) )
+                .mapToLong( reader -> reader.countIndexedNodes( nodeId, cursorTracer, propertyKeyIds, propertyValues ) )
                 .sum();
     }
 
@@ -131,13 +141,5 @@ public class PartitionedIndexReader implements IndexReader
         {
             throw new IndexReaderCloseException( e );
         }
-    }
-
-    private PrimitiveLongIterator partitionedOperation(
-            Function<SimpleIndexReader,PrimitiveLongIterator> readerFunction )
-    {
-        return PrimitiveLongCollections.concat( indexReaders.parallelStream()
-                .map( readerFunction::apply )
-                .collect( Collectors.toList() ) );
     }
 }

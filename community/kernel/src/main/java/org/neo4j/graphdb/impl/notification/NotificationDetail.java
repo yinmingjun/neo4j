@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,10 +19,8 @@
  */
 package org.neo4j.graphdb.impl.notification;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public interface NotificationDetail
 {
@@ -32,6 +30,10 @@ public interface NotificationDetail
 
     final class Factory
     {
+        private Factory()
+        {
+        }
+
         public static NotificationDetail deprecatedName( final String oldName, final String newName )
         {
             return createDeprecationNotificationDetail( oldName, newName );
@@ -40,18 +42,23 @@ public interface NotificationDetail
         public static NotificationDetail index( final String labelName, final String... propertyKeyNames )
         {
             return createNotificationDetail( "hinted index",
-                    String.format( "index on :%s(%s)", labelName,
-                            Arrays.stream( propertyKeyNames ).collect( Collectors.joining( "," ) ) ), true );
+                    String.format( "index on :%s(%s)", labelName, String.join( ",", propertyKeyNames ) ), true );
+        }
+
+        public static NotificationDetail suboptimalIndex( final String labelName, final String... propertyKeyNames )
+        {
+            return createNotificationDetail( "index",
+                    String.format( "index on :%s(%s)", labelName, String.join( ",", propertyKeyNames ) ), true );
         }
 
         public static NotificationDetail label( final String labelName )
         {
-            return createNotificationDetail( "the missing label name is", labelName, true );
+            return createNotificationDetail( "the missing label name", labelName, true );
         }
 
         public static NotificationDetail relationshipType( final String relType )
         {
-            return createNotificationDetail( "the missing relationship type is", relType, true );
+            return createNotificationDetail( "the missing relationship type", relType, true );
         }
 
         public static NotificationDetail procedureWarning( final String procedure, final String warning )
@@ -61,7 +68,17 @@ public interface NotificationDetail
 
         public static NotificationDetail propertyName( final String name )
         {
-            return createNotificationDetail( "the missing property name is", name, true );
+            return createNotificationDetail( "the missing property name", name, true );
+        }
+
+        public static NotificationDetail repeatedRel( final String name )
+        {
+            return createNotificationDetail( "the repeated relationship", name, true );
+        }
+
+        public static NotificationDetail shadowingVariable( final String name )
+        {
+            return createNotificationDetail( "the shadowing variable", name, true );
         }
 
         public static NotificationDetail joinKey( List<String> identifiers )
@@ -96,6 +113,30 @@ public interface NotificationDetail
         public static NotificationDetail indexSeekOrScan( Set<String> labels )
         {
             return createNotificationDetail( labels, "indexed label", "indexed labels" );
+        }
+
+        public static NotificationDetail message( String name, String message )
+        {
+            return new NotificationDetail()
+            {
+                @Override
+                public String name()
+                {
+                    return name;
+                }
+
+                @Override
+                public String value()
+                {
+                    return message;
+                }
+
+                @Override
+                public String toString()
+                {
+                    return message;
+                }
+            };
         }
 
         public static NotificationDetail deprecatedField( final String procedure, final String field )
@@ -143,6 +184,12 @@ public interface NotificationDetail
                                     + "\tWITH *, relationships(p) AS %s",
                             element, element );
                 }
+
+                @Override
+                public String toString()
+                {
+                    return value();
+                }
             };
         }
 
@@ -150,7 +197,7 @@ public interface NotificationDetail
                 String pluralTerm )
         {
             StringBuilder builder = new StringBuilder();
-            builder.append( "(" );
+            builder.append( '(' );
             String separator = "";
             for ( String element : elements )
             {
@@ -158,7 +205,7 @@ public interface NotificationDetail
                 builder.append( element );
                 separator = ", ";
             }
-            builder.append( ")" );
+            builder.append( ')' );
             boolean singular = elements.size() == 1;
             return createNotificationDetail( singular ? singularTerm : pluralTerm, builder.toString(), singular );
         }

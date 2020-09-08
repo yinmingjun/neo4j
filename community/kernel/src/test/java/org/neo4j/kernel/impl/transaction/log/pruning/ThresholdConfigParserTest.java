@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,35 +19,36 @@
  */
 package org.neo4j.kernel.impl.transaction.log.pruning;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.neo4j.configuration.SettingValueParsers.FALSE;
+import static org.neo4j.configuration.SettingValueParsers.TRUE;
 import static org.neo4j.kernel.impl.transaction.log.pruning.ThresholdConfigParser.ThresholdConfigValue;
 import static org.neo4j.kernel.impl.transaction.log.pruning.ThresholdConfigParser.ThresholdConfigValue.KEEP_LAST_FILE;
 import static org.neo4j.kernel.impl.transaction.log.pruning.ThresholdConfigParser.ThresholdConfigValue.NO_PRUNING;
 import static org.neo4j.kernel.impl.transaction.log.pruning.ThresholdConfigParser.parse;
 
-public class ThresholdConfigParserTest
+class ThresholdConfigParserTest
 {
     @Test
-    public void parseTrue() throws Exception
+    void parseTrue()
     {
-        ThresholdConfigValue configValue = parse( "true" );
+        ThresholdConfigValue configValue = parse( TRUE );
         assertEquals( NO_PRUNING, configValue );
     }
 
     @Test
-    public void parseFalse() throws Exception
+    void parseFalse()
     {
-        ThresholdConfigValue configValue = parse( "false" );
+        ThresholdConfigValue configValue = parse( FALSE );
         assertEquals( KEEP_LAST_FILE, configValue );
     }
 
-    @Test( expected = IllegalArgumentException.class )
-    public void parseGarbage() throws Exception
+    @Test
+    void parseGarbage()
     {
-        parse( "davide" );
-        fail( "Expected IllegalArgumentException" );
+        assertThrows( IllegalArgumentException.class, () -> parse( "davide" ) );
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,177 +19,168 @@
  */
 package org.neo4j.commandline.dbms;
 
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
-import org.mockito.ArgumentCaptor;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import picocli.CommandLine;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.function.Consumer;
 
-import org.neo4j.commandline.admin.CommandLocator;
-import org.neo4j.commandline.admin.Usage;
+import org.neo4j.cli.ExecutionContext;
+import org.neo4j.io.fs.DefaultFileSystemAbstraction;
+import org.neo4j.io.fs.FileSystemAbstraction;
+import org.neo4j.io.layout.DatabaseLayout;
+import org.neo4j.io.pagecache.PageCache;
 import org.neo4j.kernel.impl.store.MetaDataStore;
 import org.neo4j.kernel.impl.store.format.RecordFormatSelector;
 import org.neo4j.kernel.impl.store.format.RecordFormats;
-import org.neo4j.kernel.impl.store.format.standard.StandardV2_2;
-import org.neo4j.kernel.internal.Version;
-import org.neo4j.test.rule.PageCacheRule;
+import org.neo4j.kernel.impl.store.format.standard.StandardV3_4;
+import org.neo4j.kernel.internal.locker.DatabaseLocker;
+import org.neo4j.kernel.internal.locker.Locker;
+import org.neo4j.test.extension.Inject;
+import org.neo4j.test.extension.pagecache.PageCacheExtension;
 import org.neo4j.test.rule.TestDirectory;
-import org.neo4j.test.rule.fs.DefaultFileSystemRule;
 
-import static org.junit.Assert.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer.NULL;
 import static org.neo4j.kernel.impl.store.MetaDataStore.Position.STORE_VERSION;
 
-public class StoreInfoCommandTest
+@PageCacheExtension
+class StoreInfoCommandTest
 {
-    @Rule
-    public TestDirectory testDirectory = TestDirectory.testDirectory();
-    @Rule
-    public ExpectedException expected = ExpectedException.none();
-    @Rule
-    public DefaultFileSystemRule fsRule = new DefaultFileSystemRule();
-    @Rule
-    public PageCacheRule pageCacheRule = new PageCacheRule();
-
+    @Inject
+    private TestDirectory testDirectory;
+    @Inject
+    private FileSystemAbstraction fileSystem;
+    @Inject
+    private PageCache pageCache;
     private Path databaseDirectory;
-    private ArgumentCaptor<String> outCaptor;
     private StoreInfoCommand command;
-    private Consumer<String> out;
+    private PrintStream out;
+    private DatabaseLayout databaseLayout;
 
-    @Before
-    public void setUp() throws Exception
+    @BeforeEach
+    void setUp() throws Exception
     {
-        Path homeDir = testDirectory.directory( "home-dir" ).toPath();
-        databaseDirectory = homeDir.resolve( "data/databases/foo.db" );
+        Path homeDir = testDirectory.directoryPath( "home-dir" );
+        databaseDirectory = homeDir.resolve( "data/databases/foo" );
+        databaseLayout = DatabaseLayout.ofFlat( databaseDirectory );
         Files.createDirectories( databaseDirectory );
 
-        outCaptor = ArgumentCaptor.forClass( String.class );
-        out = mock( Consumer.class );
-        command = new StoreInfoCommand( out );
+        out = mock( PrintStream.class );
+        command = new StoreInfoCommand( new ExecutionContext( homeDir, homeDir, out, mock( PrintStream.class ), testDirectory.getFileSystem() ) );
     }
 
     @Test
-    public void shouldPrintNiceHelp() throws Exception
+    void printUsageHelp()
     {
-        try ( ByteArrayOutputStream baos = new ByteArrayOutputStream() )
+        var baos = new ByteArrayOutputStream();
+        try ( var out = new PrintStream( baos ) )
         {
-            PrintStream ps = new PrintStream( baos );
-            Usage usage = new Usage( "neo4j-admin", mock( CommandLocator.class ) );
-            usage.printUsageForCommand( new StoreInfoCommandProvider(), ps::println );
-
-            assertEquals( String.format( "usage: neo4j-admin store-info --store=<path-to-dir>%n" +
-                            "%n" +
-                            "Prints information about a Neo4j database store, such as what version of Neo4j%n" +
-                            "created it. Note that this command expects a path to a store directory, for%n" +
-                            "example --store=data/databases/graph.db.%n" +
-                            "%n" +
-                            "options:%n" +
-                            "  --store=<path-to-dir>   Path to database store.%n" ),
-                    baos.toString() );
+            CommandLine.usage( command, new PrintStream( out ) );
         }
+        assertThat( baos.toString().trim() ).isEqualTo( String.format(
+                        "Print information about a Neo4j database store.%n" +
+                        "%n" +
+                        "USAGE%n" +
+                        "%n" +
+                        "store-info [--verbose] <storePath>%n" +
+                        "%n" +
+                        "DESCRIPTION%n" +
+                        "%n" +
+                        "Print information about a Neo4j database store, such as what version of Neo4j%n" +
+                        "created it.%n" +
+                        "%n" +
+                        "PARAMETERS%n" +
+                        "%n" +
+                        "      <storePath>   Path to database store.%n" +
+                        "%n" +
+                        "OPTIONS%n" +
+                        "%n" +
+                        "      --verbose     Enable verbose output."
+        ) );
     }
 
     @Test
-    public void noArgFails() throws Exception
+    void nonExistingDatabaseShouldThrow()
     {
-        expected.expect( IllegalArgumentException.class );
-        expected.expectMessage( "Missing argument 'store'" );
-
-        command.execute( new String[]{} );
+        CommandLine.populateCommand( command, Paths.get( "yaba", "daba", "doo" ).toFile().getAbsolutePath() );
+        IllegalArgumentException exception = assertThrows( IllegalArgumentException.class, () -> command.execute() );
+        assertThat( exception.getMessage() ).contains( "does not contain a database" );
     }
 
     @Test
-    public void emptyArgFails() throws Exception
+    void readsLatestStoreVersionCorrectly() throws Exception
     {
-        expected.expect( IllegalArgumentException.class );
-        expected.expectMessage( "Missing argument 'store'" );
+        RecordFormats currentFormat = RecordFormatSelector.defaultFormat();
+        prepareNeoStoreFile( currentFormat.storeVersion() );
+        CommandLine.populateCommand( command, databaseDirectory.toFile().getAbsolutePath() );
+        command.execute();
 
-        command.execute( new String[]{"--store="} );
+        verify( out ).println( String.format( "Store format version:         %s", currentFormat.storeVersion() ) );
+        verify( out ).println( String.format( "Store format introduced in:   %s", currentFormat.introductionVersion() ) );
+        verifyNoMoreInteractions( out );
     }
 
     @Test
-    public void nonExistingDatabaseShouldThrow() throws Exception
+    void readsOlderStoreVersionCorrectly() throws Exception
     {
-        expected.expect( IllegalArgumentException.class );
-        expected.expectMessage( "does not contain a database" );
+        prepareNeoStoreFile( StandardV3_4.RECORD_FORMATS.storeVersion() );
+        CommandLine.populateCommand( command, databaseDirectory.toFile().getAbsolutePath() );
+        command.execute();
 
-        execute( Paths.get( "yaba", "daba", "doo" ).toString() );
+        verify( out ).println( "Store format version:         v0.A.9" );
+        verify( out ).println( "Store format introduced in:   3.4.0" );
+        verify( out ).println( "Store format superseded in:   4.0.0" );
+        verifyNoMoreInteractions( out );
     }
 
     @Test
-    public void readsLatestStoreVersionCorrectly() throws Exception
+    void throwsOnUnknownVersion() throws Exception
+    {
+        prepareNeoStoreFile( "v9.9.9" );
+        CommandLine.populateCommand( command, databaseDirectory.toFile().getAbsolutePath() );
+        Exception exception = assertThrows( Exception.class, () -> command.execute() );
+        assertThat( exception ).hasRootCauseInstanceOf( IllegalArgumentException.class );
+        assertThat( exception.getMessage() ).contains( "Unknown store version 'v9.9.9'" );
+    }
+
+    @Test
+    void respectLockFiles() throws IOException
     {
         RecordFormats currentFormat = RecordFormatSelector.defaultFormat();
         prepareNeoStoreFile( currentFormat.storeVersion() );
 
-        execute( databaseDirectory.toString() );
-
-        verify( out, times( 2 ) ).accept( outCaptor.capture() );
-
-        assertEquals(
-                Arrays.asList(
-                        String.format( "Store format version:         %s", currentFormat.storeVersion() ),
-                        String.format( "Store format introduced in:   %s", currentFormat.introductionVersion() ) ),
-                outCaptor.getAllValues() );
-    }
-
-    @Test
-    public void readsOlderStoreVersionCorrectly() throws Exception
-    {
-        prepareNeoStoreFile( StandardV2_2.RECORD_FORMATS.storeVersion() );
-
-        execute( databaseDirectory.toString() );
-
-        verify( out, times( 3 ) ).accept( outCaptor.capture() );
-
-        assertEquals(
-                Arrays.asList(
-                        "Store format version:         v0.A.5",
-                        "Store format introduced in:   2.2.0",
-                        "Store format superseded in:   2.3.0" ),
-                outCaptor.getAllValues() );
-    }
-
-    @Test
-    public void throwsOnUnknownVersion() throws Exception
-    {
-        prepareNeoStoreFile( "v9.9.9" );
-
-        expected.expect( IllegalArgumentException.class );
-        expected.expectMessage( "Unknown store version 'v9.9.9'" );
-
-        execute( databaseDirectory.toString() );
-    }
-
-    private void execute( String storePath ) throws Exception
-    {
-        command.execute( new String[]{"--store=" + storePath} );
+        try ( FileSystemAbstraction fileSystem = new DefaultFileSystemAbstraction();
+              Locker locker = new DatabaseLocker( fileSystem, databaseLayout ) )
+        {
+            locker.checkLock();
+            CommandLine.populateCommand( command, databaseDirectory.toFile().getAbsolutePath() );
+            Exception exception = assertThrows( Exception.class, () -> command.execute() );
+            assertEquals( "The database is in use. Stop database 'foo' and try again.", exception.getMessage() );
+        }
     }
 
     private void prepareNeoStoreFile( String storeVersion ) throws IOException
     {
-        File neoStoreFile = createNeoStoreFile();
+        Path neoStoreFile = createNeoStoreFile();
         long value = MetaDataStore.versionStringToLong( storeVersion );
-        MetaDataStore.setRecord( pageCacheRule.getPageCache( fsRule.get() ), neoStoreFile, STORE_VERSION, value );
+        MetaDataStore.setRecord( pageCache, neoStoreFile, STORE_VERSION, value, NULL );
     }
 
-    private File createNeoStoreFile() throws IOException
+    private Path createNeoStoreFile() throws IOException
     {
-        fsRule.get().mkdir( databaseDirectory.toFile() );
-        File neoStoreFile = new File( databaseDirectory.toFile(), MetaDataStore.DEFAULT_NAME );
-        fsRule.get().create( neoStoreFile ).close();
+        Path neoStoreFile = databaseLayout.metadataStore();
+        fileSystem.write( neoStoreFile ).close();
         return neoStoreFile;
     }
 }

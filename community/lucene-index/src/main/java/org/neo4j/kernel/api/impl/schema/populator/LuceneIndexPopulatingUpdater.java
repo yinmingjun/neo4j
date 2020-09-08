@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -23,14 +23,14 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.index.Term;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.Arrays;
 
-import org.neo4j.collection.primitive.PrimitiveLongSet;
-import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
 import org.neo4j.kernel.api.impl.schema.LuceneDocumentStructure;
 import org.neo4j.kernel.api.impl.schema.writer.LuceneIndexWriter;
-import org.neo4j.kernel.api.index.IndexEntryUpdate;
 import org.neo4j.kernel.api.index.IndexUpdater;
-import org.neo4j.kernel.impl.api.index.UpdateMode;
+import org.neo4j.storageengine.api.IndexEntryUpdate;
+import org.neo4j.storageengine.api.UpdateMode;
 
 /**
  * An {@link IndexUpdater} used while index population is in progress. Takes special care of node property additions
@@ -47,35 +47,36 @@ public abstract class LuceneIndexPopulatingUpdater implements IndexUpdater
     }
 
     @Override
-    public void process( IndexEntryUpdate update ) throws IOException, IndexEntryConflictException
+    public void process( IndexEntryUpdate<?> update )
     {
         long nodeId = update.getEntityId();
 
-        switch ( update.updateMode() )
+        try
         {
-        case ADDED:
-            added( update );
-            writer.updateDocument( LuceneDocumentStructure.newTermForChangeOrRemove( nodeId ),
-                    LuceneDocumentStructure.documentRepresentingProperties( nodeId, update.values() ) );
-            break;
-        case CHANGED:
-            changed( update );
-            writer.updateDocument( LuceneDocumentStructure.newTermForChangeOrRemove( nodeId ),
-                    LuceneDocumentStructure.documentRepresentingProperties( nodeId, update.values() ) );
-            break;
-        case REMOVED:
-            removed( update );
-            writer.deleteDocuments( LuceneDocumentStructure.newTermForChangeOrRemove( nodeId ) );
-            break;
-        default:
-            throw new IllegalStateException( "Unknown update mode " + update.values() );
+            switch ( update.updateMode() )
+            {
+            case ADDED:
+                added( update );
+                writer.updateDocument( LuceneDocumentStructure.newTermForChangeOrRemove( nodeId ),
+                        LuceneDocumentStructure.documentRepresentingProperties( nodeId, update.values() ) );
+                break;
+            case CHANGED:
+                changed( update );
+                writer.updateDocument( LuceneDocumentStructure.newTermForChangeOrRemove( nodeId ),
+                        LuceneDocumentStructure.documentRepresentingProperties( nodeId, update.values() ) );
+                break;
+            case REMOVED:
+                removed( update );
+                writer.deleteDocuments( LuceneDocumentStructure.newTermForChangeOrRemove( nodeId ) );
+                break;
+            default:
+                throw new IllegalStateException( "Unknown update mode " + update.updateMode() + " for values " + Arrays.toString( update.values() ) );
+            }
         }
-    }
-
-    @Override
-    public final void remove( PrimitiveLongSet nodeIds )
-    {
-        throw new UnsupportedOperationException( "Should not remove from populating index" );
+        catch ( IOException e )
+        {
+            throw new UncheckedIOException( e );
+        }
     }
 
     /**
@@ -83,19 +84,19 @@ public abstract class LuceneIndexPopulatingUpdater implements IndexUpdater
      *
      * @param update the update being processed.
      */
-    protected abstract void added( IndexEntryUpdate update );
+    protected abstract void added( IndexEntryUpdate<?> update );
 
     /**
      * Method is invoked when {@link IndexEntryUpdate} with {@link UpdateMode#CHANGED} is processed.
      *
      * @param update the update being processed.
      */
-    protected abstract void changed( IndexEntryUpdate update );
+    protected abstract void changed( IndexEntryUpdate<?> update );
 
     /**
      * Method is invoked when {@link IndexEntryUpdate} with {@link UpdateMode#REMOVED} is processed.
      *
      * @param update the update being processed.
      */
-    protected abstract void removed( IndexEntryUpdate update );
+    protected abstract void removed( IndexEntryUpdate<?> update );
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,9 +19,12 @@
  */
 package org.neo4j.graphdb;
 
+import org.neo4j.annotations.api.PublicApi;
+
 /**
  * An input position refers to a specific point in a query string.
  */
+@PublicApi
 public final class InputPosition
 {
     private final int offset;
@@ -31,7 +34,7 @@ public final class InputPosition
     /**
      * The empty position
      */
-    public static InputPosition empty = new InputPosition(-1, -1, -1);
+    public static final InputPosition empty = new InputPosition( -1, -1, -1 );
 
     /**
      * Creating a position from and offset, line number and a column number.
@@ -77,16 +80,24 @@ public final class InputPosition
     public boolean equals( Object o )
     {
         if ( this == o )
-        { return true; }
+        {
+            return true;
+        }
         if ( o == null || getClass() != o.getClass() )
-        { return false; }
+        {
+            return false;
+        }
 
         InputPosition that = (InputPosition) o;
 
         if ( offset != that.offset )
-        { return false; }
+        {
+            return false;
+        }
         if ( line != that.line )
-        { return false; }
+        {
+            return false;
+        }
         return column == that.column;
 
     }

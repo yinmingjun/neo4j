@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -32,6 +32,7 @@ public class LockTransaction
     private static final AtomicInteger IDS = new AtomicInteger( 0 );
 
     private final int id = IDS.getAndIncrement();
+    private volatile long transactionId;
 
     public int getId()
     {
@@ -41,6 +42,16 @@ public class LockTransaction
     @Override
     public String toString()
     {
-        return String.format( "LockClient[%d]", id );
+        return String.format( "LockClient[%d for transaction: %d]", id, transactionId );
+    }
+
+    public void setTransactionId( long transactionId )
+    {
+        this.transactionId = transactionId;
+    }
+
+    public long getTransactionId()
+    {
+        return transactionId;
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,23 +21,31 @@ package org.neo4j.consistency.checking.index;
 
 import java.util.Iterator;
 
-import org.neo4j.helpers.collection.BoundedIterable;
+import org.neo4j.internal.helpers.collection.BoundedIterable;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.api.index.IndexAccessor;
 
 public class IndexIterator implements BoundedIterable<Long>
 {
+    private static final String CONSISTENCY_INDEX_ITERATOR_TAG = "consistencyIndexIterator";
+    private static final String CONSISTENCY_INDEX_COUNTER_TAG = "consistencyIndexCounter";
     private final IndexAccessor indexAccessor;
+    private final PageCacheTracer pageCacheTracer;
     private BoundedIterable<Long> indexReader;
+    private PageCursorTracer readerTracer;
 
-    public IndexIterator( IndexAccessor indexAccessor )
+    public IndexIterator( IndexAccessor indexAccessor, PageCacheTracer pageCacheTracer )
     {
         this.indexAccessor = indexAccessor;
+        this.pageCacheTracer = pageCacheTracer;
     }
 
     @Override
     public long maxCount()
     {
-        try ( BoundedIterable<Long> reader = indexAccessor.newAllEntriesReader() )
+        try ( var cursorTracer = pageCacheTracer.createPageCursorTracer( CONSISTENCY_INDEX_COUNTER_TAG );
+              var reader = indexAccessor.newAllEntriesReader( cursorTracer ) )
         {
             return reader.maxCount();
         }
@@ -53,6 +61,7 @@ public class IndexIterator implements BoundedIterable<Long>
         if ( indexReader != null )
         {
             indexReader.close();
+            readerTracer.close();
         }
     }
 
@@ -61,7 +70,8 @@ public class IndexIterator implements BoundedIterable<Long>
     {
         if ( indexReader == null )
         {
-            indexReader = indexAccessor.newAllEntriesReader();
+            readerTracer = pageCacheTracer.createPageCursorTracer( CONSISTENCY_INDEX_ITERATOR_TAG );
+            indexReader = indexAccessor.newAllEntriesReader( readerTracer );
         }
 
         return indexReader.iterator();

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,21 +19,25 @@
  */
 package org.neo4j.kernel.api.schema;
 
-import org.hamcrest.Matchers;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.hamcrest.MatcherAssert.assertThat;
+import org.neo4j.internal.schema.LabelSchemaDescriptor;
+import org.neo4j.internal.schema.RelationTypeSchemaDescriptor;
+import org.neo4j.internal.schema.SchemaDescriptor;
+import org.neo4j.internal.schema.SchemaProcessor;
 
-public class SchemaProcessorTest
+import static org.assertj.core.api.Assertions.assertThat;
+
+class SchemaProcessorTest
 {
     private static final int LABEL_ID = 0;
     private static final int REL_TYPE_ID = 0;
 
     @Test
-    public void shouldHandleCorrectDescriptorVersions()
+    void shouldHandleCorrectDescriptorVersions()
     {
         List<String> callHistory = new ArrayList<>();
         SchemaProcessor processor = new SchemaProcessor()
@@ -49,6 +53,12 @@ public class SchemaProcessorTest
             {
                 callHistory.add( "RelationTypeSchemaDescriptor" );
             }
+
+            @Override
+            public void processSpecific( SchemaDescriptor schemaDescriptor )
+            {
+                callHistory.add( "SchemaDescriptor" );
+            }
         };
 
         disguisedLabel().processWith( processor );
@@ -58,19 +68,17 @@ public class SchemaProcessorTest
         disguisedRelType().processWith( processor );
         disguisedRelType().processWith( processor );
 
-        assertThat( callHistory, Matchers.contains(
-                "LabelSchemaDescriptor", "LabelSchemaDescriptor",
-                "RelationTypeSchemaDescriptor", "LabelSchemaDescriptor",
-                "RelationTypeSchemaDescriptor", "RelationTypeSchemaDescriptor" ) );
+        assertThat( callHistory ).containsExactly( "LabelSchemaDescriptor", "LabelSchemaDescriptor", "RelationTypeSchemaDescriptor", "LabelSchemaDescriptor",
+                "RelationTypeSchemaDescriptor", "RelationTypeSchemaDescriptor" );
     }
 
     private SchemaDescriptor disguisedLabel()
     {
-        return SchemaDescriptorFactory.forLabel( LABEL_ID, 1 );
+        return SchemaDescriptor.forLabel( LABEL_ID, 1 );
     }
 
     private SchemaDescriptor disguisedRelType()
     {
-        return SchemaDescriptorFactory.forRelType( REL_TYPE_ID, 1 );
+        return SchemaDescriptor.forRelType( REL_TYPE_ID, 1 );
     }
 }

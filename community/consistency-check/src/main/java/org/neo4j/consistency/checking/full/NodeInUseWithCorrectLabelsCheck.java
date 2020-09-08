@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,13 +21,17 @@ package org.neo4j.consistency.checking.full;
 
 import org.apache.commons.lang3.ArrayUtils;
 
-import org.neo4j.collection.primitive.PrimitiveLongCollections;
+import java.util.Arrays;
+
+import org.neo4j.collection.PrimitiveLongCollections;
 import org.neo4j.consistency.checking.CheckerEngine;
 import org.neo4j.consistency.checking.ComparativeRecordChecker;
 import org.neo4j.consistency.checking.LabelChainWalker;
 import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.store.RecordAccess;
 import org.neo4j.consistency.store.RecordReference;
+import org.neo4j.internal.schema.PropertySchemaType;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.DynamicNodeLabels;
 import org.neo4j.kernel.impl.store.NodeLabels;
 import org.neo4j.kernel.impl.store.NodeLabelsField;
@@ -42,15 +46,17 @@ public class NodeInUseWithCorrectLabelsCheck
         implements ComparativeRecordChecker<RECORD, NodeRecord, REPORT>
 {
     private final long[] indexLabels;
+    private final PropertySchemaType propertySchemaType;
     private final boolean checkStoreToIndex;
 
-    public NodeInUseWithCorrectLabelsCheck( long[] expectedLabels, boolean checkStoreToIndex )
+    public NodeInUseWithCorrectLabelsCheck( long[] expectedEntityTokenIds, PropertySchemaType propertySchemaType, boolean checkStoreToIndex )
     {
+        this.propertySchemaType = propertySchemaType;
         this.checkStoreToIndex = checkStoreToIndex;
-        this.indexLabels = sortAndDeduplicate( expectedLabels );
+        this.indexLabels = sortAndDeduplicate( expectedEntityTokenIds );
     }
 
-    private static long[] sortAndDeduplicate( long[] labels )
+    public static long[] sortAndDeduplicate( long[] labels )
     {
         if ( ArrayUtils.isNotEmpty( labels ) )
         {
@@ -61,8 +67,7 @@ public class NodeInUseWithCorrectLabelsCheck
     }
 
     @Override
-    public void checkReference( RECORD record, NodeRecord nodeRecord,
-                                CheckerEngine<RECORD, REPORT> engine, RecordAccess records )
+    public void checkReference( RECORD record, NodeRecord nodeRecord, CheckerEngine<RECORD,REPORT> engine, RecordAccess records, PageCursorTracer cursorTracer )
     {
         if ( nodeRecord.inUse() )
         {
@@ -71,7 +76,7 @@ public class NodeInUseWithCorrectLabelsCheck
             {
                 DynamicNodeLabels dynamicNodeLabels = (DynamicNodeLabels) nodeLabels;
                 long firstRecordId = dynamicNodeLabels.getFirstDynamicRecordId();
-                RecordReference<DynamicRecord> firstRecordReference = records.nodeLabels( firstRecordId );
+                RecordReference<DynamicRecord> firstRecordReference = records.nodeLabels( firstRecordId, cursorTracer );
                 ExpectedNodeLabelsChecker expectedNodeLabelsChecker = new ExpectedNodeLabelsChecker( nodeRecord );
                 LabelChainWalker<RECORD,REPORT> checker = new LabelChainWalker<>( expectedNodeLabelsChecker );
                 engine.comparativeCheck( firstRecordReference, checker );
@@ -79,12 +84,12 @@ public class NodeInUseWithCorrectLabelsCheck
             }
             else
             {
-                long[] storeLabels = nodeLabels.get( null );
+                long[] storeLabels = nodeLabels.get( null, cursorTracer );
                 REPORT report = engine.report();
                 validateLabelIds( nodeRecord, storeLabels, report );
             }
         }
-        else
+        else if ( indexLabels.length != 0 )
         {
             engine.report().nodeNotInUse( nodeRecord );
         }
@@ -94,38 +99,63 @@ public class NodeInUseWithCorrectLabelsCheck
     {
         storeLabels = sortAndDeduplicate( storeLabels );
 
-        int indexLabelsCursor = 0;
-        int storeLabelsCursor = 0;
-
-        while ( indexLabelsCursor < indexLabels.length && storeLabelsCursor < storeLabels.length )
+        if ( propertySchemaType == PropertySchemaType.COMPLETE_ALL_TOKENS )
         {
-            long indexLabel = indexLabels[indexLabelsCursor];
-            long storeLabel = storeLabels[storeLabelsCursor];
-            if ( indexLabel < storeLabel )
-            {   // node store has a label which isn't in label scan store
+            // The node must have all of the labels specified by the index.
+            int indexLabelsCursor = 0;
+            int storeLabelsCursor = 0;
+
+            while ( indexLabelsCursor < indexLabels.length && storeLabelsCursor < storeLabels.length )
+            {
+                long indexLabel = indexLabels[indexLabelsCursor];
+                long storeLabel = storeLabels[storeLabelsCursor];
+                if ( indexLabel < storeLabel )
+                {   // node store has a label which isn't in label scan store
+                    report.nodeDoesNotHaveExpectedLabel( nodeRecord, indexLabel );
+                    indexLabelsCursor++;
+                }
+                else if ( indexLabel > storeLabel )
+                {   // label scan store has a label which isn't in node store
+                    reportNodeLabelNotInIndex( report, nodeRecord, storeLabel );
+                    storeLabelsCursor++;
+                }
+                else
+                {   // both match
+                    indexLabelsCursor++;
+                    storeLabelsCursor++;
+                }
+            }
+
+            while ( indexLabelsCursor < indexLabels.length )
+            {
+                report.nodeDoesNotHaveExpectedLabel( nodeRecord, indexLabels[indexLabelsCursor++] );
+            }
+            while ( storeLabelsCursor < storeLabels.length )
+            {
+                reportNodeLabelNotInIndex( report, nodeRecord, storeLabels[storeLabelsCursor] );
+                storeLabelsCursor++;
+            }
+        }
+        else if ( propertySchemaType == PropertySchemaType.PARTIAL_ANY_TOKEN )
+        {
+            // The node must have at least one label in the index.
+            for ( long storeLabel : storeLabels )
+            {
+                if ( Arrays.binarySearch( indexLabels, storeLabel ) >= 0 )
+                {
+                    // The node has one of the indexed labels, so we're good.
+                    return;
+                }
+            }
+            // The node had none of the indexed labels, so we report all of them as missing.
+            for ( long indexLabel : indexLabels )
+            {
                 report.nodeDoesNotHaveExpectedLabel( nodeRecord, indexLabel );
-                indexLabelsCursor++;
-            }
-            else if ( indexLabel > storeLabel )
-            {   // label scan store has a label which isn't in node store
-                reportNodeLabelNotInIndex( report, nodeRecord, storeLabel );
-                storeLabelsCursor++;
-            }
-            else
-            {   // both match
-                indexLabelsCursor++;
-                storeLabelsCursor++;
             }
         }
-
-        while ( indexLabelsCursor < indexLabels.length )
+        else
         {
-            report.nodeDoesNotHaveExpectedLabel( nodeRecord, indexLabels[indexLabelsCursor++] );
-        }
-        while ( storeLabelsCursor < storeLabels.length )
-        {
-            reportNodeLabelNotInIndex( report, nodeRecord, storeLabels[storeLabelsCursor] );
-            storeLabelsCursor++;
+            throw new IllegalStateException( "Unknown property schema type '" + propertySchemaType + "'." );
         }
     }
 
@@ -160,7 +190,7 @@ public class NodeInUseWithCorrectLabelsCheck
         }
 
         @Override
-        public void onWellFormedChain( long[] labelIds, CheckerEngine<RECORD, REPORT> engine, RecordAccess records )
+        public void onWellFormedChain( long[] labelIds, CheckerEngine<RECORD, REPORT> engine, RecordAccess records, PageCursorTracer cursorTracer )
         {
             validateLabelIds( nodeRecord, labelIds, engine.report() );
         }

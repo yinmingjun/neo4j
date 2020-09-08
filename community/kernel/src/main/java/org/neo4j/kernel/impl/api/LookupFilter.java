@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,17 +19,19 @@
  */
 package org.neo4j.kernel.impl.api;
 
+import org.eclipse.collections.api.iterator.LongIterator;
+
 import java.util.Arrays;
 import java.util.function.LongPredicate;
 
-import org.neo4j.collection.primitive.PrimitiveLongCollections;
-import org.neo4j.collection.primitive.PrimitiveLongIterator;
-import org.neo4j.cursor.Cursor;
-import org.neo4j.kernel.api.exceptions.EntityNotFoundException;
-import org.neo4j.kernel.api.index.PropertyAccessor;
-import org.neo4j.kernel.api.schema.IndexQuery;
-import org.neo4j.kernel.impl.api.operations.EntityOperations;
-import org.neo4j.storageengine.api.NodeItem;
+import org.neo4j.collection.PrimitiveLongCollections;
+import org.neo4j.internal.kernel.api.IndexQuery;
+import org.neo4j.internal.kernel.api.exceptions.EntityNotFoundException;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
+import org.neo4j.values.storable.Value;
+import org.neo4j.values.storable.ValueGroup;
+import org.neo4j.values.storable.Values;
 
 /**
  * When looking up nodes by a property value, we have to do a two-stage check.
@@ -41,33 +43,37 @@ import org.neo4j.storageengine.api.NodeItem;
  */
 public class LookupFilter
 {
+    private LookupFilter()
+    {
+    }
+
     /**
      * used by the consistency checker
      */
-    public static PrimitiveLongIterator exactIndexMatches( PropertyAccessor accessor,
-            PrimitiveLongIterator indexedNodeIds, IndexQuery... predicates )
+    public static LongIterator exactIndexMatches( NodePropertyAccessor accessor,
+            LongIterator indexedNodeIds, PageCursorTracer cursorTracer, IndexQuery... predicates )
     {
         if ( !indexedNodeIds.hasNext() )
         {
             return indexedNodeIds;
         }
 
-        IndexQuery[] numericPredicates =
+        IndexQuery[] filteredPredicates =
                 Arrays.stream( predicates )
-                        .filter( LookupFilter::isNumericPredicate )
+                        .filter( LookupFilter::isNumericOrGeometricPredicate )
                         .toArray( IndexQuery[]::new );
 
-        if ( numericPredicates.length > 0 )
+        if ( filteredPredicates.length > 0 )
         {
             LongPredicate combinedPredicate = nodeId ->
             {
                 try
                 {
-                    for ( IndexQuery predicate : numericPredicates )
+                    for ( IndexQuery predicate : filteredPredicates )
                     {
                         int propertyKeyId = predicate.propertyKeyId();
-                        Object value = accessor.getProperty( nodeId, propertyKeyId ).value( null );
-                        if ( !predicate.test( value ) )
+                        Value value = accessor.getNodePropertyValue( nodeId, propertyKeyId, cursorTracer );
+                        if ( !predicate.acceptsValue( value ) )
                         {
                             return false;
                         }
@@ -86,71 +92,23 @@ public class LookupFilter
         return indexedNodeIds;
     }
 
-    /**
-     * used in "normal" operation
-     */
-    public static PrimitiveLongIterator exactIndexMatches( EntityOperations operations, KernelStatement state,
-                                                           PrimitiveLongIterator indexedNodeIds, IndexQuery... predicates )
-    {
-        if ( !indexedNodeIds.hasNext() )
-        {
-            return indexedNodeIds;
-        }
-
-        IndexQuery[] numericPredicates =
-                Arrays.stream( predicates )
-                        .filter( LookupFilter::isNumericPredicate )
-                        .toArray( IndexQuery[]::new );
-
-        if ( numericPredicates.length > 0 )
-        {
-            LongPredicate combinedPredicate = nodeId ->
-            {
-                try ( Cursor<NodeItem> node = operations.nodeCursorById( state, nodeId ) )
-                {
-                    NodeItem nodeItem = node.get();
-                    for ( IndexQuery predicate : numericPredicates )
-                    {
-                        int propertyKeyId = predicate.propertyKeyId();
-                        Object value = operations.nodeGetProperty( state, nodeItem, propertyKeyId );
-                        if ( !predicate.test( value ) )
-                        {
-                            return false;
-                        }
-                    }
-                    return true;
-                }
-                catch ( EntityNotFoundException ignored )
-                {
-                    return false; // The node has been deleted but was still reported from the index. We hope that this
-                                  // is some transient problem and just ignore this index entry.
-                }
-            };
-            return PrimitiveLongCollections.filter( indexedNodeIds, combinedPredicate );
-        }
-        return indexedNodeIds;
-    }
-
-    private static boolean isNumericPredicate( IndexQuery predicate )
+    private static boolean isNumericOrGeometricPredicate( IndexQuery predicate )
     {
 
         if ( predicate.type() == IndexQuery.IndexQueryType.exact )
         {
             IndexQuery.ExactPredicate exactPredicate = (IndexQuery.ExactPredicate) predicate;
-            if ( isNumberOrArray( exactPredicate.value() ) )
-            {
-                return true;
-            }
+            return isNumberGeometryOrArray( exactPredicate.value() );
         }
-        else if ( predicate.type() == IndexQuery.IndexQueryType.rangeNumeric )
+        else
         {
-            return true;
+            return predicate.type() == IndexQuery.IndexQueryType.range &&
+                    (predicate.valueGroup() == ValueGroup.NUMBER || predicate.valueGroup() == ValueGroup.GEOMETRY);
         }
-        return false;
     }
 
-    private static boolean isNumberOrArray( Object value )
+    private static boolean isNumberGeometryOrArray( Value value )
     {
-        return value instanceof Number || value.getClass().isArray();
+        return Values.isNumberValue( value ) || Values.isGeometryValue( value ) || Values.isArrayValue( value );
     }
 }

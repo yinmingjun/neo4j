@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,21 +19,21 @@
  */
 package org.neo4j.server.web;
 
+import org.junit.jupiter.api.Test;
+
 import javax.servlet.FilterChain;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.junit.Test;
-
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyZeroInteractions;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-public class StaticContentFilterTest
+class StaticContentFilterTest
 {
     @Test
-    public void shouldAddStaticContentHeadersToHtmlResponses() throws Exception
+    void shouldAddStaticContentHeadersToHtmlResponses() throws Exception
     {
         // given
         HttpServletRequest request = mock(HttpServletRequest.class);
@@ -49,11 +49,13 @@ public class StaticContentFilterTest
         verify( response ).addHeader( "Pragma", "no-cache" );
         verify( response ).addHeader( "Content-Security-Policy", "frame-ancestors 'none'" );
         verify( response ).addHeader( "X-Frame-Options", "DENY" );
+        verify( response ).addHeader( "X-Content-Type-Options", "nosniff" );
+        verify( response ).addHeader( "X-XSS-Protection", "1; mode=block" );
         verify( filterChain ).doFilter( request, response );
     }
 
     @Test
-    public void shouldPassThroughRequestsForNonHtmlResources() throws Exception
+    void shouldPassThroughRequestsForNonHtmlResources() throws Exception
     {
         // given
         HttpServletRequest request = mock(HttpServletRequest.class);
@@ -65,12 +67,12 @@ public class StaticContentFilterTest
         new StaticContentFilter().doFilter( request, response, filterChain );
 
         // then
-        verifyZeroInteractions( response );
+        verifyNoInteractions( response );
         verify( filterChain ).doFilter( request, response );
     }
 
     @Test
-    public void shouldPassThroughRequestsWithNullServletPath() throws Exception
+    void shouldPassThroughRequestsWithNullServletPath() throws Exception
     {
         // given
         HttpServletRequest request = mock(HttpServletRequest.class);
@@ -82,7 +84,7 @@ public class StaticContentFilterTest
         new StaticContentFilter().doFilter( request, response, filterChain );
 
         // then
-        verifyZeroInteractions( response );
+        verifyNoInteractions( response );
         verify( filterChain ).doFilter( request, response );
     }
 }

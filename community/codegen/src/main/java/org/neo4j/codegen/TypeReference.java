@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,10 +21,11 @@ package org.neo4j.codegen;
 
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 
-import static java.util.Arrays.asList;
-import static java.util.Collections.unmodifiableList;
+import org.neo4j.values.AnyValue;
 
 public class TypeReference
 {
@@ -51,6 +52,19 @@ public class TypeReference
         };
     }
 
+    private static TypeReference primitiveType( Class<?> base )
+    {
+        return new TypeReference( "", base.getSimpleName(),
+                true, 0, false, null, base.getModifiers() );
+    }
+
+    private static TypeReference primitiveArray( Class<?> base, int arrayDepth )
+    {
+        assert base.isPrimitive();
+
+        return new TypeReference( "", base.getSimpleName(), false, arrayDepth, false, null, base.getModifiers() );
+    }
+
     public static TypeReference typeReference( Class<?> type )
     {
         if ( type == void.class )
@@ -61,54 +75,49 @@ public class TypeReference
         {
             return OBJECT;
         }
-        String packageName = "", name, declaringClassName = "";
 
-        Class<?> innerType = type.isArray() ? type.getComponentType() : type;
-
-        if (innerType.isPrimitive())
+        Class<?> innerType = type;
+        int arrayDepth = 0;
+        while ( innerType.isArray() )
         {
-            name = innerType.getName();
-            switch ( name )
-            {
-            case "boolean":
-                return type.isArray() ? BOOLEAN_ARRAY : BOOLEAN;
-            case "int":
-                return type.isArray() ? INT_ARRAY : INT;
-            case "long":
-                return type.isArray() ? LONG_ARRAY : LONG;
-            case "double":
-                return type.isArray() ? DOUBLE_ARRAY : DOUBLE;
-            default:
-                // continue through the normal path
-            }
+            innerType = innerType.getComponentType();
+            arrayDepth++;
+        }
+
+        if ( innerType.isPrimitive() )
+        {
+            return arrayDepth > 0 ? primitiveArray( innerType, arrayDepth ) : primitiveType( innerType );
         }
         else
         {
-            packageName = innerType.getPackage().getName();
-            String canonicalName = innerType.getCanonicalName();
+            String packageName = "";
+            String name;
+            TypeReference declaringTypeReference = null;
+            Package typePackage = innerType.getPackage();
+            if ( typePackage != null )
+            {
+                packageName = typePackage.getName();
+            }
             Class<?> declaringClass = innerType.getDeclaringClass();
-            if ( declaringClass != null)
+            if ( declaringClass != null )
             {
-                declaringClassName = declaringClass.getSimpleName();
-                name = canonicalName.substring( packageName.length() + declaringClassName.length() + 2 );
+                declaringTypeReference = typeReference( declaringClass );
             }
-            else
-            {
-                name = canonicalName.substring( packageName.length() + 1 );
-            }
+            name = innerType.getSimpleName();
+            return new TypeReference( packageName, name, type.isPrimitive(), arrayDepth, false,
+                    declaringTypeReference, type.getModifiers() );
         }
-        return new TypeReference( packageName, name, type.isPrimitive(), type.isArray(), false,
-                declaringClassName, type.getModifiers() );
+
     }
 
     public static TypeReference typeParameter( String name )
     {
-        return new TypeReference( "", name, false, false, true, "", Modifier.PUBLIC );
+        return new TypeReference( "", name, false, 0, true, null, Modifier.PUBLIC );
     }
 
     public static TypeReference arrayOf( TypeReference type )
     {
-        return new TypeReference( type.packageName, type.name, false, true, false, type.declaringClassName, type.modifiers );
+        return new TypeReference( type.packageName, type.name, false, type.arrayDepth + 1, false, type.declaringClass, type.modifiers );
     }
 
     public static TypeReference parameterizedType( Class<?> base, Class<?>... parameters )
@@ -123,8 +132,8 @@ public class TypeReference
 
     public static TypeReference parameterizedType( TypeReference base, TypeReference... parameters )
     {
-        return new TypeReference( base.packageName, base.name, false, base.isArray(), false,
-                base.declaringClassName,
+        return new TypeReference( base.packageName, base.name, false, base.arrayDepth, false,
+                base.declaringClass,
                 base.modifiers, parameters );
     }
 
@@ -149,36 +158,73 @@ public class TypeReference
         return result;
     }
 
+    public static TypeReference toBoxedType( TypeReference in )
+    {
+        switch ( in.fullName() )
+        {
+        case "byte":
+            return TypeReference.typeReference( Byte.class );
+        case "short":
+            return TypeReference.typeReference( Short.class );
+        case "int":
+            return TypeReference.typeReference( Integer.class );
+        case "long":
+            return TypeReference.typeReference( Long.class );
+        case "char":
+            return TypeReference.typeReference( Character.class );
+        case "boolean":
+            return TypeReference.typeReference( Boolean.class );
+        case "float":
+            return TypeReference.typeReference( Float.class );
+        case "double":
+            return TypeReference.typeReference( Double.class );
+        default:
+            return in;
+        }
+    }
+
     private final String packageName;
     private final String name;
     private final TypeReference[] parameters;
     private final boolean isPrimitive;
-    private final boolean isArray;
+    private final int arrayDepth;
     private final boolean isTypeParameter;
-    private final String declaringClassName;
+    private final TypeReference declaringClass;
     private final int modifiers;
 
-    public static final TypeReference VOID = new TypeReference( "", "void", true, false, false, "", void.class.getModifiers() );
-    public static final TypeReference OBJECT = new TypeReference( "java.lang", "Object", false, false, false, "", Object.class.getModifiers() );
-    public static final TypeReference BOOLEAN = new TypeReference( "", "boolean", true, false, false, "", boolean.class.getModifiers() );
-    public static final TypeReference INT = new TypeReference( "", "int", true, false, false, "", int.class.getModifiers() );
-    public static final TypeReference LONG = new TypeReference( "", "long", true, false, false, "", long.class.getModifiers() );
-    public static final TypeReference DOUBLE = new TypeReference( "", "double", true, false, false, "", double.class.getModifiers() );
-    public static final TypeReference BOOLEAN_ARRAY = new TypeReference( "", "boolean", false, true, false, "", boolean.class.getModifiers() );
-    public static final TypeReference INT_ARRAY = new TypeReference( "", "int", false, true, false, "", int.class.getModifiers() );
-    public static final TypeReference LONG_ARRAY = new TypeReference( "", "long", false, true, false, "", long.class.getModifiers() );
-    public static final TypeReference DOUBLE_ARRAY = new TypeReference( "", "double", false, true, false, "", double.class.getModifiers() );
+    public static final TypeReference VOID =
+            new TypeReference( "", "void", true, 0, false, null, void.class.getModifiers() );
+    public static final TypeReference OBJECT =
+            new TypeReference( "java.lang", "Object", false, 0, false, null, Object.class.getModifiers() );
+    public static final TypeReference BOOLEAN =
+            new TypeReference( "", "boolean", true, 0, false, null, boolean.class.getModifiers() );
+    public static final TypeReference INT =
+            new TypeReference( "", "int", true, 0, false, null, int.class.getModifiers() );
+    public static final TypeReference LONG =
+            new TypeReference( "", "long", true, 0, false, null, long.class.getModifiers() );
+    public static final TypeReference DOUBLE =
+            new TypeReference( "", "double", true, 0, false, null, double.class.getModifiers() );
+    public static final TypeReference BOOLEAN_ARRAY =
+            new TypeReference( "", "boolean", false, 1, false, null, boolean.class.getModifiers() );
+    public static final TypeReference INT_ARRAY =
+            new TypeReference( "", "int", false, 1, false, null, int.class.getModifiers() );
+    public static final TypeReference LONG_ARRAY =
+            new TypeReference( "", "long", false, 1, false, null, long.class.getModifiers() );
+    public static final TypeReference DOUBLE_ARRAY =
+            new TypeReference( "", "double", false, 1, false, null, double.class.getModifiers() );
+    public static final TypeReference VALUE =
+            new TypeReference( "org.neo4j.values", "AnyValue", false, 0, false, null, AnyValue.class.getModifiers() );
     static final TypeReference[] NO_TYPES = new TypeReference[0];
 
-    TypeReference( String packageName, String name, boolean isPrimitive, boolean isArray,
-            boolean isTypeParameter, String declaringClassName, int modifiers, TypeReference... parameters )
+    TypeReference( String packageName, String name, boolean isPrimitive, int arrayDepth,
+            boolean isTypeParameter, TypeReference declaringClass, int modifiers, TypeReference... parameters )
     {
         this.packageName = packageName;
         this.name = name;
         this.isPrimitive = isPrimitive;
-        this.isArray = isArray;
+        this.arrayDepth = arrayDepth;
         this.isTypeParameter = isTypeParameter;
-        this.declaringClassName = declaringClassName;
+        this.declaringClass = declaringClass;
         this.modifiers = modifiers;
         this.parameters = parameters;
     }
@@ -195,7 +241,9 @@ public class TypeReference
 
     public String simpleName()
     {
-        return isArray ? name + "[]" : name;
+        StringBuilder builder = new StringBuilder( name );
+        builder.append( "[]".repeat( Math.max( 0, arrayDepth ) ) );
+        return builder.toString();
     }
 
     public boolean isPrimitive()
@@ -203,7 +251,7 @@ public class TypeReference
         return isPrimitive;
     }
 
-    public boolean isTypeParameter()
+    boolean isTypeParameter()
     {
         return isTypeParameter;
     }
@@ -215,7 +263,7 @@ public class TypeReference
 
     public List<TypeReference> parameters()
     {
-        return unmodifiableList( asList( parameters ) );
+        return List.of( parameters );
     }
 
     public String fullName()
@@ -225,7 +273,12 @@ public class TypeReference
 
     public boolean isArray()
     {
-        return isArray;
+        return arrayDepth > 0;
+    }
+
+    int arrayDepth()
+    {
+        return arrayDepth;
     }
 
     public boolean isVoid()
@@ -235,12 +288,19 @@ public class TypeReference
 
     public boolean isInnerClass()
     {
-        return !declaringClassName.isEmpty();
+        return declaringClass != null;
     }
 
-    public String declaringClassName()
+    List<TypeReference> declaringClasses()
     {
-        return declaringClassName;
+        LinkedList<TypeReference> parents = new LinkedList<>();
+        TypeReference parent = declaringClass;
+        while ( parent != null )
+        {
+            parents.addFirst( parent );
+            parent = parent.declaringClass;
+        }
+        return parents;
     }
 
     public int modifiers()
@@ -252,29 +312,46 @@ public class TypeReference
     public boolean equals( Object o )
     {
         if ( this == o )
-        { return true; }
+        {
+            return true;
+        }
         if ( o == null || getClass() != o.getClass() )
-        { return false; }
+        {
+            return false;
+        }
 
         TypeReference reference = (TypeReference) o;
 
         if ( isPrimitive != reference.isPrimitive )
-        { return false; }
-        if ( isArray != reference.isArray )
-        { return false; }
+        {
+            return false;
+        }
+        if ( arrayDepth != reference.arrayDepth )
+        {
+            return false;
+        }
         if ( isTypeParameter != reference.isTypeParameter )
-        { return false; }
+        {
+            return false;
+        }
         if ( modifiers != reference.modifiers )
-        { return false; }
-        if ( packageName != null ? !packageName.equals( reference.packageName ) : reference.packageName != null )
-        { return false; }
-        if ( name != null ? !name.equals( reference.name ) : reference.name != null )
-        { return false; }
+        {
+            return false;
+        }
+        if ( !Objects.equals( packageName, reference.packageName ) )
+        {
+            return false;
+        }
+        if ( !Objects.equals( name, reference.name ) )
+        {
+            return false;
+        }
         // Probably incorrect - comparing Object[] arrays with Arrays.equals
         if ( !Arrays.equals( parameters, reference.parameters ) )
-        { return false; }
-        return declaringClassName != null ? declaringClassName.equals( reference.declaringClassName )
-                                          : reference.declaringClassName == null;
+        {
+            return false;
+        }
+        return Objects.equals( declaringClass, reference.declaringClass );
 
     }
 
@@ -285,11 +362,16 @@ public class TypeReference
         result = 31 * result + (name != null ? name.hashCode() : 0);
         result = 31 * result + Arrays.hashCode( parameters );
         result = 31 * result + (isPrimitive ? 1 : 0);
-        result = 31 * result + (isArray ? 1 : 0);
+        result = 31 * result + arrayDepth;
         result = 31 * result + (isTypeParameter ? 1 : 0);
-        result = 31 * result + (declaringClassName != null ? declaringClassName.hashCode() : 0);
+        result = 31 * result + (declaringClass != null ? declaringClass.hashCode() : 0);
         result = 31 * result + modifiers;
         return result;
+    }
+
+    String baseName()
+    {
+        return writeBaseType( new StringBuilder() ).toString();
     }
 
     @Override
@@ -300,19 +382,8 @@ public class TypeReference
 
     StringBuilder writeTo( StringBuilder result )
     {
-        if ( !packageName.isEmpty() )
-        {
-            result.append( packageName ).append( '.' );
-        }
-        if ( !declaringClassName.isEmpty() )
-        {
-            result.append( declaringClassName ).append( '.' );
-        }
-        result.append( name );
-        if ( isArray )
-        {
-            result.append( "[]" );
-        }
+        writeBaseType( result );
+        result.append( "[]".repeat( Math.max( 0, arrayDepth ) ) );
         if ( !(parameters == null || parameters.length == 0) )
         {
             result.append( '<' );
@@ -324,6 +395,21 @@ public class TypeReference
             }
             result.append( '>' );
         }
+        return result;
+    }
+
+    private StringBuilder writeBaseType( StringBuilder result )
+    {
+        if ( !packageName.isEmpty() )
+        {
+            result.append( packageName ).append( '.' );
+        }
+        List<TypeReference> parents = declaringClasses();
+        for ( TypeReference parent : parents )
+        {
+            result.append( parent.name ).append( '.' );
+        }
+        result.append( name );
         return result;
     }
 

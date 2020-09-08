@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,10 +19,11 @@
  */
 package org.neo4j.io.pagecache.tracing;
 
-import java.io.File;
+import java.nio.file.Path;
 
 import org.neo4j.io.pagecache.PageSwapper;
 import org.neo4j.io.pagecache.monitoring.PageCacheCounters;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 
 /**
  * A PageCacheTracer receives a steady stream of events and data about what
@@ -37,12 +38,18 @@ public interface PageCacheTracer extends PageCacheCounters
     PageCacheTracer NULL = new PageCacheTracer()
     {
         @Override
-        public void mappedFile( File file )
+        public PageCursorTracer createPageCursorTracer( String tag )
+        {
+            return PageCursorTracer.NULL;
+        }
+
+        @Override
+        public void mappedFile( Path path )
         {
         }
 
         @Override
-        public void unmappedFile( File file )
+        public void unmappedFile( Path path )
         {
         }
 
@@ -101,6 +108,12 @@ public interface PageCacheTracer extends PageCacheCounters
         }
 
         @Override
+        public long merges()
+        {
+            return 0;
+        }
+
+        @Override
         public long bytesRead()
         {
             return 0;
@@ -128,6 +141,18 @@ public interface PageCacheTracer extends PageCacheCounters
         public long evictionExceptions()
         {
             return 0;
+        }
+
+        @Override
+        public double hitRatio()
+        {
+            return 0d;
+        }
+
+        @Override
+        public double usageRatio()
+        {
+            return 0d;
         }
 
         @Override
@@ -176,6 +201,16 @@ public interface PageCacheTracer extends PageCacheCounters
         }
 
         @Override
+        public void merges( long merges )
+        {
+        }
+
+        @Override
+        public void maxPages( long maxPages )
+        {
+        }
+
+        @Override
         public String toString()
         {
             return PageCacheTracer.class.getName() + ".NULL";
@@ -183,14 +218,21 @@ public interface PageCacheTracer extends PageCacheCounters
     };
 
     /**
+     * Create page cursor tracer for underlying page cache with a specific tag.
+     * @param tag specific tag of underlying cursor tracer
+     * @return page cursor tracer.
+     */
+    PageCursorTracer createPageCursorTracer( String tag );
+
+    /**
      * The given file has been mapped, where no existing mapping for that file existed.
      */
-    void mappedFile( File file );
+    void mappedFile( Path path );
 
     /**
      * The last reference to the given file has been unmapped.
      */
-    void unmappedFile( File file );
+    void unmappedFile( Path path );
 
     /**
      * A background eviction has begun. Called from the background eviction thread.
@@ -264,4 +306,16 @@ public interface PageCacheTracer extends PageCacheCounters
      * @param flushes number of flushes
      */
     void flushes( long flushes );
+
+    /**
+     * Report number of merges
+     * @param merges number of merges
+     */
+    void merges( long merges );
+
+    /**
+     * Sets the number of available pages.
+     * @param maxPages the total number of available pages.
+     */
+    void maxPages( long maxPages );
 }

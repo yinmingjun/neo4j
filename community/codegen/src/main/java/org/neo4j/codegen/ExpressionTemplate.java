@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -162,7 +162,7 @@ public abstract class ExpressionTemplate
         };
     }
 
-    Expression materialize( final CodeBlock method)
+    Expression materialize( final CodeBlock method )
     {
         return new Expression( type )
         {
@@ -187,6 +187,30 @@ public abstract class ExpressionTemplate
             protected void templateAccept( CodeBlock method, ExpressionVisitor visitor )
             {
                 visitor.cast( type, expression.materialize( method ) );
+            }
+        };
+    }
+
+    public static ExpressionTemplate add( ExpressionTemplate lhs, ExpressionTemplate rhs, TypeReference type )
+    {
+        return new ExpressionTemplate( type )
+        {
+            @Override
+            protected void templateAccept( CodeBlock method, ExpressionVisitor visitor )
+            {
+                visitor.add( lhs.materialize( method ), rhs.materialize( method ) );
+            }
+        };
+    }
+
+    public static ExpressionTemplate subtract( ExpressionTemplate lhs, ExpressionTemplate rhs, TypeReference type )
+    {
+        return new ExpressionTemplate( type )
+        {
+            @Override
+            protected void templateAccept( CodeBlock method, ExpressionVisitor visitor )
+            {
+                visitor.subtract( lhs.materialize( method ), rhs.materialize( method ) );
             }
         };
     }
@@ -225,7 +249,7 @@ public abstract class ExpressionTemplate
     }
 
     //TODO I am not crazy about the way type parameters are sent here
-    static ExpressionTemplate invokeSuperConstructor( final ExpressionTemplate[] parameters,
+    public static ExpressionTemplate invokeSuperConstructor( final ExpressionTemplate[] parameters,
             final TypeReference[] parameterTypes )
     {
         assert parameters.length == parameterTypes.length;

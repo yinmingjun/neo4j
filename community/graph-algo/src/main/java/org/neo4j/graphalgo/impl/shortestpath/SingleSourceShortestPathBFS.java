@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -25,8 +25,8 @@ import java.util.List;
 import java.util.Map;
 
 import org.neo4j.graphdb.Direction;
+import org.neo4j.graphdb.Entity;
 import org.neo4j.graphdb.Node;
-import org.neo4j.graphdb.PropertyContainer;
 import org.neo4j.graphdb.Relationship;
 import org.neo4j.graphdb.RelationshipType;
 
@@ -36,7 +36,6 @@ import org.neo4j.graphdb.RelationshipType;
  * Dijkstra with the right arguments, but this should be faster.
  * @complexity This algorithm runs in O(m) time (not including the case when m
  *             is zero).
- * @author Patrik Larsson
  */
 public class SingleSourceShortestPathBFS implements
     SingleSourceShortestPath<Integer>
@@ -44,13 +43,13 @@ public class SingleSourceShortestPathBFS implements
     protected Node startNode;
     protected Direction relationShipDirection;
     protected RelationshipType[] relationShipTypes;
-    protected HashMap<Node,Integer> distances = new HashMap<Node,Integer>();;
-    protected HashMap<Node,List<Relationship>> predecessors = new HashMap<Node,List<Relationship>>();
+    protected Map<Node,Integer> distances = new HashMap<>();
+    protected Map<Node,List<Relationship>> predecessors = new HashMap<>();
     // Limits
     protected long maxDepth = Long.MAX_VALUE;
-    protected long depth = 0;
-    LinkedList<Node> currentLayer = new LinkedList<Node>();;
-    LinkedList<Node> nextLayer = new LinkedList<Node>();
+    protected long depth;
+    LinkedList<Node> currentLayer = new LinkedList<>();
+    LinkedList<Node> nextLayer = new LinkedList<>();
 
     public SingleSourceShortestPathBFS( Node startNode,
         Direction relationShipDirection, RelationshipType... relationShipTypes )
@@ -73,6 +72,7 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
+    @Override
     public void setStartNode( Node node )
     {
         startNode = node;
@@ -82,12 +82,13 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
+    @Override
     public void reset()
     {
-        distances = new HashMap<Node,Integer>();
-        predecessors = new HashMap<Node,List<Relationship>>();
-        currentLayer = new LinkedList<Node>();
-        nextLayer = new LinkedList<Node>();
+        distances = new HashMap<>();
+        predecessors = new HashMap<>();
+        currentLayer = new LinkedList<>();
+        nextLayer = new LinkedList<>();
         currentLayer.add( startNode );
         depth = 0;
     }
@@ -95,6 +96,7 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
+    @Override
     public Integer getCost( Node targetNode )
     {
         calculate( targetNode );
@@ -104,7 +106,8 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
-    public List<PropertyContainer> getPath( Node targetNode )
+    @Override
+    public List<Entity> getPath( Node targetNode )
     {
         if ( targetNode == null )
         {
@@ -122,6 +125,7 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
+    @Override
     public List<Node> getPathAsNodes( Node targetNode )
     {
         if ( targetNode == null )
@@ -140,6 +144,7 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
+    @Override
     public List<Relationship> getPathAsRelationships( Node targetNode )
     {
         if ( targetNode == null )
@@ -158,7 +163,8 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
-    public List<List<PropertyContainer>> getPaths( Node targetNode )
+    @Override
+    public List<List<Entity>> getPaths( Node targetNode )
     {
         if ( targetNode == null )
         {
@@ -176,6 +182,7 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
+    @Override
     public List<List<Node>> getPathsAsNodes( Node targetNode )
     {
         if ( targetNode == null )
@@ -194,6 +201,7 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
+    @Override
     public List<List<Relationship>> getPathsAsRelationships( Node targetNode )
     {
         if ( targetNode == null )
@@ -224,7 +232,7 @@ public class SingleSourceShortestPathBFS implements
                 return false;
             }
             currentLayer = nextLayer;
-            nextLayer = new LinkedList<Node>();
+            nextLayer = new LinkedList<>();
             ++depth;
         }
         Node node = currentLayer.poll();
@@ -239,8 +247,7 @@ public class SingleSourceShortestPathBFS implements
         // Follow all edges
         for ( RelationshipType relationshipType : relationShipTypes )
         {
-            for ( Relationship relationship : node.getRelationships(
-                relationshipType, relationShipDirection ) )
+            for ( Relationship relationship : node.getRelationships( relationShipDirection, relationshipType ) )
             {
                 Node targetNode = relationship.getOtherNode( node );
                 // Are we going back into the already finished area?
@@ -249,13 +256,7 @@ public class SingleSourceShortestPathBFS implements
                 {
                     // Put this into the next layer and the predecessors
                     nextLayer.add( targetNode );
-                    List<Relationship> targetPreds = predecessors
-                        .get( targetNode );
-                    if ( targetPreds == null )
-                    {
-                        targetPreds = new LinkedList<Relationship>();
-                        predecessors.put( targetNode, targetPreds );
-                    }
+                    List<Relationship> targetPreds = predecessors.computeIfAbsent( targetNode, k -> new LinkedList<>() );
                     targetPreds.add( relationship );
                 }
             }
@@ -292,12 +293,13 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
+    @Override
     public List<Node> getPredecessorNodes( Node node )
     {
-        List<Node> result = new LinkedList<Node>();
+        List<Node> result = new LinkedList<>();
         List<Relationship> predecessorRelationShips = predecessors.get( node );
         if ( predecessorRelationShips == null
-            || predecessorRelationShips.size() == 0 )
+            || predecessorRelationShips.isEmpty() )
         {
             return null;
         }
@@ -311,6 +313,7 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
+    @Override
     public Map<Node,List<Relationship>> getPredecessors()
     {
         calculate();
@@ -320,6 +323,7 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
+    @Override
     public Direction getDirection()
     {
         return relationShipDirection;
@@ -328,6 +332,7 @@ public class SingleSourceShortestPathBFS implements
     /**
      * @see SingleSourceShortestPath
      */
+    @Override
     public RelationshipType[] getRelationshipTypes()
     {
         return relationShipTypes;

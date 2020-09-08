@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -50,6 +50,11 @@ public interface FlushEvent
         public void addPagesFlushed( int pageCount )
         {
         }
+
+        @Override
+        public void addPagesMerged( int pagesMerged )
+        {
+        }
     };
 
     /**
@@ -68,4 +73,10 @@ public interface FlushEvent
     void done( IOException exception );
 
     void addPagesFlushed( int pageCount );
+
+    /**
+     * Record number of pages that were merged together into single flushed buffer.
+     * @param pagesMerged number of merged pages
+     */
+    void addPagesMerged( int pagesMerged );
 }

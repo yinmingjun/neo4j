@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -26,17 +26,19 @@ import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.ws.rs.core.HttpHeaders;
 
 import org.neo4j.graphdb.security.AuthorizationViolationException;
-import org.neo4j.kernel.api.security.SecurityContext;
-import org.neo4j.kernel.api.security.AuthSubject;
+import org.neo4j.internal.kernel.api.security.LoginContext;
+import org.neo4j.server.web.JettyHttpConnection;
 
 import static javax.servlet.http.HttpServletRequest.BASIC_AUTH;
 
 public class AuthorizationDisabledFilter extends AuthorizationFilter
 {
     @Override
-    public void doFilter( ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain ) throws IOException, ServletException
+    public void doFilter( ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain )
+            throws IOException, ServletException
     {
         validateRequestType( servletRequest );
         validateResponseType( servletResponse );
@@ -46,8 +48,14 @@ public class AuthorizationDisabledFilter extends AuthorizationFilter
 
         try
         {
-            filterChain.doFilter( new AuthorizedRequestWrapper( BASIC_AUTH, "neo4j", request,
-                    getAuthDisabledSecurityContext() ), servletResponse );
+            LoginContext loginContext = getAuthDisabledLoginContext();
+            String userAgent = request.getHeader( HttpHeaders.USER_AGENT );
+
+            JettyHttpConnection.updateUserForCurrentConnection( loginContext.subject().username(), userAgent );
+
+            filterChain.doFilter(
+                    new AuthorizedRequestWrapper( BASIC_AUTH, "neo4j", request, loginContext ),
+                    servletResponse );
         }
         catch ( AuthorizationViolationException e )
         {
@@ -55,8 +63,8 @@ public class AuthorizationDisabledFilter extends AuthorizationFilter
         }
     }
 
-    protected SecurityContext getAuthDisabledSecurityContext()
+    protected LoginContext getAuthDisabledLoginContext()
     {
-        return SecurityContext.AUTH_DISABLED;
+        return LoginContext.AUTH_DISABLED;
     }
 }

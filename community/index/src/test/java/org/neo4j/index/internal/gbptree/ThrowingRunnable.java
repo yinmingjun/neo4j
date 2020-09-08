@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,7 +21,7 @@ package org.neo4j.index.internal.gbptree;
 
 interface ThrowingRunnable
 {
-    void run() throws Exception;
+    void run() throws Throwable;
 
     static Runnable throwing( ThrowingRunnable callable )
     {
@@ -31,7 +31,7 @@ interface ThrowingRunnable
             {
                 callable.run();
             }
-            catch ( Exception e )
+            catch ( Throwable e )
             {
                 throw new RuntimeException( e );
             }

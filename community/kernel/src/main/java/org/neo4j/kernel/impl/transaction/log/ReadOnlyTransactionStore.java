@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,81 +19,81 @@
  */
 package org.neo4j.kernel.impl.transaction.log;
 
-import java.io.File;
 import java.io.IOException;
 
-import org.neo4j.cursor.IOCursor;
+import org.neo4j.configuration.Config;
 import org.neo4j.io.fs.FileSystemAbstraction;
+import org.neo4j.io.layout.DatabaseLayout;
 import org.neo4j.io.pagecache.PageCache;
-import org.neo4j.kernel.impl.transaction.log.TransactionMetadataCache.TransactionMetadata;
 import org.neo4j.kernel.impl.transaction.log.entry.LogEntryReader;
 import org.neo4j.kernel.impl.transaction.log.entry.VersionAwareLogEntryReader;
+import org.neo4j.kernel.impl.transaction.log.files.LogFiles;
+import org.neo4j.kernel.impl.transaction.log.files.LogFilesBuilder;
 import org.neo4j.kernel.lifecycle.LifeSupport;
-import org.neo4j.kernel.lifecycle.LifecycleAdapter;
-import org.neo4j.kernel.monitoring.Monitors;
+import org.neo4j.kernel.lifecycle.Lifecycle;
+import org.neo4j.monitoring.Monitors;
+import org.neo4j.storageengine.api.CommandReaderFactory;
 
 /**
  * Used for reading transactions off of file.
  */
-public class ReadOnlyTransactionStore extends LifecycleAdapter implements LogicalTransactionStore
+public class ReadOnlyTransactionStore implements Lifecycle, LogicalTransactionStore
 {
     private final LifeSupport life = new LifeSupport();
     private final LogicalTransactionStore physicalStore;
 
-    public ReadOnlyTransactionStore( PageCache pageCache, FileSystemAbstraction fs, File fromPath, Monitors monitors )
-            throws IOException
+    public ReadOnlyTransactionStore( PageCache pageCache, FileSystemAbstraction fs, DatabaseLayout fromDatabaseLayout, Config config,
+            Monitors monitors, CommandReaderFactory commandReaderFactory ) throws IOException
     {
-        PhysicalLogFiles logFiles = new PhysicalLogFiles( fromPath, fs );
-        TransactionMetadataCache transactionMetadataCache = new TransactionMetadataCache( 100 );
-        LogHeaderCache logHeaderCache = new LogHeaderCache( 10 );
-        final ReadOnlyTransactionIdStore transactionIdStore = new ReadOnlyTransactionIdStore( pageCache, fromPath );
-        PhysicalLogFile logFile = life.add( new PhysicalLogFile( fs, logFiles, 0,
-                transactionIdStore::getLastCommittedTransactionId,
-                new ReadOnlyLogVersionRepository( pageCache, fromPath ),
-                monitors.newMonitor( PhysicalLogFile.Monitor.class ), logHeaderCache ) );
-        LogEntryReader<ReadableClosablePositionAwareChannel> logEntryReader = new VersionAwareLogEntryReader<>();
-        physicalStore = new PhysicalLogicalTransactionStore( logFile, transactionMetadataCache, logEntryReader );
+        TransactionMetadataCache transactionMetadataCache = new TransactionMetadataCache();
+        LogEntryReader logEntryReader = new VersionAwareLogEntryReader( commandReaderFactory );
+        LogFiles logFiles = LogFilesBuilder
+                .activeFilesBuilder( fromDatabaseLayout, fs, pageCache ).withLogEntryReader( logEntryReader )
+                .withConfig( config )
+                .build();
+        physicalStore = new PhysicalLogicalTransactionStore( logFiles, transactionMetadataCache, logEntryReader,
+                monitors, true );
     }
 
     @Override
     public TransactionCursor getTransactions( long transactionIdToStartFrom )
-            throws NoSuchTransactionException, IOException
+            throws IOException
     {
         return physicalStore.getTransactions( transactionIdToStartFrom );
     }
 
     @Override
-    public TransactionCursor getTransactions( LogPosition position ) throws NoSuchTransactionException, IOException
+    public TransactionCursor getTransactions( LogPosition position ) throws IOException
     {
         return physicalStore.getTransactions( position );
     }
 
     @Override
-    public TransactionMetadata getMetadataFor( long transactionId ) throws NoSuchTransactionException, IOException
+    public TransactionCursor getTransactionsInReverseOrder( LogPosition backToPosition ) throws IOException
     {
-        return physicalStore.getMetadataFor( transactionId );
+        return physicalStore.getTransactionsInReverseOrder( backToPosition );
     }
 
     @Override
-    public void init() throws Throwable
+    public void init()
     {
         life.init();
     }
 
     @Override
-    public void start() throws Throwable
+    public void start()
     {
         life.start();
     }
 
     @Override
-    public void stop() throws Throwable
+    public void stop()
     {
         life.stop();
     }
 
     @Override
-    public void shutdown() throws Throwable
+    public void shutdown()
     {
         life.shutdown();
     }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,12 +21,11 @@ package org.neo4j.kernel.api.impl.index.partition;
 
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.search.SearcherFactory;
 import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.store.Directory;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 
 import org.neo4j.graphdb.ResourceIterator;
 import org.neo4j.io.IOUtils;
@@ -41,12 +40,11 @@ public class WritableIndexPartition extends AbstractIndexPartition
     private final IndexWriter indexWriter;
     private final SearcherManager searcherManager;
 
-    public WritableIndexPartition( File partitionFolder, Directory directory, IndexWriterConfig writerConfig )
-            throws IOException
+    public WritableIndexPartition( Path partitionFolder, Directory directory, IndexWriterConfig writerConfig ) throws IOException
     {
         super( partitionFolder, directory );
         this.indexWriter = new IndexWriter( directory, writerConfig );
-        this.searcherManager = new SearcherManager( indexWriter, new SearcherFactory() );
+        this.searcherManager = new SearcherManager( indexWriter, new Neo4jSearcherFactory() );
     }
 
     /**
@@ -89,7 +87,7 @@ public class WritableIndexPartition extends AbstractIndexPartition
      * {@inheritDoc}
      */
     @Override
-    public ResourceIterator<File> snapshot() throws IOException
+    public ResourceIterator<Path> snapshot() throws IOException
     {
         return LuceneIndexSnapshots.forIndex( partitionFolder, indexWriter );
     }

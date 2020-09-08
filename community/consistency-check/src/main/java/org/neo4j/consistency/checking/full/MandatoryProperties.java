@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,82 +19,76 @@
  */
 package org.neo4j.consistency.checking.full;
 
+import org.eclipse.collections.api.iterator.IntIterator;
+import org.eclipse.collections.api.map.primitive.MutableIntObjectMap;
+import org.eclipse.collections.api.set.primitive.MutableIntSet;
+import org.eclipse.collections.impl.map.mutable.primitive.IntObjectHashMap;
+import org.eclipse.collections.impl.set.mutable.primitive.IntHashSet;
+
 import java.util.Arrays;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
-import org.neo4j.collection.primitive.Primitive;
-import org.neo4j.collection.primitive.PrimitiveIntIterator;
-import org.neo4j.collection.primitive.PrimitiveIntObjectMap;
-import org.neo4j.collection.primitive.PrimitiveIntSet;
 import org.neo4j.consistency.RecordType;
 import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.report.ConsistencyReporter;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
-import org.neo4j.kernel.api.schema.RelationTypeSchemaDescriptor;
-import org.neo4j.kernel.api.schema.SchemaProcessor;
-import org.neo4j.kernel.impl.store.SchemaStorage;
+import org.neo4j.internal.recordstorage.SchemaRuleAccess;
+import org.neo4j.internal.recordstorage.StoreTokens;
+import org.neo4j.internal.schema.ConstraintDescriptor;
+import org.neo4j.internal.schema.LabelSchemaDescriptor;
+import org.neo4j.internal.schema.RelationTypeSchemaDescriptor;
+import org.neo4j.internal.schema.SchemaDescriptor;
+import org.neo4j.internal.schema.SchemaProcessor;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.StoreAccess;
-import org.neo4j.kernel.impl.store.record.ConstraintRule;
 import org.neo4j.kernel.impl.store.record.NodeRecord;
 import org.neo4j.kernel.impl.store.record.PrimitiveRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipRecord;
-import org.neo4j.unsafe.impl.batchimport.Utils;
+import org.neo4j.token.TokenHolders;
+
+import static org.neo4j.internal.helpers.Numbers.safeCastLongToInt;
 
 public class MandatoryProperties
 {
-    private final PrimitiveIntObjectMap<int[]> nodes = Primitive.intObjectMap();
-    private final PrimitiveIntObjectMap<int[]> relationships = Primitive.intObjectMap();
+    private static final String MANDATORY_PROPERTIES_CHECKER_TAG = "mandatoryPropertiesChecker";
+    private final MutableIntObjectMap<int[]> nodes = new IntObjectHashMap<>();
+    private final MutableIntObjectMap<int[]> relationships = new IntObjectHashMap<>();
     private final StoreAccess storeAccess;
 
-    public MandatoryProperties( StoreAccess storeAccess )
+    public MandatoryProperties( StoreAccess storeAccess, PageCacheTracer pageCacheTracer )
     {
         this.storeAccess = storeAccess;
-        SchemaStorage schemaStorage = new SchemaStorage( storeAccess.getSchemaStore() );
-        for ( ConstraintRule rule : constraintsIgnoringMalformed( schemaStorage ) )
+        try ( var cursorTracer = pageCacheTracer.createPageCursorTracer( MANDATORY_PROPERTIES_CHECKER_TAG ) )
         {
-            if ( rule.getConstraintDescriptor().enforcesPropertyExistence() )
+            TokenHolders tokenHolders = StoreTokens.readOnlyTokenHolders( storeAccess.getRawNeoStores(), cursorTracer );
+            SchemaRuleAccess schemaRuleAccess = SchemaRuleAccess.getSchemaRuleAccess( storeAccess.getSchemaStore(), tokenHolders );
+            for ( ConstraintDescriptor constraint : constraintsIgnoringMalformed( schemaRuleAccess, cursorTracer ) )
             {
-                rule.schema().processWith( constraintRecorder );
+                if ( constraint.enforcesPropertyExistence() )
+                {
+                    SchemaProcessor constraintRecorder = new MandatoryPropertiesSchemaProcessor();
+                    constraint.schema().processWith( constraintRecorder );
+                }
             }
         }
     }
 
-    private SchemaProcessor constraintRecorder = new SchemaProcessor()
-    {
-        @Override
-        public void processSpecific( LabelSchemaDescriptor schema )
-        {
-            for ( int propertyId : schema.getPropertyIds() )
-            {
-                recordConstraint( schema.getLabelId(), propertyId, nodes );
-            }
-        }
-
-        @Override
-        public void processSpecific( RelationTypeSchemaDescriptor schema )
-        {
-            for ( int propertyId : schema.getPropertyIds() )
-            {
-                recordConstraint( schema.getRelTypeId(), propertyId, relationships );
-            }
-        }
-    };
-
-    public Function<NodeRecord,Check<NodeRecord,ConsistencyReport.NodeConsistencyReport>> forNodes(
+    public BiFunction<NodeRecord,PageCursorTracer,Check<NodeRecord,ConsistencyReport.NodeConsistencyReport>> forNodes(
             final ConsistencyReporter reporter )
     {
-        return node ->
+        return ( node, cursorTracer ) ->
         {
-            PrimitiveIntSet keys = null;
-            for ( long labelId : NodeLabelReader.getListOfLabels( node, storeAccess.getNodeDynamicLabelStore() ) )
+            MutableIntSet keys = null;
+            for ( long labelId : NodeLabelReader.getListOfLabels( node, storeAccess.getNodeDynamicLabelStore(), cursorTracer ) )
             {
                 // labelId _is_ actually an int. A technical detail in the store format has these come in a long[]
-                int[] propertyKeys = nodes.get( Utils.safeCastLongToInt( labelId ) );
+                int[] propertyKeys = nodes.get( safeCastLongToInt( labelId ) );
                 if ( propertyKeys != null )
                 {
                     if ( keys == null )
                     {
-                        keys = Primitive.intSet( 16 );
+                        keys = new IntHashSet( 16 );
                     }
                     for ( int key : propertyKeys )
                     {
@@ -103,9 +97,8 @@ public class MandatoryProperties
                 }
             }
             return keys != null
-                    ? new RealCheck<>( node, ConsistencyReport.NodeConsistencyReport.class, reporter,
-                            RecordType.NODE, keys )
-                    : MandatoryProperties.<NodeRecord,ConsistencyReport.NodeConsistencyReport>noCheck();
+                    ? new RealCheck<>( node, ConsistencyReport.NodeConsistencyReport.class, reporter, RecordType.NODE, keys )
+                    : MandatoryProperties.noCheck();
         };
     }
 
@@ -117,7 +110,7 @@ public class MandatoryProperties
             int[] propertyKeys = relationships.get( relationship.getType() );
             if ( propertyKeys != null )
             {
-                PrimitiveIntSet keys = Primitive.intSet( propertyKeys.length );
+                final MutableIntSet keys = new IntHashSet( propertyKeys.length );
                 for ( int key : propertyKeys )
                 {
                     keys.add( key );
@@ -129,12 +122,12 @@ public class MandatoryProperties
         };
     }
 
-    private Iterable<ConstraintRule> constraintsIgnoringMalformed( SchemaStorage schemaStorage )
+    private Iterable<ConstraintDescriptor> constraintsIgnoringMalformed( SchemaRuleAccess schemaStorage, PageCursorTracer cursorTracer )
     {
-        return schemaStorage::constraintsGetAllIgnoreMalformed;
+        return () -> schemaStorage.constraintsGetAllIgnoreMalformed( cursorTracer );
     }
 
-    private static void recordConstraint( int labelOrRelType, int propertyKey, PrimitiveIntObjectMap<int[]> storage )
+    private static void recordConstraint( int labelOrRelType, int propertyKey, MutableIntObjectMap<int[]> storage )
     {
         int[] propertyKeys = storage.get( labelOrRelType );
         if ( propertyKeys == null )
@@ -159,7 +152,8 @@ public class MandatoryProperties
     }
 
     @SuppressWarnings( "unchecked" )
-    private static <RECORD extends PrimitiveRecord,REPORT extends ConsistencyReport.PrimitiveConsistencyReport> Check<RECORD,REPORT>noCheck()
+    private static <RECORD extends PrimitiveRecord,
+            REPORT extends ConsistencyReport.PrimitiveConsistencyReport> Check<RECORD,REPORT> noCheck()
     {
         return NONE;
     }
@@ -188,13 +182,12 @@ public class MandatoryProperties
             implements Check<RECORD,REPORT>
     {
         private final RECORD record;
-        private final PrimitiveIntSet mandatoryKeys;
+        private final MutableIntSet mandatoryKeys;
         private final Class<REPORT> reportClass;
         private final ConsistencyReporter reporter;
         private final RecordType recordType;
 
-        RealCheck( RECORD record, Class<REPORT> reportClass, ConsistencyReporter reporter, RecordType recordType,
-                PrimitiveIntSet mandatoryKeys )
+        RealCheck( RECORD record, Class<REPORT> reportClass, ConsistencyReporter reporter, RecordType recordType, MutableIntSet mandatoryKeys )
         {
             this.record = record;
             this.reportClass = reportClass;
@@ -217,7 +210,7 @@ public class MandatoryProperties
         {
             if ( !mandatoryKeys.isEmpty() )
             {
-                for ( PrimitiveIntIterator key = mandatoryKeys.iterator(); key.hasNext(); )
+                for ( IntIterator key = mandatoryKeys.intIterator(); key.hasNext(); )
                 {
                     reporter.report( record, reportClass, recordType ).missingMandatoryProperty( key.next() );
                 }
@@ -228,6 +221,33 @@ public class MandatoryProperties
         public String toString()
         {
             return "Mandatory properties: " + mandatoryKeys;
+        }
+    }
+
+    private class MandatoryPropertiesSchemaProcessor implements SchemaProcessor
+    {
+        @Override
+        public void processSpecific( LabelSchemaDescriptor schema )
+        {
+            for ( int propertyId : schema.getPropertyIds() )
+            {
+                recordConstraint( schema.getLabelId(), propertyId, nodes );
+            }
+        }
+
+        @Override
+        public void processSpecific( RelationTypeSchemaDescriptor schema )
+        {
+            for ( int propertyId : schema.getPropertyIds() )
+            {
+                recordConstraint( schema.getRelTypeId(), propertyId, relationships );
+            }
+        }
+
+        @Override
+        public void processSpecific( SchemaDescriptor schema )
+        {
+            throw new IllegalStateException( "General SchemaDescriptors cannot support constraints" );
         }
     }
 }

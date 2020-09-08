@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,51 +19,46 @@
  */
 package org.neo4j.kernel.impl.transaction.log.pruning;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.neo4j.configuration.SettingValueParsers.FALSE;
+import static org.neo4j.configuration.SettingValueParsers.TRUE;
+import static org.neo4j.kernel.impl.transaction.log.pruning.ThresholdConfigParser.parse;
 
-public class ThresholdConfigValueTest
+class ThresholdConfigValueTest
 {
     @Test
-    public void shouldParseCorrectly() throws Exception
+    void shouldParseCorrectly()
     {
-        ThresholdConfigParser.ThresholdConfigValue value = ThresholdConfigParser.parse( "25 files" );
+        ThresholdConfigParser.ThresholdConfigValue value = parse( "25 files" );
         assertEquals( "files", value.type );
         assertEquals( 25, value.value );
 
-        value = ThresholdConfigParser.parse( "4g size" );
+        value = parse( "4g size" );
         assertEquals( "size", value.type );
         assertEquals( 1L << 32, value.value );
     }
 
     @Test
-    public void shouldThrowExceptionOnUnknownType() throws Exception
+    void shouldThrowExceptionOnUnknownType()
     {
-        try
-        {
-            ThresholdConfigParser.parse( "more than one spaces is invalid" );
-            fail("Should not parse unknown types");
-        }
-        catch ( IllegalArgumentException e )
-        {
-            // good
-        }
+        assertThrows( IllegalArgumentException.class, () -> parse( "more than one spaces is invalid" ) );
     }
 
     @Test
-    public void shouldReturnNoPruningForTrue() throws Exception
+    void shouldReturnNoPruningForTrue()
     {
-        ThresholdConfigParser.ThresholdConfigValue value = ThresholdConfigParser.parse( "true" );
+        ThresholdConfigParser.ThresholdConfigValue value = parse( TRUE );
         assertSame( ThresholdConfigParser.ThresholdConfigValue.NO_PRUNING, value );
     }
 
     @Test
-    public void shouldReturnKeepOneEntryForFalse() throws Exception
+    void shouldReturnKeepOneEntryForFalse()
     {
-        ThresholdConfigParser.ThresholdConfigValue value = ThresholdConfigParser.parse( "false" );
+        ThresholdConfigParser.ThresholdConfigValue value = parse( FALSE );
         assertEquals( "entries", value.type );
         assertEquals( 1, value.value );
     }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -23,12 +23,13 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import org.neo4j.cypher.internal.frontend.v3_2.phases.CompilationPhaseTracer;
+import org.neo4j.cypher.internal.frontend.phases.CompilationPhaseTracer;
 
 public class TimingCompilationTracer implements CompilationTracer
 {
     public interface EventListener
     {
+        void startQueryCompilation( String query );
         void queryCompiled( QueryEvent event );
     }
 
@@ -52,14 +53,7 @@ public class TimingCompilationTracer implements CompilationTracer
     {
         long nanoTime();
 
-        Clock SYSTEM = new Clock()
-        {
-            @Override
-            public long nanoTime()
-            {
-                return System.nanoTime();
-            }
-        };
+        Clock SYSTEM = System::nanoTime;
     }
 
     private final Clock clock;
@@ -79,6 +73,7 @@ public class TimingCompilationTracer implements CompilationTracer
     @Override
     public QueryCompilationEvent compileQuery( String query )
     {
+        listener.startQueryCompilation( query );
         return new Query( clock, query, listener );
     }
 
@@ -124,27 +119,27 @@ public class TimingCompilationTracer implements CompilationTracer
 
     private static class Query extends Event implements QueryEvent, QueryCompilationEvent
     {
-        private final String query;
+        private final String queryString;
         private final EventListener listener;
         private final List<Phase> phases = new ArrayList<>();
 
         Query( Clock clock, String query, EventListener listener )
         {
             super( clock );
-            this.query = query;
+            this.queryString = query;
             this.listener = listener;
         }
 
         @Override
         public String toString()
         {
-            return getClass().getSimpleName() + "[" + query + "]";
+            return getClass().getSimpleName() + "[" + queryString + "]";
         }
 
         @Override
         public CompilationPhaseEvent beginPhase( CompilationPhase phase )
         {
-            Phase event = new Phase( clock(), phase );
+            Phase event = new Phase( super.clock(), phase );
             phases.add( event );
             return event;
         }
@@ -158,36 +153,36 @@ public class TimingCompilationTracer implements CompilationTracer
         @Override
         public String query()
         {
-            return query;
+            return queryString;
         }
 
         @Override
         public List<PhaseEvent> phases()
         {
-            return Collections.<PhaseEvent>unmodifiableList( phases );
+            return Collections.unmodifiableList( phases );
         }
     }
 
     private static class Phase extends Event implements PhaseEvent, CompilationPhaseTracer.CompilationPhaseEvent
     {
-        private final CompilationPhaseTracer.CompilationPhase phase;
+        private final CompilationPhaseTracer.CompilationPhase compilationPhase;
 
         Phase( Clock clock, CompilationPhaseTracer.CompilationPhase phase )
         {
             super( clock );
-            this.phase = phase;
+            this.compilationPhase = phase;
         }
 
         @Override
         public String toString()
         {
-            return getClass().getSimpleName() + "[" + phase + "]";
+            return getClass().getSimpleName() + "[" + compilationPhase + "]";
         }
 
         @Override
         public CompilationPhaseTracer.CompilationPhase phase()
         {
-            return phase;
+            return compilationPhase;
         }
 
         @Override

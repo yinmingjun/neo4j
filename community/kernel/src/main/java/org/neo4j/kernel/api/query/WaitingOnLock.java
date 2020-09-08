@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,23 +19,29 @@
  */
 package org.neo4j.kernel.api.query;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import org.neo4j.storageengine.api.lock.ResourceType;
+import org.neo4j.kernel.impl.locking.ActiveLock;
+import org.neo4j.lock.LockType;
+import org.neo4j.lock.ResourceType;
 
 class WaitingOnLock extends ExecutingQueryStatus
 {
-    private final String mode;
+    private final LockType lockType;
     private final ResourceType resourceType;
+    private final long transactionId;
     private final long[] resourceIds;
     private final long startTimeNanos;
 
-    WaitingOnLock( String mode, ResourceType resourceType, long[] resourceIds, long startTimeNanos )
+    WaitingOnLock( LockType lockType, ResourceType resourceType, long transactionId, long[] resourceIds, long startTimeNanos )
     {
-        this.mode = mode;
+        this.lockType = lockType;
         this.resourceType = resourceType;
+        this.transactionId = transactionId;
         this.resourceIds = resourceIds;
         this.startTimeNanos = startTimeNanos;
     }
@@ -50,10 +56,11 @@ class WaitingOnLock extends ExecutingQueryStatus
     Map<String,Object> toMap( long currentTimeNanos )
     {
         Map<String,Object> map = new HashMap<>();
-        map.put( "lockMode", mode );
+        map.put( "lockMode", lockType.getDescription() );
         map.put( "waitTimeMillis", TimeUnit.NANOSECONDS.toMillis( waitTimeNanos( currentTimeNanos ) ) );
         map.put( "resourceType", resourceType.toString() );
         map.put( "resourceIds", resourceIds );
+        map.put( "transactionId", transactionId );
         return map;
     }
 
@@ -61,5 +68,22 @@ class WaitingOnLock extends ExecutingQueryStatus
     String name()
     {
         return WAITING_STATE;
+    }
+
+    @Override
+    boolean isWaitingOnLocks()
+    {
+        return true;
+    }
+
+    @Override
+    List<ActiveLock> waitingOnLocks()
+    {
+        List<ActiveLock> locks = new ArrayList<>( resourceIds.length );
+        for ( long resourceId : resourceIds )
+        {
+            locks.add( new ActiveLock( resourceType, lockType, transactionId, resourceId ) );
+        }
+        return locks;
     }
 }

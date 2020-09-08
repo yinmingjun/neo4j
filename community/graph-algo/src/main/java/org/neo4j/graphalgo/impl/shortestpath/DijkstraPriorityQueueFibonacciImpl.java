@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -102,14 +102,13 @@ public class DijkstraPriorityQueueFibonacciImpl<CostType> implements
     Map<Node,FibonacciHeap<HeapObject>.FibonacciHeapNode> heapNodes = new HashMap<Node,FibonacciHeap<HeapObject>.FibonacciHeapNode>();
     FibonacciHeap<HeapObject> heap;
 
-    public DijkstraPriorityQueueFibonacciImpl(
-        final Comparator<CostType> costComparator )
+    public DijkstraPriorityQueueFibonacciImpl( final Comparator<CostType> costComparator )
     {
         super();
-        heap = new FibonacciHeap<>(
-                (Comparator<HeapObject>) ( o1, o2 ) -> costComparator.compare( o1.getCost(), o2.getCost() ) );
+        heap = new FibonacciHeap<>( ( o1, o2 ) -> costComparator.compare( o1.getCost(), o2.getCost() ) );
     }
 
+    @Override
     public void decreaseValue( Node node, CostType newValue )
     {
         FibonacciHeap<HeapObject>.FibonacciHeapNode fNode = heapNodes
@@ -117,6 +116,7 @@ public class DijkstraPriorityQueueFibonacciImpl<CostType> implements
         heap.decreaseKey( fNode, new HeapObject( node, newValue ) );
     }
 
+    @Override
     public Node extractMin()
     {
         HeapObject heapObject = heap.extractMin();
@@ -127,6 +127,7 @@ public class DijkstraPriorityQueueFibonacciImpl<CostType> implements
         return heapObject.getNode();
     }
 
+    @Override
     public void insertValue( Node node, CostType value )
     {
         FibonacciHeap<HeapObject>.FibonacciHeapNode fNode = heap
@@ -134,11 +135,13 @@ public class DijkstraPriorityQueueFibonacciImpl<CostType> implements
         heapNodes.put( node, fNode );
     }
 
+    @Override
     public boolean isEmpty()
     {
         return heap.isEmpty();
     }
 
+    @Override
     public Node peek()
     {
         FibonacciHeap<HeapObject>.FibonacciHeapNode fNode = heap.getMinimum();

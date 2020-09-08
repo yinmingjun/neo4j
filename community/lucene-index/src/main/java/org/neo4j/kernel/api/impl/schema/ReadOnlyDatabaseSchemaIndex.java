@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,50 +22,32 @@ package org.neo4j.kernel.api.impl.schema;
 import java.io.IOException;
 import java.util.List;
 
+import org.neo4j.internal.schema.IndexDescriptor;
 import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
 import org.neo4j.kernel.api.impl.index.ReadOnlyAbstractDatabaseIndex;
 import org.neo4j.kernel.api.impl.index.partition.ReadOnlyIndexPartitionFactory;
 import org.neo4j.kernel.api.impl.index.storage.PartitionedIndexStorage;
-import org.neo4j.kernel.api.impl.schema.writer.LuceneIndexWriter;
-import org.neo4j.kernel.api.index.PropertyAccessor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.kernel.impl.api.index.sampling.IndexSamplingConfig;
-import org.neo4j.storageengine.api.schema.IndexReader;
+import org.neo4j.kernel.api.index.IndexReader;
+import org.neo4j.kernel.impl.api.index.IndexSamplingConfig;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
+import org.neo4j.values.storable.Value;
 
 /**
  * Read only schema index
  */
-public class ReadOnlyDatabaseSchemaIndex extends ReadOnlyAbstractDatabaseIndex<LuceneSchemaIndex> implements SchemaIndex
+public class ReadOnlyDatabaseSchemaIndex extends ReadOnlyAbstractDatabaseIndex<LuceneSchemaIndex,IndexReader> implements SchemaIndex
 {
-    public ReadOnlyDatabaseSchemaIndex( PartitionedIndexStorage indexStorage, IndexDescriptor descriptor,
+    ReadOnlyDatabaseSchemaIndex( PartitionedIndexStorage indexStorage, IndexDescriptor descriptor,
             IndexSamplingConfig samplingConfig, ReadOnlyIndexPartitionFactory readOnlyIndexPartitionFactory )
     {
         super( new LuceneSchemaIndex( indexStorage, descriptor, samplingConfig, readOnlyIndexPartitionFactory ) );
-    }
-
-    @Override
-    public LuceneIndexWriter getIndexWriter() throws IOException
-    {
-        throw new UnsupportedOperationException( "Can't get index writer for read only lucene index." );
-    }
-
-    @Override
-    public IndexReader getIndexReader() throws IOException
-    {
-        return luceneIndex.getIndexReader();
-    }
-
-    @Override
-    public IndexDescriptor getDescriptor()
-    {
-        return luceneIndex.getDescriptor();
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public void verifyUniqueness( PropertyAccessor accessor, int[] propertyKeyIds )
+    public void verifyUniqueness( NodePropertyAccessor accessor, int[] propertyKeyIds )
             throws IOException, IndexEntryConflictException
     {
         luceneIndex.verifyUniqueness( accessor, propertyKeyIds );
@@ -75,36 +57,9 @@ public class ReadOnlyDatabaseSchemaIndex extends ReadOnlyAbstractDatabaseIndex<L
      * {@inheritDoc}
      */
     @Override
-    public void verifyUniqueness( PropertyAccessor accessor, int[] propertyKeyIds, List<Object> updatedPropertyValues )
+    public void verifyUniqueness( NodePropertyAccessor accessor, int[] propertyKeyIds, List<Value[]> updatedValueTuples )
             throws IOException, IndexEntryConflictException
     {
-        luceneIndex.verifyUniqueness( accessor, propertyKeyIds, updatedPropertyValues );
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public boolean isOnline() throws IOException
-    {
-        return luceneIndex.isOnline();
-    }
-
-    /**
-     * Unsupported operation in read only index.
-     */
-    @Override
-    public void markAsOnline() throws IOException
-    {
-        throw new UnsupportedOperationException( "Can't mark read only index." );
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void markAsFailed( String failure ) throws IOException
-    {
-        luceneIndex.markAsFailed( failure );
+        luceneIndex.verifyUniqueness( accessor, propertyKeyIds, updatedValueTuples );
     }
 }

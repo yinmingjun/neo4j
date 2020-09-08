@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -34,32 +34,44 @@ public class InconsistencyReport implements InconsistencyLogger
     }
 
     @Override
-    public void error( RecordType recordType, AbstractBaseRecord record, String message, Object[] args )
+    public void error( RecordType recordType, AbstractBaseRecord record, String message, Object... args )
     {
         logger.error( recordType, record, message, args );
     }
 
     @Override
     public void error( RecordType recordType, AbstractBaseRecord oldRecord, AbstractBaseRecord newRecord,
-                       String message, Object[] args )
+                       String message, Object... args )
     {
         logger.error( recordType, oldRecord, newRecord, message, args );
     }
 
     @Override
-    public void warning( RecordType recordType, AbstractBaseRecord record, String message, Object[] args )
+    public void error( String message )
+    {
+        logger.error( message );
+    }
+
+    @Override
+    public void warning( RecordType recordType, AbstractBaseRecord record, String message, Object... args )
     {
         logger.warning( recordType, record, message, args );
     }
 
     @Override
     public void warning( RecordType recordType, AbstractBaseRecord oldRecord, AbstractBaseRecord newRecord,
-                         String message, Object[] args )
+                         String message, Object... args )
     {
         logger.warning( recordType, oldRecord, newRecord, message, args );
     }
 
-    void updateSummary( RecordType type, int errors, int warnings )
+    @Override
+    public void warning( String message )
+    {
+        logger.warning( message );
+    }
+
+    public void updateSummary( RecordType type, int errors, int warnings )
     {
         summary.update( type, errors, warnings );
     }

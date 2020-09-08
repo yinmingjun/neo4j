@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,17 +19,17 @@
  */
 package org.neo4j.kernel.impl.locking.community;
 
-import java.time.Clock;
-
-import org.neo4j.kernel.configuration.Config;
+import org.neo4j.configuration.Config;
 import org.neo4j.kernel.impl.locking.Locks;
+import org.neo4j.lock.LockType;
+import org.neo4j.time.SystemNanoClock;
 
 public class CommunityLockManger implements Locks
 {
     private final LockManagerImpl manager;
     private volatile boolean closed;
 
-    public CommunityLockManger( Config config, Clock clock )
+    public CommunityLockManger( Config config, SystemNanoClock clock )
     {
         manager = new LockManagerImpl( new RagManager(), config, clock );
     }
@@ -50,15 +50,14 @@ public class CommunityLockManger implements Locks
     @Override
     public void accept( final Visitor visitor )
     {
-        manager.accept( element ->
+        manager.accept( rwLock ->
         {
-            Object resource = element.resource();
-            if ( resource instanceof LockResource )
-            {
-                LockResource lockResource = (LockResource) resource;
-                visitor.visit( lockResource.type(), lockResource.resourceId(),
-                        element.describe(), element.maxWaitTime(), System.identityHashCode( lockResource ) );
-            }
+            var transactionIds = rwLock.transactionIds();
+            LockResource lockResource = rwLock.resource();
+            transactionIds.forEach(
+                    txId -> visitor.visit( rwLock.getWriteCount() > 0 ? LockType.EXCLUSIVE : LockType.SHARED,
+                            lockResource.resourceType(), txId, lockResource.resourceId(), rwLock.describe(),
+                            rwLock.maxWaitTime(), System.identityHashCode( lockResource ) ) );
             return false;
         } );
     }

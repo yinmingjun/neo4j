@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,7 +19,7 @@
  */
 package org.neo4j.kernel.impl.locking;
 
-import org.neo4j.kernel.configuration.Config;
+import org.neo4j.configuration.Config;
 
 import static java.util.Objects.requireNonNull;
 
@@ -45,7 +45,7 @@ public class SimpleStatementLocksFactory implements StatementLocksFactory
     }
 
     @Override
-    public void initialize( Locks locks, Config config )
+    public final void initialize( Locks locks, Config config )
     {
         this.locks = requireNonNull( locks );
     }

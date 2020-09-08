@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -24,15 +24,16 @@ import java.io.IOException;
 import java.util.List;
 
 import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
-import org.neo4j.kernel.api.index.PropertyAccessor;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
+import org.neo4j.values.storable.Value;
 
 /**
  * A component that verifies uniqueness of values in a lucene index.
  * During uniqueness constraint creation we ensure that already existing data is unique using
- * {@link #verify(PropertyAccessor, int[])}.
+ * {@link #verify(NodePropertyAccessor, int[])}.
  * Since updates can be applied while index is being populated we need to verify them as well.
  * Verification does not handle that automatically. They need to be collected in some way and then checked by
- * {@link #verify(PropertyAccessor, int[], List)}.
+ * {@link #verify(NodePropertyAccessor, int[], List)}.
  */
 public interface UniquenessVerifier extends Closeable
 {
@@ -44,17 +45,17 @@ public interface UniquenessVerifier extends Closeable
      * @throws IndexEntryConflictException if there are duplicates.
      * @throws IOException when Lucene throws {@link IOException}.
      */
-    void verify( PropertyAccessor accessor, int[] propKeyIds ) throws IndexEntryConflictException, IOException;
+    void verify( NodePropertyAccessor accessor, int[] propKeyIds ) throws IndexEntryConflictException, IOException;
 
     /**
      * Verifies uniqueness of given values and existing data.
      *
      * @param accessor the accessor to retrieve actual property values from the store.
      * @param propKeyIds the ids of the properties to verify.
-     * @param updatedPropertyValues the values to check uniqueness for.
+     * @param updatedValueTuples the values to check uniqueness for.
      * @throws IndexEntryConflictException if there are duplicates.
      * @throws IOException when Lucene throws {@link IOException}.
      */
-    void verify( PropertyAccessor accessor, int[] propKeyIds, List<Object> updatedPropertyValues )
+    void verify( NodePropertyAccessor accessor, int[] propKeyIds, List<Value[]> updatedValueTuples )
             throws IndexEntryConflictException, IOException;
 }

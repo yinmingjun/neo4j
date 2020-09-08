@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,76 +19,65 @@
  */
 package org.neo4j.commandline.admin.security;
 
-import java.io.File;
+import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Optional;
 
-import org.neo4j.commandline.admin.AdminCommand;
-import org.neo4j.commandline.admin.CommandFailed;
-import org.neo4j.commandline.admin.IncorrectUsage;
-import org.neo4j.commandline.admin.OutsideWorld;
-import org.neo4j.commandline.arguments.Arguments;
-import org.neo4j.helpers.Args;
+import org.neo4j.cli.AbstractCommand;
+import org.neo4j.cli.CommandFailedException;
+import org.neo4j.cli.ExecutionContext;
+import org.neo4j.configuration.Config;
+import org.neo4j.configuration.ConfigUtils;
+import org.neo4j.configuration.GraphDatabaseSettings;
 import org.neo4j.io.fs.FileSystemAbstraction;
-import org.neo4j.kernel.configuration.Config;
-import org.neo4j.logging.NullLogProvider;
-import org.neo4j.server.configuration.ConfigLoader;
-import org.neo4j.server.security.auth.CommunitySecurityModule;
-import org.neo4j.kernel.impl.security.Credential;
-import org.neo4j.server.security.auth.FileUserRepository;
 import org.neo4j.kernel.impl.security.User;
+import org.neo4j.kernel.lifecycle.Lifespan;
+import org.neo4j.logging.NullLogProvider;
+import org.neo4j.server.security.auth.CommunitySecurityModule;
+import org.neo4j.server.security.auth.FileUserRepository;
+import org.neo4j.server.security.auth.LegacyCredential;
+import org.neo4j.server.security.auth.ListSnapshot;
+import org.neo4j.string.UTF8;
+import org.neo4j.util.VisibleForTesting;
 
-import static org.neo4j.kernel.api.security.UserManager.INITIAL_USER_NAME;
+import static org.neo4j.kernel.api.security.AuthManager.INITIAL_PASSWORD;
+import static org.neo4j.kernel.api.security.AuthManager.INITIAL_USER_NAME;
+import static picocli.CommandLine.Command;
+import static picocli.CommandLine.Option;
+import static picocli.CommandLine.Parameters;
 
-public class SetInitialPasswordCommand implements AdminCommand
+@Command(
+        name = "set-initial-password",
+        description = "Sets the initial password of the initial admin user ('" + INITIAL_USER_NAME + "'). " +
+                      "And removes the requirement to change password on first login."
+)
+public class SetInitialPasswordCommand extends AbstractCommand
 {
+    @Option( names = "--require-password-change", defaultValue = "false",
+            description = "Require the user to change their password on first login." )
+    private boolean changeRequired;
 
-    private static final Arguments arguments = new Arguments().withMandatoryPositionalArgument( 0, "password" );
+    @Parameters
+    private String password;
 
-    private final Path homeDir;
-    private final Path configDir;
-    private OutsideWorld outsideWorld;
-
-    SetInitialPasswordCommand( Path homeDir, Path configDir, OutsideWorld outsideWorld )
+    public SetInitialPasswordCommand( ExecutionContext ctx )
     {
-        this.homeDir = homeDir;
-        this.configDir = configDir;
-        this.outsideWorld = outsideWorld;
-    }
-
-    public static Arguments arguments()
-    {
-        return arguments;
+        super( ctx );
     }
 
     @Override
-    public void execute( String[] args ) throws IncorrectUsage, CommandFailed
-    {
-        try
-        {
-            setPassword( arguments.parse( args ).get( 0 ) );
-        }
-        catch ( IncorrectUsage | CommandFailed e )
-        {
-            throw e;
-        }
-        catch ( Throwable throwable )
-        {
-            throw new CommandFailed( throwable.getMessage(), new RuntimeException( throwable ) );
-        }
-    }
-
-    private void setPassword( String password ) throws Throwable
+    public void execute()
     {
         Config config = loadNeo4jConfig();
+        FileSystemAbstraction fileSystem = ctx.fs();
+
         if ( realUsersExist( config ) )
         {
-            throw new CommandFailed( "initial password was not set because live Neo4j-users were detected." );
+            Path authFile = CommunitySecurityModule.getUserRepositoryFile( config );
+            throw new CommandFailedException( realUsersExistErrorMsg( fileSystem, authFile ) );
         }
         else
         {
-            File file = CommunitySecurityModule.getInitialUserRepositoryFile( config );
-            FileSystemAbstraction fileSystem = outsideWorld.fileSystem();
+            Path file = CommunitySecurityModule.getInitialUserRepositoryFile( config );
             if ( fileSystem.fileExists( file ) )
             {
                 fileSystem.deleteFile( file );
@@ -96,27 +85,84 @@ public class SetInitialPasswordCommand implements AdminCommand
 
             FileUserRepository userRepository =
                     new FileUserRepository( fileSystem, file, NullLogProvider.getInstance() );
-            userRepository.start();
-            userRepository.create(
-                    new User.Builder( INITIAL_USER_NAME, Credential.forPassword( password ) )
-                            .withRequiredPasswordChange( false )
-                            .build()
-                );
-            userRepository.shutdown();
-            outsideWorld.stdOutLine( "Changed password for user '" + INITIAL_USER_NAME + "'." );
+            try
+            {
+                userRepository.start();
+                userRepository.create(
+                        new User.Builder( INITIAL_USER_NAME, LegacyCredential.forPassword( UTF8.encode( password ) ) )
+                                .withRequiredPasswordChange( changeRequired )
+                                .build()
+                    );
+                userRepository.shutdown();
+            }
+            catch ( Exception e )
+            {
+                throw new RuntimeException( e );
+            }
+            ctx.out().println( "Changed password for user '" + INITIAL_USER_NAME + "'." );
         }
     }
 
     private boolean realUsersExist( Config config )
     {
-        File authFile = CommunitySecurityModule.getUserRepositoryFile( config );
-        return outsideWorld.fileSystem().fileExists( authFile );
+        boolean result = false;
+        Path authFile = CommunitySecurityModule.getUserRepositoryFile( config );
+
+        if ( ctx.fs().fileExists( authFile ) )
+        {
+            result = true;
+
+            // Check if it only contains the default neo4j user
+            FileUserRepository userRepository = new FileUserRepository( ctx.fs(), authFile, NullLogProvider.getInstance() );
+            try ( Lifespan life = new Lifespan( userRepository ) )
+            {
+                ListSnapshot<User> users = userRepository.getSnapshot();
+                if ( users.values().size() == 1 )
+                {
+                    User user = users.values().get( 0 );
+                    if ( INITIAL_USER_NAME.equals( user.name() ) && user.credentials().matchesPassword( INITIAL_PASSWORD ) )
+                    {
+                        // We allow overwriting an unmodified default neo4j user
+                        result = false;
+                    }
+                }
+            }
+            catch ( IOException e )
+            {
+                // Do not allow overwriting if we had a problem reading the file
+            }
+        }
+        return result;
     }
 
+    private static String realUsersExistErrorMsg( FileSystemAbstraction fileSystem, Path authFile )
+    {
+        String files;
+        Path parentFile = authFile.getParent();
+        Path roles = parentFile.resolve( "roles" );
+
+        if ( fileSystem.fileExists( roles ) )
+        {
+            files = "`auth` and `roles` files";
+        }
+        else
+        {
+            files = "`auth` file";
+        }
+
+        return  "the provided initial password was not set because existing Neo4j users were detected at `" +
+               authFile.toAbsolutePath() + "`. Please remove the existing " + files + " if you want to reset your database " +
+                "to only have a default user with the provided password.";
+    }
+
+    @VisibleForTesting
     Config loadNeo4jConfig()
     {
-        return ConfigLoader.loadConfigWithConnectorsDisabled(
-                Optional.of( homeDir.toFile() ),
-                Optional.of( configDir.resolve( "neo4j.conf" ).toFile() ) );
+        Config cfg = Config.newBuilder()
+                .set( GraphDatabaseSettings.neo4j_home, ctx.homeDir().toAbsolutePath() )
+                .fromFileNoThrow( ctx.confDir().resolve( Config.DEFAULT_CONFIG_FILE_NAME ) )
+                .build();
+        ConfigUtils.disableAllConnectors( cfg );
+        return cfg;
     }
 }

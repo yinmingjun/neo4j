@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -23,8 +23,6 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
-import org.neo4j.server.plugins.ParameterList;
-
 public interface InputFormat
 {
     Object readValue( String input ) throws BadInputException;
@@ -34,6 +32,4 @@ public interface InputFormat
     List<Object> readList( String input ) throws BadInputException;
 
     URI readUri( String input ) throws BadInputException;
-
-    ParameterList readParameterList( String input ) throws BadInputException;
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,12 +19,14 @@
  */
 package org.neo4j.consistency.checking;
 
+import org.eclipse.collections.api.set.primitive.MutableIntSet;
+import org.eclipse.collections.impl.set.mutable.primitive.IntHashSet;
+
 import java.util.Arrays;
 
-import org.neo4j.collection.primitive.Primitive;
-import org.neo4j.collection.primitive.PrimitiveIntSet;
 import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.store.RecordAccess;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.record.PrimitiveRecord;
 import org.neo4j.kernel.impl.store.record.PropertyBlock;
 import org.neo4j.kernel.impl.store.record.PropertyRecord;
@@ -34,11 +36,11 @@ public class ChainCheck<RECORD extends PrimitiveRecord, REPORT extends Consisten
         implements ComparativeRecordChecker<RECORD, PropertyRecord, REPORT>
 {
     private static final int MAX_BLOCK_PER_RECORD_COUNT = 4;
-    private final PrimitiveIntSet keys = Primitive.intSet();
+    private final MutableIntSet keys = new IntHashSet();
 
     @Override
-    public void checkReference( RECORD record, PropertyRecord property, CheckerEngine<RECORD, REPORT> engine,
-                                RecordAccess records )
+    public void checkReference( RECORD record, PropertyRecord property, CheckerEngine<RECORD,REPORT> engine, RecordAccess records,
+            PageCursorTracer cursorTracer )
     {
         for ( int key : keys( property ) )
         {
@@ -49,7 +51,7 @@ public class ChainCheck<RECORD extends PrimitiveRecord, REPORT extends Consisten
         }
         if ( !Record.NO_NEXT_PROPERTY.is( property.getNextProp() ) )
         {
-            engine.comparativeCheck( records.property( property.getNextProp() ), this );
+            engine.comparativeCheck( records.property( property.getNextProp(), cursorTracer ), this );
         }
     }
 

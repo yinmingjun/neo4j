@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,14 +19,14 @@
  */
 package org.neo4j.kernel.impl.util.dbstructure;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
 import java.security.SecureClassLoader;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,28 +44,35 @@ import javax.tools.SimpleJavaFileObject;
 import javax.tools.StandardLocation;
 import javax.tools.ToolProvider;
 
-import org.neo4j.helpers.collection.Visitable;
-import org.neo4j.kernel.api.schema.constaints.ConstraintDescriptorFactory;
-import org.neo4j.kernel.api.schema.index.IndexDescriptorFactory;
+import org.neo4j.internal.helpers.collection.Visitable;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.internal.schema.constraints.ConstraintDescriptorFactory;
+import org.neo4j.internal.schema.constraints.NodeKeyConstraintDescriptor;
+import org.neo4j.internal.schema.constraints.UniquenessConstraintDescriptor;
+import org.neo4j.kernel.api.schema.index.TestIndexDescriptorFactory;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 
-public class DbStructureInvocationTracingAcceptanceTest
+class DbStructureInvocationTracingAcceptanceTest
 {
-    private final String packageName = "org.neo4j.kernel.impl.util.data";
-    private final String className = "XXYYZZData";
-    private final String classNameWithPackage = packageName + "." + className;
+    private static final String packageName = "org.neo4j.kernel.impl.util.data";
+    private static final String className = "XXYYZZData";
+    private static final String classNameWithPackage = packageName + "." + className;
+    public static final IndexDescriptor INDEX_PERSON_AGE = TestIndexDescriptorFactory.forLabel( 0, 1 );
+    public static final IndexDescriptor INDEX_PERSON_NAME_LASTNAME = TestIndexDescriptorFactory.uniqueForLabel( 0, 0, 2 );
+    public static final UniquenessConstraintDescriptor CONSTRAINT_PARTY_NAME = ConstraintDescriptorFactory.uniqueForLabel( 1, 0 );
+    public static final NodeKeyConstraintDescriptor CONSTRAINT_PERSON_NAME_LASTNAME = ConstraintDescriptorFactory.nodeKeyForLabel( 0, 1, 2 );
 
     @Test
-    public void outputCompilesWithoutErrors() throws IOException
+    void outputCompilesWithoutErrors() throws IOException
     {
         // GIVEN
         StringBuilder output = new StringBuilder();
-        InvocationTracer<DbStructureVisitor> tracer =
-            new InvocationTracer<>( "Test", packageName, className, DbStructureVisitor.class, DbStructureArgumentFormatter.INSTANCE, output );
+        InvocationTracer<DbStructureVisitor> tracer = new InvocationTracer<>( "Test", packageName, className,
+                DbStructureVisitor.class, DbStructureArgumentFormatter.INSTANCE, output );
         DbStructureVisitor visitor = tracer.newProxy();
 
         // WHEN
@@ -77,12 +84,12 @@ public class DbStructureInvocationTracingAcceptanceTest
     }
 
     @Test
-    public void compiledOutputCreatesInputTrace() throws IOException
+    void compiledOutputCreatesInputTrace() throws IOException
     {
         // GIVEN
         StringBuilder output = new StringBuilder();
-        InvocationTracer<DbStructureVisitor> tracer =
-            new InvocationTracer<>( "Test", packageName, className, DbStructureVisitor.class, DbStructureArgumentFormatter.INSTANCE, output );
+        InvocationTracer<DbStructureVisitor> tracer = new InvocationTracer<>( "Test", packageName, className,
+                DbStructureVisitor.class, DbStructureArgumentFormatter.INSTANCE, output );
         exerciseVisitor( from -> tracer.newProxy() );
         tracer.close();
         final Visitable<DbStructureVisitor> visitable = compileVisitable( classNameWithPackage, output.toString() );
@@ -97,12 +104,12 @@ public class DbStructureInvocationTracingAcceptanceTest
     }
 
     @Test
-    public void compiledOutputProducesSameCompiledOutputIfCompiledAgain() throws IOException
+    void compiledOutputProducesSameCompiledOutputIfCompiledAgain() throws IOException
     {
         // GIVEN
         StringBuilder output1 = new StringBuilder();
-        InvocationTracer<DbStructureVisitor> tracer1 =
-                new InvocationTracer<>( "Test", packageName, className, DbStructureVisitor.class, DbStructureArgumentFormatter.INSTANCE, output1 );
+        InvocationTracer<DbStructureVisitor> tracer1 = new InvocationTracer<>( "Test", packageName, className,
+                DbStructureVisitor.class, DbStructureArgumentFormatter.INSTANCE, output1 );
         DbStructureVisitor visitor1 = tracer1.newProxy();
         exerciseVisitor( from -> visitor1 );
         tracer1.close();
@@ -111,8 +118,8 @@ public class DbStructureInvocationTracingAcceptanceTest
 
         // WHEN
         StringBuilder output2 = new StringBuilder();
-        InvocationTracer<DbStructureVisitor> tracer2 =
-            new InvocationTracer<>( "Test", packageName, className, DbStructureVisitor.class, DbStructureArgumentFormatter.INSTANCE, output2 );
+        InvocationTracer<DbStructureVisitor> tracer2 = new InvocationTracer<>( "Test", packageName, className,
+                DbStructureVisitor.class, DbStructureArgumentFormatter.INSTANCE, output2 );
         DbStructureVisitor visitor2 = tracer2.newProxy();
         visitable.accept( visitor2 );
         tracer2.close();
@@ -122,7 +129,7 @@ public class DbStructureInvocationTracingAcceptanceTest
         assertEquals( source1, source2 );
     }
 
-    private void exerciseVisitor( Function<Object, DbStructureVisitor> visitor )
+    private static void exerciseVisitor( Function<Object, DbStructureVisitor> visitor )
     {
         visitor.apply( null ).visitLabel( 0, "Person" );
         visitor.apply( null ).visitLabel( 1, "Party" );
@@ -131,12 +138,10 @@ public class DbStructureInvocationTracingAcceptanceTest
         visitor.apply( null ).visitPropertyKey( 1, "age" );
         visitor.apply( null ).visitRelationshipType( 0, "ACCEPTS" );
         visitor.apply( null ).visitRelationshipType( 1, "REJECTS" );
-        visitor.apply( null ).visitIndex( IndexDescriptorFactory.forLabel( 0, 1 ), ":Person(age)", 0.5d, 1L );
-        visitor.apply( null )
-                .visitIndex( IndexDescriptorFactory.uniqueForLabel( 0, 0, 2 ), ":Person(name, lastName)", 0.5d, 1L );
-        visitor.apply( null )
-                .visitUniqueConstraint( ConstraintDescriptorFactory.uniqueForLabel( 1, 0 ), ":Party(name)" );visitor.apply( null ).visitNodeKeyConstraint(
-                        ConstraintDescriptorFactory.nodeKeyForLabel( 0, 1, 2 ), ":Person(name, lastName)" );
+        visitor.apply( null ).visitIndex( INDEX_PERSON_AGE, ":Person(age)", 0.5d, 1L );
+        visitor.apply( null ).visitIndex( INDEX_PERSON_NAME_LASTNAME, ":Person(name, lastName)", 0.5d, 1L );
+        visitor.apply( null ).visitUniqueConstraint( CONSTRAINT_PARTY_NAME, ":Party(name)" );
+        visitor.apply( null ).visitNodeKeyConstraint( CONSTRAINT_PERSON_NAME_LASTNAME, ":Person(name, lastName)" );
         visitor.apply( null ).visitAllNodesCount( 55 );
         visitor.apply( null ).visitNodeCount( 0, "Person", 50 );
         visitor.apply( null ).visitNodeCount( 0, "Party", 5 );
@@ -157,8 +162,7 @@ public class DbStructureInvocationTracingAcceptanceTest
     private Visitable<DbStructureVisitor> compileVisitable( final String className, String inputSource )
     {
         return compile( className, inputSource,
-                ( success, manager, diagnostics ) ->
-                {
+                ( success, manager, diagnostics ) -> {
                     assertSuccessfullyCompiled( success, diagnostics, className );
                     Object instance;
                     try
@@ -188,7 +192,7 @@ public class DbStructureInvocationTracingAcceptanceTest
             builder.append( "\n\n" );
             for ( Diagnostic<?> diagnostic : diagnostics )
             {
-                builder.append( diagnostic.toString() );
+                builder.append( diagnostic );
                 builder.append( "\n" );
             }
             throw new AssertionError( builder.toString() );
@@ -199,8 +203,8 @@ public class DbStructureInvocationTracingAcceptanceTest
     {
         JavaCompiler systemCompiler = ToolProvider.getSystemJavaCompiler();
         JavaFileManager manager = new InMemFileManager();
-        DiagnosticCollector<JavaFileObject> diagnosticsCollector = new DiagnosticCollector<JavaFileObject>();
-        Iterable<? extends JavaFileObject> sources = Arrays.asList( new InMemSource( className, source ) );
+        DiagnosticCollector<JavaFileObject> diagnosticsCollector = new DiagnosticCollector<>();
+        Iterable<? extends JavaFileObject> sources = Collections.singletonList( new InMemSource( className, source ) );
         CompilationTask task = systemCompiler.getTask( null, manager, diagnosticsCollector, null, null, sources );
         Boolean success = task.call();
         return listener.compiled( success, manager, diagnosticsCollector.getDiagnostics() );
@@ -243,7 +247,7 @@ public class DbStructureInvocationTracingAcceptanceTest
         }
 
         @Override
-        public OutputStream openOutputStream() throws IOException
+        public OutputStream openOutputStream()
         {
             return byteCodeStream;
         }
@@ -264,7 +268,7 @@ public class DbStructureInvocationTracingAcceptanceTest
             return new SecureClassLoader()
             {
                 @Override
-                protected Class<?> findClass( String name ) throws ClassNotFoundException
+                protected Class<?> findClass( String name )
                 {
                     byte[] byteCode = classes.get( name ).getBytes();
                     return super.defineClass( name, byteCode, 0, byteCode.length );

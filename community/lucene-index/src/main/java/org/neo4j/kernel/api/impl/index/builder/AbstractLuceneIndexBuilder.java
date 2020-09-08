@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,15 +19,15 @@
  */
 package org.neo4j.kernel.api.impl.index.builder;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.util.Objects;
 
+import org.neo4j.configuration.Config;
+import org.neo4j.configuration.GraphDatabaseSettings;
 import org.neo4j.graphdb.config.Setting;
-import org.neo4j.graphdb.factory.GraphDatabaseSettings;
 import org.neo4j.io.fs.FileSystemAbstraction;
 import org.neo4j.kernel.api.impl.index.storage.DirectoryFactory;
 import org.neo4j.kernel.api.impl.index.storage.PartitionedIndexStorage;
-import org.neo4j.kernel.configuration.Config;
-import org.neo4j.kernel.impl.factory.OperationalMode;
 
 /**
  * Base class for lucene index builders.
@@ -37,8 +37,13 @@ import org.neo4j.kernel.impl.factory.OperationalMode;
 public abstract class AbstractLuceneIndexBuilder<T extends AbstractLuceneIndexBuilder<T>>
 {
     protected LuceneIndexStorageBuilder storageBuilder = LuceneIndexStorageBuilder.create();
-    private Config config = Config.defaults();
-    private OperationalMode operationalMode = OperationalMode.single;
+    private final Config config;
+    private boolean isSingleInstance = true;
+
+    public AbstractLuceneIndexBuilder( Config config )
+    {
+        this.config = Objects.requireNonNull( config );
+    }
 
     /**
      * Specify index storage
@@ -82,43 +87,20 @@ public abstract class AbstractLuceneIndexBuilder<T extends AbstractLuceneIndexBu
      * @param indexRootFolder root folder
      * @return index builder
      */
-    public T withIndexRootFolder( File indexRootFolder )
+    public T withIndexRootFolder( Path indexRootFolder )
     {
-        storageBuilder.withIndexRootFolder( indexRootFolder );
+        storageBuilder.withIndexFolder( indexRootFolder );
         return (T) this;
     }
 
     /**
-     * Specify index identifier
-     *
-     * @param indexIdentifier identifier
+     * Specify if the db is in a SINGLE INSTANCE operational mode.
+     * @param isSingleInstance operational mode
      * @return index builder
      */
-    public T withIndexIdentifier( String indexIdentifier )
+    public T withOperationalMode( boolean isSingleInstance )
     {
-        storageBuilder.withIndexIdentifier( indexIdentifier );
-        return (T) this;
-    }
-
-    /**
-     * Specify db config
-     * @param config configuration
-     * @return index builder
-     */
-    public T withConfig( Config config )
-    {
-        this.config = config;
-        return (T) this;
-    }
-
-    /**
-     * Specify db operational mode
-     * @param operationalMode operational mode
-     * @return index builder
-     */
-    public T withOperationalMode( OperationalMode operationalMode )
-    {
-        this.operationalMode = operationalMode;
+        this.isSingleInstance = isSingleInstance;
         return (T) this;
     }
 
@@ -128,7 +110,7 @@ public abstract class AbstractLuceneIndexBuilder<T extends AbstractLuceneIndexBu
      */
     protected boolean isReadOnly()
     {
-        return getConfig( GraphDatabaseSettings.read_only ) && (OperationalMode.single == operationalMode);
+        return getConfig( GraphDatabaseSettings.read_only ) && isSingleInstance;
     }
 
     /**

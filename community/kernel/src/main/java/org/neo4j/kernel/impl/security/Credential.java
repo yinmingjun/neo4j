@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,102 +19,20 @@
  */
 package org.neo4j.kernel.impl.security;
 
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
-import java.util.concurrent.ThreadLocalRandom;
-
-import org.neo4j.string.HexString;
-import org.neo4j.string.UTF8;
-
-public class Credential
+public interface Credential
 {
-    public static final String DIGEST_ALGO = "SHA-256";
+    String CREDENTIAL_SEPARATOR = ",";
 
-    public static final Credential INACCESSIBLE = new Credential( new byte[]{}, new byte[]{} );
+    boolean matchesPassword( byte[] password );
 
-    private final byte[] salt;
-    private final byte[] passwordHash;
-
-    public static Credential forPassword( String password )
+    /**
+     * For testing purposes only!
+     * Use method that takes byte[]
+     */
+    default boolean matchesPassword( String password )
     {
-        byte[] salt = randomSalt();
-        return new Credential( salt, hash( salt, password ) );
+        throw new UnsupportedOperationException( "Use `boolean matchesPassword( byte[] password )` instead" );
     }
 
-    public Credential( byte[] salt, byte[] passwordHash )
-    {
-        this.salt = salt;
-        this.passwordHash = passwordHash;
-    }
-
-    public byte[] salt()
-    {
-        return salt;
-    }
-
-    public byte[] passwordHash()
-    {
-        return passwordHash;
-    }
-
-    public boolean matchesPassword( String password )
-    {
-        return Arrays.equals( passwordHash, hash( salt, password ) );
-    }
-
-    @Override
-    public boolean equals( Object o )
-    {
-        if ( this == o )
-        {
-            return true;
-        }
-        if ( o == null || getClass() != o.getClass() )
-        {
-            return false;
-        }
-
-        Credential that = (Credential) o;
-
-        return Arrays.equals( salt, that.salt ) && Arrays.equals( passwordHash, that.passwordHash );
-    }
-
-    @Override
-    public int hashCode()
-    {
-        return 31 * Arrays.hashCode( salt ) + Arrays.hashCode( passwordHash );
-    }
-
-    @Override
-    public String toString()
-    {
-        return "Credential{" +
-               "salt=0x" + HexString.encodeHexString( salt ) +
-               ", passwordHash=0x" + HexString.encodeHexString( passwordHash ) +
-               '}';
-    }
-
-    private static byte[] hash( byte[] salt, String password )
-    {
-        try
-        {
-            byte[] passwordBytes = UTF8.encode( password );
-            MessageDigest m = MessageDigest.getInstance( DIGEST_ALGO );
-            m.update( salt, 0, salt.length );
-            m.update( passwordBytes, 0, passwordBytes.length );
-            return m.digest();
-        }
-        catch ( NoSuchAlgorithmException e )
-        {
-            throw new RuntimeException( "Hash algorithm is not available on this platform: " + e.getMessage(), e );
-        }
-    }
-
-    private static byte[] randomSalt()
-    {
-        byte[] salt = new byte[16];
-        ThreadLocalRandom.current().nextBytes( salt );
-        return salt;
-    }
+    String serialize();
 }

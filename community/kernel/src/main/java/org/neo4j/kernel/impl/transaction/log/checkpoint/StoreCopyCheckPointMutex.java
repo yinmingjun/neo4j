@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -24,12 +24,12 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.LockSupport;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.BooleanSupplier;
+
 import org.neo4j.function.ThrowingAction;
 import org.neo4j.graphdb.Resource;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
-
-import static org.neo4j.helpers.Exceptions.launderedException;
 
 /**
  * Mutex between {@link #storeCopy(ThrowingAction) store-copy} and {@link #checkPoint() check-point}.
@@ -111,10 +111,15 @@ public class StoreCopyCheckPointMutex
                 {
                     beforeFirstConcurrentStoreCopy.apply();
                 }
+                catch ( IOException e )
+                {
+                    storeCopyActionError = e;
+                    throw e;
+                }
                 catch ( Throwable e )
                 {
                     storeCopyActionError = e;
-                    throw launderedException( IOException.class, e );
+                    throw new IOException( e );
                 }
                 storeCopyActionCompleted = true;
             }
@@ -188,6 +193,30 @@ public class StoreCopyCheckPointMutex
     {
         Lock writeLock = lock.writeLock();
         return writeLock.tryLock() ? writeLock::unlock : null;
+    }
+
+    public Resource tryCheckPoint( BooleanSupplier timeoutPredicate )
+    {
+        Lock writeLock = lock.writeLock();
+        long waitTimeMillis = 0; // Don't do any waiting on the first iteration. We want to consult the predicate first.
+
+        try
+        {
+            while ( !writeLock.tryLock( waitTimeMillis, MILLISECONDS ) )
+            {
+                if ( timeoutPredicate.getAsBoolean() )
+                {
+                    return null;
+                }
+                waitTimeMillis = 100;
+            }
+        }
+        catch ( InterruptedException e )
+        {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+        return writeLock::unlock;
     }
 
     public Resource checkPoint()

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,16 +20,15 @@
 package org.neo4j.function;
 
 /**
- * Represents a function that accepts an int-valued argument and produces a result. This is the int-consuming primitive specialization for {@link
- * ThrowingFunction}.
- *
+ * Represents a function that accepts one {@code int} argument and produces a result, or throws an exception.
  * @param <R> the type of the result of the function
  * @param <E> the type of exception that may be thrown from the function
  */
+@FunctionalInterface
 public interface ThrowingIntFunction<R, E extends Exception>
 {
     /**
-     * Applies this function to the given argument.
+     * Apply a value to this function.
      *
      * @param value the function argument
      * @return the function result

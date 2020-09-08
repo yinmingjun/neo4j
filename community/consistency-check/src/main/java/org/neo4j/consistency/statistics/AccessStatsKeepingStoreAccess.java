@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,6 +20,7 @@
 package org.neo4j.consistency.statistics;
 
 import org.neo4j.consistency.statistics.AccessStatistics.AccessStats;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.NeoStores;
 import org.neo4j.kernel.impl.store.RecordStore;
 import org.neo4j.kernel.impl.store.StoreAccess;
@@ -64,10 +65,10 @@ public class AccessStatsKeepingStoreAccess extends StoreAccess
         }
 
         @Override
-        public RECORD getRecord( long id, RECORD record, RecordLoad load )
+        public RECORD getRecord( long id, RECORD record, RecordLoad load, PageCursorTracer cursorTracer )
         {
             accessStats.upRead( id );
-            return super.getRecord( id, record, load );
+            return super.getRecord( id, record, load, cursorTracer );
         }
     }
 }

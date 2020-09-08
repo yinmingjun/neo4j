@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,22 +19,22 @@
  */
 package org.neo4j.graphalgo.impl.util;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.graphalgo.impl.util.PriorityMap.Entry;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class TestPriorityMap
+class TestPriorityMap
 {
     @Test
-    public void testIt()
+    void testIt()
     {
         PriorityMap<Integer, Integer, Double> map =
-            PriorityMap.<Integer, Double>withSelfKeyNaturalOrder();
+            PriorityMap.withSelfKeyNaturalOrder();
         map.put( 0, 5d );
         map.put( 1, 4d );
         map.put( 1, 4d );
@@ -43,7 +43,15 @@ public class TestPriorityMap
         assertEntry( map.pop(), 0, 5d );
         assertNull( map.pop() );
 
-        int start = 0, a = 1, b = 2, c = 3, d = 4, e = 6, f = 7, y = 8, x = 9;
+        int start = 0;
+        int a = 1;
+        int b = 2;
+        int c = 3;
+        int d = 4;
+        int e = 6;
+        int f = 7;
+        int y = 8;
+        int x = 9;
         map.put( start, 0d );
         map.put( a, 1d );
         // get start
@@ -65,15 +73,13 @@ public class TestPriorityMap
         map.put( f, 7d );
         // get x
         map.put( y, 8d );
-        // get x
-//        map.put(
     }
 
     @Test
-    public void shouldReplaceIfBetter() throws Exception
+    void shouldReplaceIfBetter()
     {
         // GIVEN
-        PriorityMap<Integer, Integer, Double> map = PriorityMap.<Integer, Double>withSelfKeyNaturalOrder();
+        PriorityMap<Integer, Integer, Double> map = PriorityMap.withSelfKeyNaturalOrder();
         map.put( 1, 2d );
 
         // WHEN
@@ -84,15 +90,15 @@ public class TestPriorityMap
         Entry<Integer, Double> top = map.pop();
         assertNull( map.peek() );
         assertEquals( 1, top.getEntity().intValue() );
-        assertEquals( 1.5d, top.getPriority().doubleValue(), 0d );
+        assertEquals( 1.5d, top.getPriority(), 0.00001 );
     }
 
     @Test
-    public void shouldKeepAllPrioritiesIfToldTo() throws Exception
+    void shouldKeepAllPrioritiesIfToldTo()
     {
         // GIVEN
         int entity = 5;
-        PriorityMap<Integer, Integer, Double> map = PriorityMap.<Integer, Double>withSelfKeyNaturalOrder( false, false );
+        PriorityMap<Integer, Integer, Double> map = PriorityMap.withSelfKeyNaturalOrder( false, false );
         assertTrue( map.put( entity, 3d ) );
         assertTrue( map.put( entity, 2d ) );
 
@@ -108,12 +114,12 @@ public class TestPriorityMap
     }
 
     @Test
-    public void inCaseSaveAllPrioritiesShouldHandleNewEntryWithWorsePrio()
+    void inCaseSaveAllPrioritiesShouldHandleNewEntryWithWorsePrio()
     {
         // GIVEN
         int first = 1;
         int second = 2;
-        PriorityMap<Integer, Integer, Double> map = PriorityMap.<Integer, Double>withSelfKeyNaturalOrder( false, false);
+        PriorityMap<Integer, Integer, Double> map = PriorityMap.withSelfKeyNaturalOrder( false, false);
 
         // WHEN
         assertTrue( map.put( first, 1d) );
@@ -128,12 +134,12 @@ public class TestPriorityMap
     }
 
     @Test
-    public void inCaseSaveAllPrioritiesShouldHandleNewEntryWithBetterPrio()
+    void inCaseSaveAllPrioritiesShouldHandleNewEntryWithBetterPrio()
     {
         // GIVEN
         int first = 1;
         int second = 2;
-        PriorityMap<Integer, Integer, Double> map = PriorityMap.<Integer, Double>withSelfKeyNaturalOrder( false, false);
+        PriorityMap<Integer, Integer, Double> map = PriorityMap.withSelfKeyNaturalOrder( false, false);
 
         // WHEN
         assertTrue( map.put( first, 3d) );
@@ -147,7 +153,7 @@ public class TestPriorityMap
         assertNull( map.peek() );
     }
 
-    private void assertEntry( Entry<Integer, Double> entry, Integer entity, Double priority )
+    private static void assertEntry( Entry<Integer,Double> entry, Integer entity, Double priority )
     {
         assertNotNull( entry );
         assertEquals( entity, entry.getEntity() );

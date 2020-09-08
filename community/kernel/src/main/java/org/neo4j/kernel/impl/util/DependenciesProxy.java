@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -25,35 +25,41 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Proxy;
 import java.util.function.Supplier;
 
-import org.neo4j.graphdb.DependencyResolver;
+import org.neo4j.common.DependencyResolver;
+import org.neo4j.exceptions.UnsatisfiedDependencyException;
 
 /**
  * Used to create dynamic proxies that implement dependency interfaces. Each method should have no arguments
  * and return the type of the dependency desired. It will be mapped to a lookup in the provided {@link DependencyResolver}.
  * Methods may also use a {@link Supplier} type for deferred lookups.
- *
  */
 public class DependenciesProxy
 {
+    private DependenciesProxy()
+    {
+        throw new AssertionError(); // no instances
+    }
+
     /**
      * Create a dynamic proxy that implements the given interface and backs invocation with lookups into the given
      * dependency resolver.
      *
-     * @param dependencyResolver
-     * @param dependenciesInterface
-     * @param <T>
-     * @return
+     * @param dependencyResolver original resolver to proxy
+     * @param dependenciesInterface interface to proxy
+     * @param <T> type of the interface
+     * @return a proxied {@link DependencyResolver} that will lookup dependencies in {@code dependencyResolver} based
+     * on method names in the provided {@code dependenciesInterface}
      */
-    public static <T> T dependencies(DependencyResolver dependencyResolver, Class<T> dependenciesInterface)
+    public static <T> T dependencies( DependencyResolver dependencyResolver, Class<T> dependenciesInterface )
     {
-        return (T) Proxy.newProxyInstance( dependenciesInterface.getClassLoader(), new Class[]{dependenciesInterface},
-                new ProxyHandler(dependencyResolver) );
+        return dependenciesInterface.cast(
+                Proxy.newProxyInstance( dependenciesInterface.getClassLoader(), new Class<?>[]{dependenciesInterface},
+                        new ProxyHandler( dependencyResolver ) ) );
     }
 
-    private static class ProxyHandler
-            implements InvocationHandler
+    private static class ProxyHandler implements InvocationHandler
     {
-        private DependencyResolver dependencyResolver;
+        private final DependencyResolver dependencyResolver;
 
         ProxyHandler( DependencyResolver dependencyResolver )
         {
@@ -61,13 +67,14 @@ public class DependenciesProxy
         }
 
         @Override
-        public Object invoke( Object proxy, Method method, Object[] args ) throws Throwable
+        public Object invoke( Object proxy, Method method, Object[] args )
         {
             try
             {
-                if (method.getReturnType().equals( Supplier.class ))
+                if ( method.getReturnType().equals( Supplier.class ) )
                 {
-                    return dependencyResolver.provideDependency( (Class)((ParameterizedType) method.getGenericReturnType()).getActualTypeArguments()[0] );
+                    return dependencyResolver.provideDependency(
+                            (Class<?>) ((ParameterizedType) method.getGenericReturnType()).getActualTypeArguments()[0] );
                 }
                 else
                 {
@@ -80,5 +87,4 @@ public class DependenciesProxy
             }
         }
     }
-
 }

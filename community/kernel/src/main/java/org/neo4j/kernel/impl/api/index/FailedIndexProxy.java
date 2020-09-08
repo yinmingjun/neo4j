@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,53 +19,57 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.concurrent.Future;
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import org.neo4j.graphdb.ResourceIterator;
+import org.neo4j.internal.kernel.api.InternalIndexState;
+import org.neo4j.internal.schema.IndexDescriptor;
 import org.neo4j.kernel.api.exceptions.index.IndexPopulationFailedKernelException;
-import org.neo4j.kernel.api.index.IndexPopulator;
-import org.neo4j.kernel.api.index.InternalIndexState;
-import org.neo4j.kernel.api.index.SchemaIndexProvider;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
+import org.neo4j.kernel.api.index.MinimalIndexAccessor;
+import org.neo4j.kernel.impl.api.index.stats.IndexStatisticsStore;
 import org.neo4j.logging.Log;
 import org.neo4j.logging.LogProvider;
+import org.neo4j.values.storable.Value;
 
-import static org.neo4j.helpers.FutureAdapter.VOID;
-import static org.neo4j.helpers.collection.Iterators.emptyIterator;
+import static org.neo4j.internal.helpers.collection.Iterators.emptyResourceIterator;
 
 public class FailedIndexProxy extends AbstractSwallowingIndexProxy
 {
-    protected final IndexPopulator populator;
+    private final MinimalIndexAccessor minimalIndexAccessor;
     private final String indexUserDescription;
-    private final IndexCountsRemover indexCountsRemover;
+    private final IndexStatisticsStore indexStatisticsStore;
     private final Log log;
 
-    public FailedIndexProxy( IndexDescriptor descriptor,
-                            SchemaIndexProvider.Descriptor providerDescriptor,
-                            String indexUserDescription,
-                            IndexPopulator populator,
-                            IndexPopulationFailure populationFailure,
-                            IndexCountsRemover indexCountsRemover,
-                            LogProvider logProvider )
+    FailedIndexProxy( IndexDescriptor descriptor,
+            String indexUserDescription,
+            MinimalIndexAccessor minimalIndexAccessor,
+            IndexPopulationFailure populationFailure,
+            IndexStatisticsStore indexStatisticsStore,
+            LogProvider logProvider )
     {
-        super( descriptor, providerDescriptor, populationFailure );
-        this.populator = populator;
+        super( descriptor, populationFailure );
+        this.minimalIndexAccessor = minimalIndexAccessor;
         this.indexUserDescription = indexUserDescription;
-        this.indexCountsRemover = indexCountsRemover;
+        this.indexStatisticsStore = indexStatisticsStore;
         this.log = logProvider.getLog( getClass() );
     }
 
     @Override
-    public Future<Void> drop() throws IOException
+    public void start()
     {
-        indexCountsRemover.remove();
+        // nothing to start
+    }
+
+    @Override
+    public void drop()
+    {
+        indexStatisticsStore.removeIndex( getDescriptor().getId() );
         String message = "FailedIndexProxy#drop index on " + indexUserDescription + " dropped due to:\n" +
                      getPopulationFailure().asString();
         log.info( message );
-        populator.drop();
-        return VOID;
+        minimalIndexAccessor.drop();
     }
 
     @Override
@@ -75,9 +79,14 @@ public class FailedIndexProxy extends AbstractSwallowingIndexProxy
     }
 
     @Override
-    public boolean awaitStoreScanCompleted() throws IndexPopulationFailedKernelException
+    public boolean awaitStoreScanCompleted( long time, TimeUnit unit ) throws IndexPopulationFailedKernelException
     {
-        throw getPopulationFailure().asIndexPopulationFailure( getDescriptor().schema(), indexUserDescription );
+        throw failureCause();
+    }
+
+    private IndexPopulationFailedKernelException failureCause()
+    {
+        return getPopulationFailure().asIndexPopulationFailure( getDescriptor().schema(), indexUserDescription );
     }
 
     @Override
@@ -89,12 +98,23 @@ public class FailedIndexProxy extends AbstractSwallowingIndexProxy
     @Override
     public void validate() throws IndexPopulationFailedKernelException
     {
-        throw getPopulationFailure().asIndexPopulationFailure( getDescriptor().schema(), indexUserDescription );
+        throw failureCause();
     }
 
     @Override
-    public ResourceIterator<File> snapshotFiles()
+    public void validateBeforeCommit( Value[] tuple )
     {
-        return emptyIterator();
+    }
+
+    @Override
+    public ResourceIterator<Path> snapshotFiles()
+    {
+        return emptyResourceIterator();
+    }
+
+    @Override
+    public Map<String,Value> indexConfig()
+    {
+        return minimalIndexAccessor.indexConfig();
     }
 }

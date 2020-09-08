@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -29,36 +29,8 @@ import org.neo4j.graphdb.PathExpander;
  */
 public interface InitialBranchState<STATE>
 {
-    @SuppressWarnings( "rawtypes" )
-    InitialBranchState NO_STATE = new InitialBranchState()
-    {
-        @Override
-        public Object initialState( Path path )
-        {
-            return null;
-        }
-
-        @Override
-        public InitialBranchState reverse()
-        {
-            return this;
-        }
-    };
-
-    InitialBranchState<Double> DOUBLE_ZERO = new InitialBranchState()
-    {
-        @Override
-        public Number initialState( Path path )
-        {
-            return 0d;
-        }
-
-        @Override
-        public InitialBranchState reverse()
-        {
-            return this;
-        }
-    };
+    InitialBranchState<Object> NO_STATE = path -> null;
+    InitialBranchState<Double> DOUBLE_ZERO = path -> 0d;
 
     /**
      * Returns an initial state for a {@link Path}. All paths entering this method
@@ -77,21 +49,15 @@ public interface InitialBranchState<STATE>
      * used in bidirectional traversals.
      * @return an instance which produces reversed initial state.
      */
-    InitialBranchState<STATE> reverse();
-
-    abstract class Adapter<STATE> implements InitialBranchState<STATE>
+    default InitialBranchState<STATE> reverse()
     {
-        @Override
-        public InitialBranchState<STATE> reverse()
-        {
-            return this;
-        }
+        return this;
     }
 
     /**
      * Branch state evaluator for an initial state.
      */
-    class State<STATE> extends Adapter<STATE>
+    class State<STATE> implements InitialBranchState<STATE>
     {
         private final STATE initialState;
         private final STATE reversedInitialState;
@@ -105,7 +71,7 @@ public interface InitialBranchState<STATE>
         @Override
         public InitialBranchState<STATE> reverse()
         {
-            return new State<STATE>( reversedInitialState, initialState );
+            return new State<>( reversedInitialState, initialState );
         }
 
         @Override

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,12 +19,15 @@
  */
 package org.neo4j.consistency.checking;
 
+import org.eclipse.collections.api.map.primitive.MutableLongObjectMap;
+import org.eclipse.collections.impl.map.mutable.primitive.LongObjectHashMap;
+
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 
 import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.store.RecordAccess;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.LabelIdArray;
 import org.neo4j.kernel.impl.store.PropertyType;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
@@ -39,7 +42,7 @@ public class LabelChainWalker<RECORD extends AbstractBaseRecord, REPORT extends 
 {
     private final Validator<RECORD, REPORT> validator;
 
-    private final HashMap<Long, DynamicRecord> recordIds = new HashMap<>();
+    private final MutableLongObjectMap<DynamicRecord> recordIds = new LongObjectHashMap<>();
     private final List<DynamicRecord> recordList = new ArrayList<>();
     private boolean allInUse = true;
 
@@ -49,9 +52,8 @@ public class LabelChainWalker<RECORD extends AbstractBaseRecord, REPORT extends 
     }
 
     @Override
-    public void checkReference( RECORD record, DynamicRecord dynamicRecord,
-                                CheckerEngine<RECORD, REPORT> engine,
-                                RecordAccess records )
+    public void checkReference( RECORD record, DynamicRecord dynamicRecord, CheckerEngine<RECORD,REPORT> engine, RecordAccess records,
+            PageCursorTracer cursorTracer )
     {
         recordIds.put( dynamicRecord.getId(), dynamicRecord );
 
@@ -71,18 +73,19 @@ public class LabelChainWalker<RECORD extends AbstractBaseRecord, REPORT extends 
             if ( allInUse )
             {
                 // only validate label ids if all dynamic records seen were in use
-                validator.onWellFormedChain( labelIds( recordList ), engine, records );
+                validator.onWellFormedChain( labelIds( recordList ), engine, records, cursorTracer );
             }
         }
         else
         {
-            if ( recordIds.containsKey( nextBlock ) )
+            final DynamicRecord nextRecord = recordIds.get( nextBlock );
+            if ( nextRecord != null )
             {
-                validator.onRecordChainCycle( recordIds.get( nextBlock ), engine );
+                validator.onRecordChainCycle( nextRecord, engine );
             }
             else
             {
-                engine.comparativeCheck( records.nodeLabels( nextBlock ), this );
+                engine.comparativeCheck( records.nodeLabels( nextBlock, cursorTracer ), this );
             }
         }
     }
@@ -90,7 +93,7 @@ public class LabelChainWalker<RECORD extends AbstractBaseRecord, REPORT extends 
     public static long[] labelIds( List<DynamicRecord> recordList )
     {
         long[] idArray =
-                (long[]) getRightArray( readFullByteArrayFromHeavyRecords( recordList, PropertyType.ARRAY ) );
+                (long[]) getRightArray( readFullByteArrayFromHeavyRecords( recordList, PropertyType.ARRAY ) ).asObject();
         return LabelIdArray.stripNodeId( idArray );
     }
 
@@ -98,6 +101,6 @@ public class LabelChainWalker<RECORD extends AbstractBaseRecord, REPORT extends 
     {
         void onRecordNotInUse( DynamicRecord dynamicRecord, CheckerEngine<RECORD, REPORT> engine );
         void onRecordChainCycle( DynamicRecord record, CheckerEngine<RECORD, REPORT> engine );
-        void onWellFormedChain( long[] labelIds, CheckerEngine<RECORD, REPORT> engine, RecordAccess records );
+        void onWellFormedChain( long[] labelIds, CheckerEngine<RECORD, REPORT> engine, RecordAccess records, PageCursorTracer cursorTracer );
     }
 }

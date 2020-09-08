@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,18 +22,26 @@ package org.neo4j.kernel.api.query;
 import java.util.HashMap;
 import java.util.Map;
 
-class SchemaIndexUsage extends IndexUsage
+public class SchemaIndexUsage extends IndexUsage
 {
     private final String label;
     private final String[] propertyKeys;
+    private final int labelId;
 
-    SchemaIndexUsage( String identifier, String label, String[] propertyKeys )
+    public SchemaIndexUsage( String identifier, int labelId, String label, String... propertyKeys )
     {
         super( identifier );
         this.label = label;
+        this.labelId = labelId;
         this.propertyKeys = propertyKeys;
     }
 
+    public int getLabelId()
+    {
+        return labelId;
+    }
+
+    @Override
     public Map<String,String> asMap()
     {
         Map<String,String> map = new HashMap<>();
@@ -41,6 +49,7 @@ class SchemaIndexUsage extends IndexUsage
         map.put( "entityType", "NODE" );
         map.put( "identifier", identifier );
         map.put( "label", label );
+        map.put( "labelId", String.valueOf( labelId ) );
         for ( int i = 0; i < propertyKeys.length; i++ )
         {
             String key = (propertyKeys.length > 1) ? "propertyKey_" + i : "propertyKey";

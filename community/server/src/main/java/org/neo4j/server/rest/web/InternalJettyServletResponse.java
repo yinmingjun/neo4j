@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -39,13 +39,13 @@ import javax.servlet.http.Cookie;
 public class InternalJettyServletResponse extends Response
 {
 
-    private class Output extends ServletOutputStream
+    private static class Output extends ServletOutputStream
     {
 
         private final ByteArrayOutputStream baos = new ByteArrayOutputStream();
 
         @Override
-        public void write( int c ) throws IOException
+        public void write( int c )
         {
             baos.write( c );
         }
@@ -60,7 +60,7 @@ public class InternalJettyServletResponse extends Response
             }
             catch ( Exception e )
             {
-                throw new RuntimeException( e);
+                throw new RuntimeException( e );
             }
         }
 
@@ -108,19 +108,19 @@ public class InternalJettyServletResponse extends Response
     }
 
     @Override
-    public void sendError( int sc ) throws IOException
+    public void sendError( int sc )
     {
         sendError( sc, null );
     }
 
     @Override
-    public void sendError( int code, String message ) throws IOException
+    public void sendError( int code, String message )
     {
-        setStatus( code, message );
+        setStatusWithReason( code, message );
     }
 
     @Override
-    public void sendRedirect( String location ) throws IOException
+    public void sendRedirect( String location )
     {
         setStatus( 304 );
         addHeader( "location", location );
@@ -209,6 +209,7 @@ public class InternalJettyServletResponse extends Response
             Object value = headers.get( name );
             if ( value instanceof Collection )
             {
+                //noinspection unchecked
                 return (Collection<String>) value;
             }
             else
@@ -226,7 +227,7 @@ public class InternalJettyServletResponse extends Response
     }
 
     @Override
-    public void setStatus( int sc, String sm )
+    public void setStatusWithReason( int sc, String sm )
     {
         status = sc;
         message = sm;
@@ -245,7 +246,7 @@ public class InternalJettyServletResponse extends Response
     }
 
     @Override
-    public ServletOutputStream getOutputStream() throws IOException
+    public ServletOutputStream getOutputStream()
     {
         return output;
     }
@@ -257,7 +258,7 @@ public class InternalJettyServletResponse extends Response
     }
 
     @Override
-    public PrintWriter getWriter() throws IOException
+    public PrintWriter getWriter()
     {
         return new PrintWriter( new OutputStreamWriter( output, StandardCharsets.UTF_8 ) );
     }
@@ -295,7 +296,7 @@ public class InternalJettyServletResponse extends Response
     }
 
     @Override
-    public void flushBuffer() throws IOException
+    public void flushBuffer()
     {
     }
 
@@ -317,7 +318,7 @@ public class InternalJettyServletResponse extends Response
         return 1L;
     }
 
-    public void complete() throws IOException
+    public void complete()
     {
     }
 

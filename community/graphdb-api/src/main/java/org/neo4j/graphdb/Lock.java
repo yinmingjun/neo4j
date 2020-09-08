@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,16 +19,17 @@
  */
 package org.neo4j.graphdb;
 
+import org.neo4j.annotations.api.PublicApi;
+
 /**
  * An acquired lock on an entity for a transaction, acquired from
- * {@link Transaction#acquireWriteLock(PropertyContainer)} or
- * {@link Transaction#acquireReadLock(PropertyContainer)} this lock
+ * {@link Transaction#acquireWriteLock(Entity)} or
+ * {@link Transaction#acquireReadLock(Entity)} this lock
  * can be released manually using {@link #release()}. If not released
  * manually it will be automatically released when the transaction owning
  * it finishes.
- *
- * @author Mattias Persson
  */
+@PublicApi
 public interface Lock
 {
     /**

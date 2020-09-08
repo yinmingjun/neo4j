@@ -2,6 +2,7 @@
 \#*
 target
 out
+.floo*
 .project
 .classpath
 .settings
@@ -20,11 +21,11 @@ out
 .shell_history
 .mailmap
 .java-version
-.cache-main
-.cache-tests
+.checkstyle
 Thumbs.db
-.cache-main
-.cache-tests
 /cypher-shell.zip
+/apoc.zip
 packaging/standalone/src/main/distribution/cypher-shell
+packaging/standalone/src/main/distribution/apoc*
 /.profiler/
+dependency-reduced-pom.xml

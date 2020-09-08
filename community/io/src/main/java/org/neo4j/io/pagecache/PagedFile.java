@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,11 +19,11 @@
  */
 package org.neo4j.io.pagecache;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.channels.ReadableByteChannel;
-import java.nio.channels.WritableByteChannel;
-import java.nio.file.OpenOption;
+import java.nio.file.Path;
+import java.util.Optional;
+
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 
 /**
  * The representation of a file that has been mapped into the associated page cache.
@@ -62,18 +62,27 @@ public interface PagedFile extends AutoCloseable
      */
     int PF_NO_GROW = 1 << 2;
     /**
-     * Read-ahead hint for sequential forward scanning.
+     * Read-ahead hint for sequential scanning.
      */
-    int PF_READ_AHEAD = 1 << 3; // TBD
+    int PF_READ_AHEAD = 1 << 3;
     /**
-     * Do not load in the page if it is not loaded already. Only useful with
-     * exclusive locking when you want to overwrite the whole page anyway.
+     * Do not load in the page if it is not loaded already. The methods {@link PageCursor#next()} and
+     * {@link PageCursor#next(long)} will always return {@code true} for pages that are within the range of the file,
+     * but the {@link PageCursor#getCurrentPageId()} will return {@link PageCursor#UNBOUND_PAGE_ID} for pages that are
+     * not in-memory. The current page id <em>must</em> be checked on every {@link PageCursor#shouldRetry()} loop
+     * iteration, in case it (for a read cursor) was evicted concurrently with the page access.
+     * <p>
+     * {@code PF_NO_FAULT} implies {@link #PF_NO_GROW}, since a page fault is necessary to be able to extend a file.
      */
-    int PF_NO_FAULT = 1 << 4; // TBD
+    int PF_NO_FAULT = 1 << 4;
     /**
      * Do not update page access statistics.
      */
     int PF_TRANSIENT = 1 << 5; // TBD
+    /**
+     * Flush pages more aggressively, after they have been dirtied by a write cursor.
+     */
+    int PF_EAGER_FLUSH = 1 << 6;
 
     /**
      * Initiate an IO interaction with the contents of the paged file.
@@ -124,11 +133,12 @@ public interface PagedFile extends AutoCloseable
      * @param pf_flags A bitmap of <code>PF_*</code> constants composed with
      * the bitwise-OR operator, that expresses the desired
      * locking behaviour, and other hints.
+     * @param tracer underlying page cursor tracer
      * @return A PageCursor in its initial unbound state.
      * Never <code>null</code>.
      * @throws IOException if there was an error accessing the underlying file.
      */
-    PageCursor io( long pageId, int pf_flags ) throws IOException;
+    PageCursor io( long pageId, int pf_flags, PageCursorTracer tracer ) throws IOException;
 
     /**
      * Get the size of the file-pages, in bytes.
@@ -139,6 +149,11 @@ public interface PagedFile extends AutoCloseable
      * Size of file, in bytes.
      */
     long fileSize() throws IOException;
+
+    /**
+     * Get the filename that is mapped by this {@code PagedFile}.
+     */
+    Path path();
 
     /**
      * Flush all dirty pages into the file channel, and force the file channel to disk.
@@ -171,38 +186,27 @@ public interface PagedFile extends AutoCloseable
      * Note that this operation assumes that there are no write page cursors open on the paged file. If there are, then
      * their writes may be lost, as they might miss the last flush that can happen on their data.
      *
-     * @throws IOException instead of the Exception superclass as defined in AutoCloseable, if .
      * @see AutoCloseable#close()
      */
-    void close() throws IOException;
+    @Override
+    void close();
 
     /**
-     * Open a {@link ReadableByteChannel} view of this PagedFile.
-     * <p>
-     * The channel will read the file sequentially from the beginning till the end.
-     * Seeking is not supported.
-     * <p>
-     * The channel is not thread-safe.
-     *
-     * @return A channel for reading the paged file.
+     * Set if this page file can be deleted on close.
+     * Pages of marked for deletion file do not need to be flushed on close so closing file
+     * that is marked for deletion can be significantly faster.
+     * @param deleteOnClose true if file can be deleted on close, false otherwise.
      */
-    ReadableByteChannel openReadableByteChannel() throws IOException;
+    void setDeleteOnClose( boolean deleteOnClose );
 
     /**
-     * Open a {@link WritableByteChannel} view of this PagedFile.
-     * <p>
-     * The channel will write to the file sequentially from the beginning of the file, overwriting whatever is there
-     * already. If the amount of new data is less than the amount of existing data, then the old data will still be
-     * present at the far end of the file. Thus, this function works neither like opening a file for writing, nor like
-     * appending to a file.
-     * <p>
-     * If this is undesired, then the file can be mapped with {@link java.nio.file.StandardOpenOption#TRUNCATE_EXISTING}
-     * to remove the existing data before writing to the file.
-     * <p>
-     * The channel is not thread-safe.
-     *
-     * @return A channel for writing to the paged file.
-     * @see PageCache#map(File, int, OpenOption...)
+     * Check if this can be deleted on close.
+     * @return true if file can be deleted on close, false otherwise.
      */
-    WritableByteChannel openWritableByteChannel() throws IOException;
+    boolean isDeleteOnClose();
+
+    /**
+     * An optional name of the database the mapped file belongs to. This option associates the mapped file with a database.
+     */
+    Optional<String> getDatabaseName();
 }

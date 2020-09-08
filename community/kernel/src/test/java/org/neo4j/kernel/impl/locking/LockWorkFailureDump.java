@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -23,8 +23,9 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
-import org.neo4j.logging.FormattedLogProvider;
 import org.neo4j.logging.Log;
+import org.neo4j.logging.LogProvider;
+import org.neo4j.logging.log4j.Log4jLogProvider;
 
 public class LockWorkFailureDump
 {
@@ -37,11 +38,9 @@ public class LockWorkFailureDump
 
     public File dumpState( Locks lm, LockWorker... workers ) throws IOException
     {
-        FileOutputStream out = new FileOutputStream( file, false );
-        FormattedLogProvider logProvider = FormattedLogProvider.withoutAutoFlush().toOutputStream( out );
-
-        try
+        try ( FileOutputStream out = new FileOutputStream( file, false ) )
         {
+            LogProvider logProvider = new Log4jLogProvider( out );
             //  * locks held by the lock manager
             lm.accept( new DumpLocksVisitor( logProvider.getLog( LockWorkFailureDump.class ) ) );
             //  * rag manager state;
@@ -51,14 +50,8 @@ public class LockWorkFailureDump
             {
                 // - what each is doing and have up to now
                 log.info( "Worker %s", worker );
-                worker.dump( log.infoLogger() );
             }
             return file;
-        }
-        finally
-        {
-            out.flush();
-            out.close();
         }
     }
 }

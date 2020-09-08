@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,10 +22,10 @@ package org.neo4j.cypher
 sealed abstract class CypherVersion(versionName: String) extends CypherOption(versionName)
 
 case object CypherVersion extends CypherOptionCompanion[CypherVersion] {
-  case object v2_3 extends CypherVersion("2.3")
-  case object v3_1 extends CypherVersion("3.1")
-  case object v3_2 extends CypherVersion("3.2")
+  case object v3_5 extends CypherVersion("3.5")
+  case object v4_1 extends CypherVersion("4.1")
+  case object v4_2 extends CypherVersion("4.2")
 
-  val default = v3_2
-  val all: Set[CypherVersion] = Set(v2_3, v3_1, v3_2)
+  val default: CypherVersion = v4_2
+  val all: Set[CypherVersion] = Set(v3_5, v4_1, v4_2)
 }

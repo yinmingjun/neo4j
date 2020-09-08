@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,46 +19,47 @@
  */
 package org.neo4j.consistency.checking.full;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
+import java.nio.file.Path;
 
 import org.neo4j.consistency.checking.cache.CacheAccess;
 import org.neo4j.consistency.statistics.Statistics;
-import org.neo4j.helpers.progress.ProgressListener;
-import org.neo4j.helpers.progress.ProgressMonitorFactory;
+import org.neo4j.internal.helpers.progress.ProgressListener;
+import org.neo4j.internal.helpers.progress.ProgressMonitorFactory;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
 import org.neo4j.kernel.impl.store.NodeStore;
 import org.neo4j.kernel.impl.store.record.NodeRecord;
 
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.same;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-@SuppressWarnings("unchecked")
-public class StoreProcessorTaskTest
+@SuppressWarnings( "unchecked" )
+class StoreProcessorTaskTest
 {
     @Test
-    public void singlePassShouldOnlyProcessTheStoreOnce() throws Exception
+    void singlePassShouldOnlyProcessTheStoreOnce()
     {
         // given
         StoreProcessor singlePassProcessor = mock( StoreProcessor.class );
         when( singlePassProcessor.getStage() ).thenReturn( Stage.SEQUENTIAL_FORWARD );
 
         NodeStore store = mock( NodeStore.class );
-        when( store.getStorageFileName() ).thenReturn( new File("node-store") );
+        when( store.getStorageFile() ).thenReturn( Path.of( "node-store" ) );
 
         StoreProcessorTask<NodeRecord> task = new StoreProcessorTask<>( "nodes", Statistics.NONE, 1,
                 store, null, "nodes", ProgressMonitorFactory.NONE.multipleParts( "check" ),
                 CacheAccess.EMPTY,
                 singlePassProcessor,
-                QueueDistribution.ROUND_ROBIN );
+                QueueDistribution.ROUND_ROBIN, PageCacheTracer.NULL );
 
         // when
         task.run();
 
         // then
-        verify( singlePassProcessor ).applyFiltered( same( store ), any( ProgressListener.class ) );
+        verify( singlePassProcessor ).applyFiltered( same( store ), any( ProgressListener.class ), any() );
     }
 }

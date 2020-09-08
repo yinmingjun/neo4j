@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,6 +19,22 @@
  */
 package org.neo4j.codegen.bytecode;
 
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
+import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.analysis.Analyzer;
+import org.objectweb.asm.tree.analysis.AnalyzerException;
+import org.objectweb.asm.tree.analysis.BasicValue;
+import org.objectweb.asm.tree.analysis.Frame;
+import org.objectweb.asm.tree.analysis.SimpleVerifier;
+import org.objectweb.asm.tree.analysis.Value;
+import org.objectweb.asm.util.CheckClassAdapter;
+import org.objectweb.asm.util.Textifier;
+import org.objectweb.asm.util.TraceMethodVisitor;
+
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.ByteBuffer;
@@ -30,23 +46,6 @@ import java.util.ListIterator;
 import java.util.Map;
 import java.util.function.IntFunction;
 import javax.tools.Diagnostic;
-
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.Type;
-import org.objectweb.asm.tree.AbstractInsnNode;
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.MethodNode;
-import org.objectweb.asm.tree.TryCatchBlockNode;
-import org.objectweb.asm.tree.analysis.Analyzer;
-import org.objectweb.asm.tree.analysis.AnalyzerException;
-import org.objectweb.asm.tree.analysis.BasicValue;
-import org.objectweb.asm.tree.analysis.Frame;
-import org.objectweb.asm.tree.analysis.SimpleVerifier;
-import org.objectweb.asm.tree.analysis.Value;
-import org.objectweb.asm.util.CheckClassAdapter;
-import org.objectweb.asm.util.Textifier;
-import org.objectweb.asm.util.TraceMethodVisitor;
 
 import org.neo4j.codegen.ByteCodes;
 import org.neo4j.codegen.CodeGeneratorOption;
@@ -144,9 +143,9 @@ class ByteCodeVerifier implements ByteCodeChecker, CodeGeneratorOption
     private static void verify( AssignmentChecker check, ClassNode clazz, List<Failure> failures )
     {
         Verifier verifier = new Verifier( clazz, check );
-        for ( MethodNode method : (Iterable<MethodNode>) clazz.methods )
+        for ( MethodNode method : clazz.methods )
         {
-            Analyzer analyzer = new Analyzer( verifier );
+            Analyzer<?> analyzer = new Analyzer<>( verifier );
             try
             {
                 analyzer.analyze( clazz.name, method );
@@ -215,7 +214,8 @@ class ByteCodeVerifier implements ByteCodeChecker, CodeGeneratorOption
         StringWriter message = new StringWriter();
         try ( PrintWriter out = new PrintWriter( message ) )
         {
-            List<Integer> localLengths = new ArrayList<>(), stackLengths = new ArrayList<>();
+            List<Integer> localLengths = new ArrayList<>();
+            List<Integer> stackLengths = new ArrayList<>();
             for ( Frame frame : frames )
             {
                 if ( frame != null )
@@ -262,7 +262,7 @@ class ByteCodeVerifier implements ByteCodeChecker, CodeGeneratorOption
             }
             for ( int j = 0; j < method.tryCatchBlocks.size(); j++ )
             {
-                ((TryCatchBlockNode) method.tryCatchBlocks.get( j )).accept( mv );
+                method.tryCatchBlocks.get( j ).accept( mv );
                 out.print( " " + formatted.text.get( formatted.text.size() - 1 ) );
             }
         }
@@ -334,7 +334,7 @@ class ByteCodeVerifier implements ByteCodeChecker, CodeGeneratorOption
 
         Verifier( ClassNode clazz, AssignmentChecker check )
         {
-            super( Type.getObjectType( clazz.name ), superClass( clazz ), interfaces( clazz ),
+            super( ASM6, Type.getObjectType( clazz.name ), superClass( clazz ), interfaces( clazz ),
                     isInterfaceNode( clazz ) );
             this.check = check;
         }
@@ -349,7 +349,7 @@ class ByteCodeVerifier implements ByteCodeChecker, CodeGeneratorOption
         protected boolean isSubTypeOf( BasicValue value, BasicValue expected )
         {
             return super.isSubTypeOf( value, expected ) || check
-                    .invokableInterface( expected.getType(), value.getType() );
+                    .invocableInterface( expected.getType(), value.getType() );
         }
 
         private static Type superClass( ClassNode clazz )
@@ -361,7 +361,7 @@ class ByteCodeVerifier implements ByteCodeChecker, CodeGeneratorOption
         private static List<Type> interfaces( ClassNode clazz )
         {
             List<Type> interfaces = new ArrayList<>( clazz.interfaces.size() );
-            for ( String iFace : (Iterable<String>) clazz.interfaces )
+            for ( String iFace : clazz.interfaces )
             {
                 interfaces.add( Type.getObjectType( iFace ) );
             }
@@ -383,7 +383,7 @@ class ByteCodeVerifier implements ByteCodeChecker, CodeGeneratorOption
             }
         }
 
-        boolean invokableInterface( Type target, Type value )
+        boolean invocableInterface( Type target, Type value )
         {
             // this method allows a bit too much through,
             // it really ought to only be used for the target type of INVOKEINTERFACE,
@@ -412,7 +412,8 @@ class ByteCodeVerifier implements ByteCodeChecker, CodeGeneratorOption
             {
                 return true;
             }
-            ClassNode targetNode = classes.get( target ), valueNode = classes.get( value );
+            ClassNode targetNode = classes.get( target );
+            ClassNode valueNode = classes.get( value );
             if ( targetNode != null && valueNode == null )
             {
                 // if the target is among the types we have generated and the value isn't, then
@@ -436,7 +437,7 @@ class ByteCodeVerifier implements ByteCodeChecker, CodeGeneratorOption
             {
                 return true;
             }
-            for ( String iFace : (Iterable<String>) value.interfaces )
+            for ( String iFace : value.interfaces )
             {
                 if ( isAssignableFrom( target, Type.getObjectType( iFace ) ) )
                 {

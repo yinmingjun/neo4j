@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,16 +19,18 @@
  */
 package org.neo4j.kernel.impl.factory;
 
-import java.util.List;
+import java.util.Collection;
 
-import org.neo4j.helpers.Service;
-import org.neo4j.helpers.collection.Iterables;
-import org.neo4j.kernel.configuration.Config;
+import org.neo4j.annotations.service.Service;
+import org.neo4j.configuration.Config;
+import org.neo4j.internal.helpers.collection.Iterables;
 import org.neo4j.kernel.impl.locking.Locks;
 import org.neo4j.kernel.impl.locking.SimpleStatementLocksFactory;
 import org.neo4j.kernel.impl.locking.StatementLocksFactory;
-import org.neo4j.kernel.impl.logging.LogService;
 import org.neo4j.logging.Log;
+import org.neo4j.logging.internal.LogService;
+import org.neo4j.service.Services;
+import org.neo4j.util.VisibleForTesting;
 
 public class StatementLocksFactorySelector
 {
@@ -48,7 +50,7 @@ public class StatementLocksFactorySelector
         StatementLocksFactory statementLocksFactory;
 
         String serviceName = StatementLocksFactory.class.getSimpleName();
-        List<StatementLocksFactory> factories = serviceLoadFactories();
+        Collection<StatementLocksFactory> factories = serviceLoadFactories();
         if ( factories.isEmpty() )
         {
             statementLocksFactory = new SimpleStatementLocksFactory();
@@ -58,7 +60,7 @@ public class StatementLocksFactorySelector
         }
         else if ( factories.size() == 1 )
         {
-            statementLocksFactory = factories.get( 0 );
+            statementLocksFactory = Iterables.first( factories );
 
             log.info( "Found single implementation of " + serviceName +
                       ". Namely " + statementLocksFactory.getClass().getSimpleName() );
@@ -76,12 +78,12 @@ public class StatementLocksFactorySelector
 
     /**
      * Load all available factories via {@link Service}.
-     * <b>Visible for testing only.</b>
      *
      * @return list of available factories.
      */
-    List<StatementLocksFactory> serviceLoadFactories()
+    @VisibleForTesting
+    Collection<StatementLocksFactory> serviceLoadFactories()
     {
-        return Iterables.asList( Service.load( StatementLocksFactory.class ) );
+        return Services.loadAll( StatementLocksFactory.class );
     }
 }

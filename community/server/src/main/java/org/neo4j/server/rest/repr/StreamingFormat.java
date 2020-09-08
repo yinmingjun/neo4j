@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,7 +22,7 @@ package org.neo4j.server.rest.repr;
 import java.io.OutputStream;
 import javax.ws.rs.core.MediaType;
 
-import org.neo4j.helpers.collection.MapUtil;
+import org.neo4j.internal.helpers.collection.MapUtil;
 
 import static javax.ws.rs.core.MediaType.APPLICATION_JSON_TYPE;
 
@@ -32,5 +32,5 @@ public interface StreamingFormat
     MediaType MEDIA_TYPE = new MediaType( APPLICATION_JSON_TYPE.getType(),
             APPLICATION_JSON_TYPE.getSubtype(), MapUtil.stringMap("stream", "true", "charset", "UTF-8") );
 
-    RepresentationFormat writeTo(OutputStream output);
+    RepresentationFormat writeTo( OutputStream output );
 }

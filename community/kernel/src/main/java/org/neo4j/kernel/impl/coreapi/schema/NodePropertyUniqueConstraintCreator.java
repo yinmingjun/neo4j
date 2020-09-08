@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,21 +19,27 @@
  */
 package org.neo4j.kernel.impl.coreapi.schema;
 
-import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
-import org.neo4j.graphdb.ConstraintViolationException;
 import org.neo4j.graphdb.Label;
+import org.neo4j.graphdb.schema.ConstraintCreator;
 import org.neo4j.graphdb.schema.ConstraintDefinition;
-import org.neo4j.kernel.api.exceptions.KernelException;
+import org.neo4j.graphdb.schema.IndexSetting;
+import org.neo4j.graphdb.schema.IndexType;
+import org.neo4j.internal.schema.IndexConfig;
+
+import static org.neo4j.graphdb.schema.IndexSettingUtil.toIndexConfigFromIndexSettingObjectMap;
 
 public class NodePropertyUniqueConstraintCreator extends BaseNodeConstraintCreator
 {
-    protected final ArrayList<String> propertyKeys = new ArrayList<>();
+    private final List<String> propertyKeys;
 
-    NodePropertyUniqueConstraintCreator( InternalSchemaActions internalCreator, Label label, String propertyKey )
+    NodePropertyUniqueConstraintCreator( InternalSchemaActions internalCreator, String name, Label label, List<String> propertyKeys, IndexType indexType,
+            IndexConfig indexConfig )
     {
-        super( internalCreator, label );
-        this.propertyKeys.add( propertyKey );
+        super( internalCreator, name, label, indexType, indexConfig );
+        this.propertyKeys = propertyKeys;
     }
 
     @Override
@@ -43,21 +49,49 @@ public class NodePropertyUniqueConstraintCreator extends BaseNodeConstraintCreat
     }
 
     @Override
+    public ConstraintCreator assertPropertyExists( String propertyKey )
+    {
+        List<String> keys = List.of( propertyKey );
+        if ( propertyKeys.equals( keys ) )
+        {
+            return new NodeKeyConstraintCreator( actions, name, label, propertyKeys, indexType, indexConfig );
+        }
+        throw new UnsupportedOperationException(
+                "You cannot create a constraint on two different sets of property keys: " + propertyKeys + " vs. " + keys + "." );
+    }
+
+    @Override
+    public ConstraintCreator assertPropertyIsNodeKey( String propertyKey )
+    {
+        return assertPropertyExists( propertyKey );
+    }
+
+    @Override
+    public ConstraintCreator withName( String name )
+    {
+        return new NodePropertyUniqueConstraintCreator( actions, name, label, propertyKeys, indexType, indexConfig );
+    }
+
+    @Override
+    public ConstraintCreator withIndexType( IndexType indexType )
+    {
+        return new NodePropertyUniqueConstraintCreator( actions, name, label, propertyKeys, indexType, indexConfig );
+    }
+
+    @Override
+    public ConstraintCreator withIndexConfiguration( Map<IndexSetting,Object> indexConfiguration )
+    {
+        return new NodePropertyUniqueConstraintCreator( actions, name, label, propertyKeys, indexType,
+                toIndexConfigFromIndexSettingObjectMap( indexConfiguration ) );
+    }
+
+    @Override
     public final ConstraintDefinition create()
     {
         assertInUnterminatedTransaction();
 
-        try
-        {
-            IndexDefinitionImpl definition =
-                    new IndexDefinitionImpl( actions, label, propertyKeys.toArray( new String[propertyKeys.size()] ),
-                            true );
-            return actions.createPropertyUniquenessConstraint( definition );
-        }
-        catch ( KernelException e )
-        {
-            String userMessage = actions.getUserMessage( e );
-            throw new ConstraintViolationException( userMessage, e );
-        }
+        IndexDefinitionImpl definition =
+                new IndexDefinitionImpl( actions, null, new Label[]{label}, propertyKeys.toArray( new String[0] ), true );
+        return actions.createPropertyUniquenessConstraint( definition, name, indexType, indexConfig );
     }
 }

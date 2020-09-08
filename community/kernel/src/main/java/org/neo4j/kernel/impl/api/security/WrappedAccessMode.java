@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,7 +20,7 @@
 package org.neo4j.kernel.impl.api.security;
 
 import org.neo4j.graphdb.security.AuthorizationViolationException;
-import org.neo4j.kernel.api.security.AccessMode;
+import org.neo4j.internal.kernel.api.security.AccessMode;
 
 /**
  * Access mode that wraps an access mode with a wrapping access mode. The resulting access mode allows things based
@@ -41,6 +41,12 @@ abstract class WrappedAccessMode implements AccessMode
     public AuthorizationViolationException onViolation( String msg )
     {
         return wrapping.onViolation( msg );
+    }
+
+    @Override
+    public boolean allowsExecuteProcedure( int procedureId )
+    {
+        return original.allowsExecuteProcedure( procedureId );
     }
 
     @Override

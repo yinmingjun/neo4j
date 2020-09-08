@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,47 +19,71 @@
  */
 package org.neo4j.cypher.internal.javacompat;
 
-import org.neo4j.cypher.internal.CommunityCompatibilityFactory;
-import org.neo4j.cypher.javacompat.internal.GraphDatabaseCypherService;
-import org.neo4j.graphdb.DependencyResolver;
-import org.neo4j.helpers.Service;
-import org.neo4j.kernel.api.KernelAPI;
-import org.neo4j.kernel.impl.logging.LogService;
+import org.neo4j.collection.Dependencies;
+import org.neo4j.configuration.GraphDatabaseInternalSettings;
+import org.neo4j.cypher.internal.CommunityCompilerFactory;
+import org.neo4j.cypher.internal.CompilerFactory;
+import org.neo4j.cypher.internal.CypherConfiguration;
+import org.neo4j.cypher.internal.CypherRuntimeConfiguration;
+import org.neo4j.cypher.internal.cache.CaffeineCacheFactory;
+import org.neo4j.cypher.internal.cache.ExecutorBasedCaffeineCacheFactory;
+import org.neo4j.cypher.internal.compiler.CypherPlannerConfiguration;
 import org.neo4j.kernel.impl.query.QueryEngineProvider;
 import org.neo4j.kernel.impl.query.QueryExecutionEngine;
-import org.neo4j.kernel.impl.util.Dependencies;
 import org.neo4j.kernel.internal.GraphDatabaseAPI;
-import org.neo4j.kernel.monitoring.Monitors;
-import org.neo4j.logging.LogProvider;
+import org.neo4j.scheduler.Group;
 
-@Service.Implementation(QueryEngineProvider.class)
+import static org.neo4j.scheduler.JobMonitoringParams.systemJob;
+
 public class CommunityCypherEngineProvider extends QueryEngineProvider
 {
-    public CommunityCypherEngineProvider()
-    {
-        super( "cypher" );
-    }
-
     @Override
     protected int enginePriority()
     {
         return 42; // Lower means better. The enterprise version will have a lower number
     }
 
+    protected CompilerFactory makeCompilerFactory( GraphDatabaseCypherService queryService,
+                                                   SPI spi,
+                                                   CypherPlannerConfiguration plannerConfig,
+                                                   CypherRuntimeConfiguration runtimeConfig )
+    {
+        return new CommunityCompilerFactory( queryService, spi.monitors(), makeCacheFactory(spi), spi.logProvider(), plannerConfig, runtimeConfig );
+    }
+
     @Override
-    protected QueryExecutionEngine createEngine( Dependencies deps, GraphDatabaseAPI graphAPI )
+    protected QueryExecutionEngine createEngine( Dependencies deps,
+                                                 GraphDatabaseAPI graphAPI,
+                                                 boolean isSystemDatabase,
+                                                 SPI spi )
     {
         GraphDatabaseCypherService queryService = new GraphDatabaseCypherService( graphAPI );
         deps.satisfyDependency( queryService );
+        CypherConfiguration cypherConfig = CypherConfiguration.fromConfig( spi.config() );
+        CypherPlannerConfiguration plannerConfig = cypherConfig.toCypherPlannerConfiguration( spi.config(), isSystemDatabase );
+        CypherRuntimeConfiguration runtimeConfig = cypherConfig.toCypherRuntimeConfiguration();
+        CompilerFactory compilerFactory = makeCompilerFactory( queryService, spi, plannerConfig, runtimeConfig );
+        CaffeineCacheFactory cacheFactory = makeCacheFactory( spi );
+        if ( isSystemDatabase )
+        {
+            CypherPlannerConfiguration innerPlannerConfig = cypherConfig.toCypherPlannerConfiguration( spi.config(), false );
+            CommunityCompilerFactory innerCompilerFactory =
+                    new CommunityCompilerFactory( queryService,spi.monitors(), cacheFactory, spi.logProvider(), innerPlannerConfig, runtimeConfig );
+            return new SystemExecutionEngine( queryService, cacheFactory, spi.logProvider(), compilerFactory, innerCompilerFactory );
+        }
+        else if ( spi.config().get( GraphDatabaseInternalSettings.snapshot_query ) )
+        {
+            return new SnapshotExecutionEngine( queryService, spi.config(), cacheFactory, spi.logProvider(), compilerFactory );
+        }
+        else
+        {
+            return new ExecutionEngine( queryService, cacheFactory, spi.logProvider(), compilerFactory );
+        }
+    }
 
-        DependencyResolver resolver = graphAPI.getDependencyResolver();
-        LogService logService = resolver.resolveDependency( LogService.class );
-        KernelAPI kernelAPI = resolver.resolveDependency( KernelAPI.class );
-        Monitors monitors = resolver.resolveDependency( Monitors.class );
-        LogProvider logProvider = logService.getInternalLogProvider();
-        CommunityCompatibilityFactory compatibilityFactory =
-                new CommunityCompatibilityFactory( queryService, kernelAPI, monitors, logProvider );
-        deps.satisfyDependencies( compatibilityFactory );
-        return new ExecutionEngine( queryService, logProvider, compatibilityFactory);
+    private CaffeineCacheFactory makeCacheFactory( SPI spi )
+    {
+        var monitoredExecutor = spi.jobScheduler().monitoredJobExecutor( Group.CYPHER_CACHE );
+        return new ExecutorBasedCaffeineCacheFactory( job -> monitoredExecutor.execute( systemJob( "Query plan cache maintenance" ), job ) );
     }
 }

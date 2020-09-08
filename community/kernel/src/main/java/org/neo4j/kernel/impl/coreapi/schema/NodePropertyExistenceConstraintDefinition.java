@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,27 +21,15 @@ package org.neo4j.kernel.impl.coreapi.schema;
 
 import org.neo4j.graphdb.Label;
 import org.neo4j.graphdb.schema.ConstraintType;
-import org.neo4j.graphdb.schema.IndexDefinition;
+import org.neo4j.internal.schema.ConstraintDescriptor;
 
 import static java.lang.String.format;
 
 public class NodePropertyExistenceConstraintDefinition extends NodeConstraintDefinition
 {
-    public NodePropertyExistenceConstraintDefinition( InternalSchemaActions actions, Label label, String[] propertyKeys )
+    public NodePropertyExistenceConstraintDefinition( InternalSchemaActions actions, ConstraintDescriptor constraint, Label label, String[] propertyKeys )
     {
-        super( actions, label, propertyKeys );
-    }
-
-    protected NodePropertyExistenceConstraintDefinition( InternalSchemaActions actions, IndexDefinition indexDefinition )
-    {
-        super( actions, indexDefinition );
-    }
-
-    @Override
-    public void drop()
-    {
-        assertInUnterminatedTransaction();
-        actions.dropNodePropertyExistenceConstraint( label, propertyKeys );
+        super( actions, constraint, label, propertyKeys );
     }
 
     @Override

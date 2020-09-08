@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -41,33 +41,10 @@ public enum NotificationCode
        "use of this cross " +
        "product, perhaps by adding a relationship between the different parts or by using OPTIONAL MATCH"
     ),
-    LEGACY_PLANNER(
-        SeverityLevel.WARNING,
-        Status.Statement.FeatureDeprecationWarning,
-        "Using PLANNER for switching between planners has been deprecated, please use CYPHER planner=[rule,cost] instead"
-    ),
-    DEPRECATED_PLANNER(
-        SeverityLevel.WARNING,
-        Status.Statement.FeatureDeprecationWarning,
-        "The rule planner, which was used to plan this query, is deprecated and will be discontinued soon. " +
-                "If you did not explicitly choose the rule planner, you should try to change your query so that the " +
-                "rule planner is not used"
-    ),
-    PLANNER_UNSUPPORTED(
-        SeverityLevel.WARNING,
-        Status.Statement.PlannerUnsupportedWarning,
-        "Using COST planner is unsupported for this query, please use RULE planner instead"
-    ),
-    RULE_PLANNER_UNAVAILABLE_FALLBACK(
-        SeverityLevel.WARNING,
-        Status.Statement.PlannerUnavailableWarning,
-        "Using RULE planner is unsupported for current CYPHER version, the query has been execute by an older CYPHER " +
-        "version"
-    ),
     RUNTIME_UNSUPPORTED(
         SeverityLevel.WARNING,
         Status.Statement.RuntimeUnsupportedWarning,
-        "Using COMPILED runtime is unsupported for this query, please use interpreted runtime instead"
+        "Selected runtime is unsupported for this query, please use a different runtime instead or fallback to default."
     ),
     INDEX_HINT_UNFULFILLABLE(
         SeverityLevel.WARNING,
@@ -77,12 +54,8 @@ public enum NotificationCode
     JOIN_HINT_UNFULFILLABLE(
         SeverityLevel.WARNING,
         Status.Statement.JoinHintUnfulfillableWarning,
-        "The hinted join was not planned. This could happen because no generated plan contained the join key, please try using a different join key or restructure your query."
-    ),
-    JOIN_HINT_UNSUPPORTED(
-        SeverityLevel.WARNING,
-        Status.Statement.JoinHintUnsupportedWarning,
-        "Using RULE planner is unsupported for queries with join hints, please use COST planner instead"
+        "The hinted join was not planned. This could happen because no generated plan contained the join key, " +
+                "please try using a different join key or restructure your query."
     ),
     LENGTH_ON_NON_PATH(
         SeverityLevel.WARNING,
@@ -93,11 +66,6 @@ public enum NotificationCode
         SeverityLevel.WARNING,
         Status.Statement.DynamicPropertyWarning,
         "Using a dynamic property makes it impossible to use an index lookup for this query"
-    ),
-    BARE_NODE_SYNTAX_DEPRECATED( // This notification is no longer produced by current Cypher compilers
-        SeverityLevel.WARNING,   // but it is left here for backwards compatibility.
-        Status.Statement.FeatureDeprecationWarning,
-        "Use of bare node patterns has been deprecated. Please enclose the identifier in parenthesis."
     ),
     DEPRECATED_FUNCTION(
             SeverityLevel.WARNING,
@@ -129,6 +97,36 @@ public enum NotificationCode
             Status.Statement.FeatureDeprecationWarning,
             "The semantics of using colon in the separation of alternative relationship types in conjunction with the " +
             "use of variable binding, inlined property predicates, or variable length will change in a future version."
+    ),
+    DEPRECATED_PARAMETER_SYNTAX(
+            SeverityLevel.WARNING,
+            Status.Statement.FeatureDeprecationWarning,
+            "The parameter syntax `{param}` is deprecated, please use `$param` instead"
+    ),
+    DEPRECATED_CREATE_INDEX_SYNTAX(
+            SeverityLevel.WARNING,
+            Status.Statement.FeatureDeprecationWarning,
+            "The create index syntax `CREATE INDEX ON :Label(property)` is deprecated, please use `CREATE INDEX FOR (n:Label) ON (n.property)` instead"
+    ),
+    DEPRECATED_DROP_INDEX_SYNTAX(
+            SeverityLevel.WARNING,
+            Status.Statement.FeatureDeprecationWarning,
+            "The drop index syntax `DROP INDEX ON :Label(property)` is deprecated, please use `DROP INDEX index_name` instead"
+    ),
+    DEPRECATED_DROP_CONSTRAINT_SYNTAX(
+            SeverityLevel.WARNING,
+            Status.Statement.FeatureDeprecationWarning,
+            "The drop constraint by schema syntax `DROP CONSTRAINT ON ...` is deprecated, please use `DROP CONSTRAINT constraint_name` instead"
+    ),
+    DEPRECATED_OCTAL_LITERAL_SYNTAX(
+            SeverityLevel.WARNING,
+            Status.Statement.FeatureDeprecationWarning,
+            "The octal integer literal syntax `0123` is deprecated, please use `0o123` instead"
+    ),
+    DEPRECATED_HEX_LITERAL_SYNTAX(
+            SeverityLevel.WARNING,
+            Status.Statement.FeatureDeprecationWarning,
+            "The hex integer literal syntax `0X123` is deprecated, please use `0x123` instead"
     ),
     EAGER_LOAD_CSV(
         SeverityLevel.WARNING,
@@ -175,10 +173,42 @@ public enum NotificationCode
             "graph algorithms might not work for this use case. It is recommended to introduce a WITH to separate the " +
             "MATCH containing the shortest path from the existential predicates on that path."
     ),
-    CREATE_UNIQUE_UNAVAILABLE_FALLBACK(
+    EXPERIMENTAL_FEATURE(
             SeverityLevel.WARNING,
-            Status.Statement.PlannerUnavailableWarning,
-        "CREATE UNIQUE is unsupported for current CYPHER version, the query has been execute by an older CYPHER version"
+            Status.Statement.ExperimentalFeature,
+            "You are using an experimental feature" ),
+    MISSING_PARAMETERS_FOR_EXPLAIN(
+            SeverityLevel.WARNING,
+            Status.Statement.ParameterMissing,
+            "Did not supply query with enough parameters. The produced query plan will not be cached and is not executable without EXPLAIN." ),
+    SUBOPTIMAL_INDEX_FOR_CONTAINS_QUERY(
+            SeverityLevel.INFORMATION,
+            Status.Statement.SuboptimalIndexForWildcardQuery,
+            "If the performance of this statement using `CONTAINS` doesn't meet your expectations check out the alternative index-providers, see " +
+                    "documentation on index configuration." ),
+    SUBOPTIMAL_INDEX_FOR_ENDS_WITH_QUERY(
+            SeverityLevel.INFORMATION,
+            Status.Statement.SuboptimalIndexForWildcardQuery,
+            "If the performance of this statement using `ENDS WITH` doesn't meet your expectations check out the alternative index-providers, see " +
+                    "documentation on index configuration." ),
+    CODE_GENERATION_FAILED(
+            SeverityLevel.WARNING,
+            Status.Statement.CodeGenerationFailed,
+            "The database was unable to generate code for the query. A stacktrace can be found in the debug.log." ),
+    REPEATED_REL_IN_PATTERN_EXPRESSION(
+            SeverityLevel.WARNING,
+            Status.Statement.FeatureDeprecationWarning,
+            "You are using the same relationship variable for multiple patterns in a pattern expression/comprehension. " +
+            "This feature is deprecated and will be removed in a future version, " +
+            "because it does not follow Cyphers pattern matching relationship uniqueness rule. " +
+            "It can lead to the optimizer choosing bad plans for that pattern expression/comprehension. " +
+            "Please rewrite your query, using the start node and/or end node of the relationship in the pattern expression/comprehension instead."
+    ),
+    SUBQUERY_VARIABLE_SHADOWING(
+            SeverityLevel.WARNING,
+            Status.Statement.SubqueryVariableShadowingWarning,
+            "Variable in subquery is shadowing a variable with the same name from the outer scope. " +
+            "If you want to use that variable instead, it must be imported into the subquery using importing WITH clause."
     );
 
     private final Status status;
@@ -198,7 +228,7 @@ public enum NotificationCode
         return new Notification( position, details );
     }
 
-    private final class Notification implements org.neo4j.graphdb.Notification
+    public final class Notification implements org.neo4j.graphdb.Notification
     {
         private final InputPosition position;
         private final String detailedDescription;
@@ -230,26 +260,31 @@ public enum NotificationCode
             }
         }
 
+        @Override
         public String getCode()
         {
             return status.code().serialize();
         }
 
+        @Override
         public String getTitle()
         {
             return status.code().description();
         }
 
+        @Override
         public String getDescription()
         {
             return detailedDescription;
         }
 
+        @Override
         public InputPosition getPosition()
         {
             return position;
         }
 
+        @Override
         public SeverityLevel getSeverity()
         {
             return severity;

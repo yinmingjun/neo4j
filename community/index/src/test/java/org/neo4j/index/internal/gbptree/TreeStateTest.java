@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,31 +19,30 @@
  */
 package org.neo4j.index.internal.gbptree;
 
-import org.junit.Before;
-import org.junit.Test;
-
-import java.io.IOException;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.io.pagecache.PageCursor;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class TreeStateTest
+class TreeStateTest
 {
     private final int pageSize = 256;
-    private final PageAwareByteArrayCursor cursor = new PageAwareByteArrayCursor( pageSize );
+    private PageAwareByteArrayCursor cursor;
 
-    @Before
-    public void initiateCursor() throws IOException
+    @BeforeEach
+    void initiateCursor()
     {
+        cursor = new PageAwareByteArrayCursor( pageSize );
         cursor.next();
     }
 
     @Test
-    public void readEmptyStateShouldThrow() throws Exception
+    void readEmptyStateShouldThrow()
     {
         // GIVEN empty state
 
@@ -55,7 +54,7 @@ public class TreeStateTest
     }
 
     @Test
-    public void shouldReadValidPage() throws Exception
+    void shouldReadValidPage()
     {
         // GIVEN valid state
         long pageId = cursor.getCurrentPageId();
@@ -71,7 +70,7 @@ public class TreeStateTest
     }
 
     @Test
-    public void readBrokenStateShouldFail() throws Exception
+    void readBrokenStateShouldFail()
     {
         // GIVEN broken state
         long pageId = cursor.getCurrentPageId();
@@ -90,41 +89,27 @@ public class TreeStateTest
     }
 
     @Test
-    public void shouldNotWriteInvalidStableGeneration() throws Exception
+    void shouldNotWriteInvalidStableGeneration()
     {
-        // GIVEN
         long generation = GenerationSafePointer.MAX_GENERATION + 1;
 
-        // WHEN
-        try
+        assertThrows( IllegalArgumentException.class, () ->
         {
             long pageId = cursor.getCurrentPageId();
             write( cursor, new TreeState( pageId, generation, 2, 3, 4, 5, 6, 7, 8, 9, true, true ) );
-            fail( "Should have failed" );
-        }
-        catch ( IllegalArgumentException e )
-        {
-            // THEN good
-        }
+        } );
     }
 
     @Test
-    public void shouldNotWriteInvalidUnstableGeneration() throws Exception
+    void shouldNotWriteInvalidUnstableGeneration()
     {
-        // GIVEN
         long generation = GenerationSafePointer.MAX_GENERATION + 1;
 
-        // WHEN
-        try
+        assertThrows( IllegalArgumentException.class, () ->
         {
             long pageId = cursor.getCurrentPageId();
             write( cursor, new TreeState( pageId, 1, generation, 3, 4, 5, 6, 7, 8, 9, true, true ) );
-            fail( "Should have failed" );
-        }
-        catch ( IllegalArgumentException e )
-        {
-            // THEN good
-        }
+        } );
     }
 
     private void breakChecksum( PageCursor cursor )

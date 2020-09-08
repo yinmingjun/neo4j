@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,6 +21,7 @@ package org.neo4j.io.pagecache.tracing.cursor;
 
 import java.io.IOException;
 
+import org.neo4j.internal.helpers.MathUtil;
 import org.neo4j.io.pagecache.PageSwapper;
 import org.neo4j.io.pagecache.tracing.EvictionEvent;
 import org.neo4j.io.pagecache.tracing.FlushEvent;
@@ -40,27 +41,36 @@ public class DefaultPageCursorTracer implements PageCursorTracer
     private long evictions;
     private long evictionExceptions;
     private long flushes;
+    private long merges;
 
-    private PageCacheTracer pageCacheTracer = PageCacheTracer.NULL;
-    private DefaultPinEvent pinTracingEvent = new DefaultPinEvent();
+    private final DefaultPinEvent pinTracingEvent = new DefaultPinEvent();
+    private final PageCacheTracer pageCacheTracer;
+    private final String tag;
 
-    @Override
-    public void init( PageCacheTracer pageCacheTracer )
+    public DefaultPageCursorTracer( PageCacheTracer pageCacheTracer, String tag )
     {
         this.pageCacheTracer = pageCacheTracer;
+        this.tag = tag;
     }
 
+    @Override
+    public String getTag()
+    {
+        return tag;
+    }
+
+    @Override
     public void reportEvents()
     {
-        if (pins > 0)
+        if ( pins > 0 )
         {
             pageCacheTracer.pins( pins );
         }
-        if (unpins > 0)
+        if ( unpins > 0 )
         {
             pageCacheTracer.unpins( unpins );
         }
-        if (hits > 0)
+        if ( hits > 0 )
         {
             pageCacheTracer.hits( hits );
         }
@@ -88,6 +98,10 @@ public class DefaultPageCursorTracer implements PageCursorTracer
         {
             pageCacheTracer.flushes( flushes );
         }
+        if ( merges > 0 )
+        {
+            pageCacheTracer.merges( merges );
+        }
         reset();
     }
 
@@ -102,6 +116,7 @@ public class DefaultPageCursorTracer implements PageCursorTracer
         evictions = 0;
         evictionExceptions = 0;
         flushes = 0;
+        merges = 0;
     }
 
     @Override
@@ -159,6 +174,18 @@ public class DefaultPageCursorTracer implements PageCursorTracer
     }
 
     @Override
+    public long merges()
+    {
+        return merges;
+    }
+
+    @Override
+    public double hitRatio()
+    {
+        return MathUtil.portion( hits(), faults() );
+    }
+
+    @Override
     public PinEvent beginPin( boolean writeLock, long filePageId, PageSwapper swapper )
     {
         pins++;
@@ -191,7 +218,7 @@ public class DefaultPageCursorTracer implements PageCursorTracer
         }
 
         @Override
-        public void setCachePageId( int cachePageId )
+        public void setCachePageId( long cachePageId )
         {
         }
 
@@ -229,7 +256,7 @@ public class DefaultPageCursorTracer implements PageCursorTracer
         }
 
         @Override
-        public void setCachePageId( int cachePageId )
+        public void setCachePageId( long cachePageId )
         {
         }
     };
@@ -237,9 +264,21 @@ public class DefaultPageCursorTracer implements PageCursorTracer
     private final FlushEventOpportunity flushEventOpportunity = new FlushEventOpportunity()
     {
         @Override
-        public FlushEvent beginFlush( long filePageId, int cachePageId, PageSwapper swapper )
+        public FlushEvent beginFlush( long filePageId, long cachePageId, PageSwapper swapper, int pagesToFlush, int mergedPages )
         {
             return flushEvent;
+        }
+
+        @Override
+        public void startFlush( int[][] translationTable )
+        {
+
+        }
+
+        @Override
+        public ChunkEvent startChunk( int[] chunk )
+        {
+            return ChunkEvent.NULL;
         }
     };
 
@@ -254,7 +293,6 @@ public class DefaultPageCursorTracer implements PageCursorTracer
         @Override
         public void done()
         {
-            flushes++;
         }
 
         @Override
@@ -266,6 +304,13 @@ public class DefaultPageCursorTracer implements PageCursorTracer
         @Override
         public void addPagesFlushed( int pageCount )
         {
+            flushes += pageCount;
+        }
+
+        @Override
+        public void addPagesMerged( int pagesMerged )
+        {
+            merges += pagesMerged;
         }
     };
 
@@ -274,7 +319,7 @@ public class DefaultPageCursorTracer implements PageCursorTracer
         int eventHits = 1;
 
         @Override
-        public void setCachePageId( int cachePageId )
+        public void setCachePageId( long cachePageId )
         {
         }
 

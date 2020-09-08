@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,15 +19,13 @@
  */
 package org.neo4j.server.web;
 
-import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.RequestLog;
 import org.eclipse.jetty.server.Server;
-import org.eclipse.jetty.server.SessionManager;
+import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.handler.HandlerCollection;
 import org.eclipse.jetty.server.handler.HandlerList;
 import org.eclipse.jetty.server.handler.MovedContextHandler;
 import org.eclipse.jetty.server.handler.RequestLogHandler;
-import org.eclipse.jetty.server.session.HashSessionManager;
 import org.eclipse.jetty.server.session.SessionHandler;
 import org.eclipse.jetty.servlet.FilterHolder;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -37,7 +35,7 @@ import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.webapp.WebAppContext;
 
 import java.io.IOException;
-import java.net.BindException;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -46,96 +44,62 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.BlockingQueue;
-import java.util.function.Consumer;
 import javax.servlet.DispatcherType;
 import javax.servlet.Filter;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 
-import org.neo4j.bolt.security.ssl.KeyStoreInformation;
-import org.neo4j.helpers.ListenSocketAddress;
-import org.neo4j.helpers.PortBindException;
-import org.neo4j.kernel.configuration.Config;
+import org.neo4j.configuration.Config;
+import org.neo4j.configuration.helpers.PortBindException;
+import org.neo4j.configuration.helpers.SocketAddress;
+import org.neo4j.kernel.api.net.NetworkConnectionTracker;
 import org.neo4j.logging.Log;
 import org.neo4j.logging.LogProvider;
-import org.neo4j.server.database.InjectableProvider;
-import org.neo4j.server.plugins.Injectable;
+import org.neo4j.server.bind.ComponentsBinder;
 import org.neo4j.server.security.ssl.SslSocketConnectorFactory;
+import org.neo4j.ssl.SslPolicy;
 
 import static java.lang.String.format;
 
 /**
  * This class handles the configuration and runtime management of a Jetty web server. The server is restartable.
- *
- * TODO: it really should be split up into a builder that returns a Closeable, to separate between the conf and runtime part.
  */
-public class Jetty9WebServer implements WebServer
+public class Jetty9WebServer implements WebServer, WebContainerThreadInfo
 {
+    private static final int JETTY_THREAD_POOL_IDLE_TIMEOUT = 60000;
+
+    public static final SocketAddress DEFAULT_ADDRESS = new SocketAddress( "0.0.0.0", 80 );
+
     private boolean wadlEnabled;
-    private Collection<InjectableProvider<?>> defaultInjectables;
-    private Consumer<Server> jettyCreatedCallback;
+    private ComponentsBinder binder;
     private RequestLog requestLog;
-
-    private static class FilterDefinition
-    {
-        private final Filter filter;
-        private final String pathSpec;
-
-        FilterDefinition( Filter filter, String pathSpec )
-        {
-            this.filter = filter;
-            this.pathSpec = pathSpec;
-        }
-
-        public boolean matches( Filter filter, String pathSpec )
-        {
-            return filter == this.filter && pathSpec.equals( this.pathSpec );
-        }
-
-        public Filter getFilter()
-        {
-            return filter;
-        }
-
-        public String getPathSpec()
-        {
-            return pathSpec;
-        }
-    }
-
-    public static final ListenSocketAddress DEFAULT_ADDRESS = new ListenSocketAddress( "0.0.0.0", 80 );
 
     private Server jetty;
     private HandlerCollection handlers;
-    private ListenSocketAddress jettyAddress = DEFAULT_ADDRESS;
-    private Optional<ListenSocketAddress> jettyHttpsAddress = Optional.empty();
+    private SocketAddress httpAddress = DEFAULT_ADDRESS;
+    private SocketAddress httpsAddress;
 
-    private final HashMap<String, String> staticContent = new HashMap<>();
-    private final Map<String, JaxRsServletHolderFactory> jaxRSPackages =
-            new HashMap<>();
-    private final Map<String, JaxRsServletHolderFactory> jaxRSClasses =
-            new HashMap<>();
+    private ServerConnector httpConnector;
+    private ServerConnector httpsConnector;
+
+    private final Map<String, String> staticContent = new HashMap<>();
+    private final Map<String,JaxRsServletHolderFactory> jaxRsServletHolderFactories = new HashMap<>();
     private final List<FilterDefinition> filters = new ArrayList<>();
 
     private int jettyMaxThreads = 1;
-    private KeyStoreInformation httpsCertificateInformation = null;
+    private SslPolicy sslPolicy;
     private final SslSocketConnectorFactory sslSocketFactory;
     private final HttpConnectorFactory connectorFactory;
     private final Log log;
 
-    public Jetty9WebServer( LogProvider logProvider, Config config )
+    public Jetty9WebServer( LogProvider logProvider, Config config, NetworkConnectionTracker connectionTracker )
     {
         this.log = logProvider.getLog( getClass() );
-        sslSocketFactory = new SslSocketConnectorFactory(config);
-        connectorFactory = new HttpConnectorFactory(config);
+        sslSocketFactory = new SslSocketConnectorFactory( connectionTracker, config );
+        connectorFactory = new HttpConnectorFactory( connectionTracker, config );
     }
 
     @Override
@@ -143,24 +107,25 @@ public class Jetty9WebServer implements WebServer
     {
         if ( jetty == null )
         {
+            verifyAddressConfiguration();
+
             JettyThreadCalculator jettyThreadCalculator = new JettyThreadCalculator( jettyMaxThreads );
-
             jetty = new Server( createQueuedThreadPool( jettyThreadCalculator ) );
-            jetty.addConnector( connectorFactory.createConnector( jetty, jettyAddress, jettyThreadCalculator ) );
 
-            jettyHttpsAddress.ifPresent( ( address ) ->
+            if ( httpAddress != null )
             {
-                if ( httpsCertificateInformation == null )
+                httpConnector = connectorFactory.createConnector( jetty, httpAddress, jettyThreadCalculator );
+                jetty.addConnector( httpConnector );
+            }
+
+            if ( httpsAddress != null )
+            {
+                if ( sslPolicy == null )
                 {
-                    throw new RuntimeException( "HTTPS set to enabled, but no HTTPS configuration provided" );
+                    throw new RuntimeException( "HTTPS set to enabled, but no SSL policy provided" );
                 }
-                jetty.addConnector( sslSocketFactory.createConnector(
-                        jetty, httpsCertificateInformation, address, jettyThreadCalculator ) );
-            } );
-
-            if ( jettyCreatedCallback != null )
-            {
-                jettyCreatedCallback.accept( jetty );
+                httpsConnector = sslSocketFactory.createConnector( jetty, sslPolicy, httpsAddress, jettyThreadCalculator );
+                jetty.addConnector( httpsConnector );
             }
         }
 
@@ -178,10 +143,12 @@ public class Jetty9WebServer implements WebServer
         startJetty();
     }
 
-    private QueuedThreadPool createQueuedThreadPool( JettyThreadCalculator jtc )
+    private static QueuedThreadPool createQueuedThreadPool( JettyThreadCalculator jtc )
     {
         BlockingQueue<Runnable> queue = new BlockingArrayQueue<>( jtc.getMinThreads(), jtc.getMinThreads(), jtc.getMaxCapacity() );
-        return new QueuedThreadPool( jtc.getMaxThreads(), jtc.getMinThreads(), 60000, queue );
+        QueuedThreadPool threadPool = new QueuedThreadPool( jtc.getMaxThreads(), jtc.getMinThreads(), JETTY_THREAD_POOL_IDLE_TIMEOUT, queue );
+        threadPool.setThreadPoolBudget( null ); // mute warnings about Jetty thread pool size
+        return threadPool;
     }
 
     @Override
@@ -210,9 +177,21 @@ public class Jetty9WebServer implements WebServer
     }
 
     @Override
-    public void setAddress( ListenSocketAddress address )
+    public void setHttpAddress( SocketAddress address )
     {
-        jettyAddress = address;
+        httpAddress = address;
+    }
+
+    @Override
+    public void setHttpsAddress( SocketAddress address )
+    {
+        httpsAddress = address;
+    }
+
+    @Override
+    public void setSslPolicy( SslPolicy policy )
+    {
+        sslPolicy = policy;
     }
 
     @Override
@@ -228,31 +207,21 @@ public class Jetty9WebServer implements WebServer
         mountPoint = ensureRelativeUri( mountPoint );
         mountPoint = trimTrailingSlashToKeepJettyHappy( mountPoint );
 
-        JaxRsServletHolderFactory factory = jaxRSPackages.get( mountPoint );
-        if ( factory == null )
-        {
-            factory = new JaxRsServletHolderFactory.Packages();
-            jaxRSPackages.put( mountPoint, factory );
-        }
-        factory.add( packageNames, injectables );
+        JaxRsServletHolderFactory factory = jaxRsServletHolderFactories.computeIfAbsent( mountPoint, k -> new JaxRsServletHolderFactory() );
+        factory.addPackages( packageNames, injectables );
 
         log.debug( "Adding JAXRS packages %s at [%s]", packageNames, mountPoint );
     }
 
     @Override
-    public void addJAXRSClasses( List<String> classNames, String mountPoint, Collection<Injectable<?>> injectables )
+    public void addJAXRSClasses( List<Class<?>> classNames, String mountPoint, Collection<Injectable<?>> injectables )
     {
         // We don't want absolute URIs at this point
         mountPoint = ensureRelativeUri( mountPoint );
         mountPoint = trimTrailingSlashToKeepJettyHappy( mountPoint );
 
-        JaxRsServletHolderFactory factory = jaxRSClasses.get( mountPoint );
-        if ( factory == null )
-        {
-            factory = new JaxRsServletHolderFactory.Classes();
-            jaxRSClasses.put( mountPoint, factory );
-        }
-        factory.add( classNames, injectables );
+        JaxRsServletHolderFactory factory = jaxRsServletHolderFactories.computeIfAbsent( mountPoint, k -> new JaxRsServletHolderFactory() );
+        factory.addClasses( classNames, injectables );
 
         log.debug( "Adding JAXRS classes %s at [%s]", classNames, mountPoint );
     }
@@ -264,33 +233,28 @@ public class Jetty9WebServer implements WebServer
     }
 
     @Override
-    public void setDefaultInjectables( Collection<InjectableProvider<?>> defaultInjectables )
+    public void setComponentsBinder( ComponentsBinder binder )
     {
-        this.defaultInjectables = defaultInjectables;
-    }
-
-    public void setJettyCreatedCallback( Consumer<Server> callback )
-    {
-        this.jettyCreatedCallback = callback;
+        this.binder = binder;
     }
 
     @Override
     public void removeJAXRSPackages( List<String> packageNames, String serverMountPoint )
     {
-        JaxRsServletHolderFactory factory = jaxRSPackages.get( serverMountPoint );
+        JaxRsServletHolderFactory factory = jaxRsServletHolderFactories.get( serverMountPoint );
         if ( factory != null )
         {
-            factory.remove( packageNames );
+            factory.removePackages( packageNames );
         }
     }
 
     @Override
-    public void removeJAXRSClasses( List<String> classNames, String serverMountPoint )
+    public void removeJAXRSClasses( List<Class<?>> classNames, String serverMountPoint )
     {
-        JaxRsServletHolderFactory factory = jaxRSClasses.get( serverMountPoint );
+        JaxRsServletHolderFactory factory = jaxRsServletHolderFactories.get( serverMountPoint );
         if ( factory != null )
         {
-            factory.remove( classNames );
+            factory.removeClasses( classNames );
         }
     }
 
@@ -303,15 +267,7 @@ public class Jetty9WebServer implements WebServer
     @Override
     public void removeFilter( Filter filter, String pathSpec )
     {
-        Iterator<FilterDefinition> iter = filters.iterator();
-        while ( iter.hasNext() )
-        {
-            FilterDefinition current = iter.next();
-            if ( current.matches( filter, pathSpec ) )
-            {
-                iter.remove();
-            }
-        }
+        filters.removeIf( current -> current.matches( filter, pathSpec ) );
     }
 
     @Override
@@ -327,28 +283,9 @@ public class Jetty9WebServer implements WebServer
     }
 
     @Override
-    public void invokeDirectly( String targetPath, HttpServletRequest request, HttpServletResponse response )
-            throws IOException, ServletException
-    {
-        jetty.handle( targetPath, (Request) request, request, response );
-    }
-
-    @Override
     public void setRequestLog( RequestLog requestLog )
     {
         this.requestLog = requestLog;
-    }
-
-    @Override
-    public void setHttpsAddress( Optional<ListenSocketAddress> address )
-    {
-        jettyHttpsAddress = address;
-    }
-
-    @Override
-    public void setHttpsCertificateInformation( KeyStoreInformation config )
-    {
-        httpsCertificateInformation = config;
     }
 
     public Server getJetty()
@@ -356,57 +293,54 @@ public class Jetty9WebServer implements WebServer
         return jetty;
     }
 
-    protected void startJetty() throws Exception
+    private void startJetty() throws Exception
     {
         try
         {
             jetty.start();
         }
-        catch ( BindException e )
+        catch ( IOException e )
         {
-            if ( jettyHttpsAddress.isPresent() )
-            {
-                throw new PortBindException( jettyAddress, jettyHttpsAddress.get(), e );
-            }
-            else
-            {
-                throw new PortBindException( jettyAddress, e );
-            }
+            throw new PortBindException( httpAddress, httpsAddress, e );
         }
     }
 
-    private void loadAllMounts() throws IOException
+    @Override
+    public InetSocketAddress getLocalHttpAddress()
     {
-        SessionManager sm = new HashSessionManager();
+        return getAddress( "HTTP", httpConnector );
+    }
 
-        final SortedSet<String> mountpoints = new TreeSet<>( (Comparator<String>) ( o1, o2 ) -> o2.compareTo( o1 ) );
+    @Override
+    public InetSocketAddress getLocalHttpsAddress()
+    {
+        return getAddress( "HTTPS", httpsConnector );
+    }
+
+    private void loadAllMounts()
+    {
+        final SortedSet<String> mountpoints = new TreeSet<>( Comparator.reverseOrder() );
 
         mountpoints.addAll( staticContent.keySet() );
-        mountpoints.addAll( jaxRSPackages.keySet() );
-        mountpoints.addAll( jaxRSClasses.keySet() );
+        mountpoints.addAll( jaxRsServletHolderFactories.keySet() );
 
         for ( String contentKey : mountpoints )
         {
             final boolean isStatic = staticContent.containsKey( contentKey );
-            final boolean isJaxrsPackage = jaxRSPackages.containsKey( contentKey );
-            final boolean isJaxrsClass = jaxRSClasses.containsKey( contentKey );
+            final boolean isJaxRs = jaxRsServletHolderFactories.containsKey( contentKey );
 
-            if ( countSet( isStatic, isJaxrsPackage, isJaxrsClass ) > 1 )
+            if ( isStatic && isJaxRs )
             {
                 throw new RuntimeException(
                         format( "content-key '%s' is mapped more than once", contentKey ) );
             }
             else if ( isStatic )
             {
-                loadStaticContent( sm, contentKey );
+                loadStaticContent( contentKey );
             }
-            else if ( isJaxrsPackage )
+            else if ( isJaxRs )
             {
-                loadJAXRSPackage( sm, contentKey );
-            }
-            else if ( isJaxrsClass )
-            {
-                loadJAXRSClasses( sm, contentKey );
+                loadJaxRsResource( contentKey );
             }
             else
             {
@@ -415,23 +349,10 @@ public class Jetty9WebServer implements WebServer
         }
     }
 
-    private int countSet( boolean... booleans )
-    {
-        int count = 0;
-        for ( boolean bool : booleans )
-        {
-            if ( bool )
-            {
-                count++;
-            }
-        }
-        return count;
-    }
-
     private void loadRequestLogging()
     {
         // This makes the request log handler decorate whatever other handlers are already set up
-        final RequestLogHandler requestLogHandler = new RequestLogHandler();
+        final RequestLogHandler requestLogHandler = new HttpChannelOptionalRequestLogHandler();
         requestLogHandler.setRequestLog( requestLog );
         requestLogHandler.setServer( jetty );
         requestLogHandler.setHandler( jetty.getHandler() );
@@ -473,12 +394,12 @@ public class Jetty9WebServer implements WebServer
         }
     }
 
-    private void loadStaticContent( SessionManager sm, String mountPoint )
+    private void loadStaticContent( String mountPoint )
     {
         String contentLocation = staticContent.get( mountPoint );
         try
         {
-            SessionHandler sessionHandler = new SessionHandler( sm );
+            SessionHandler sessionHandler = new SessionHandler();
             sessionHandler.setServer( getJetty() );
             final WebAppContext staticContext = new WebAppContext();
             staticContext.setServer( getJetty() );
@@ -498,11 +419,6 @@ public class Jetty9WebServer implements WebServer
 
                 handlers.addHandler( staticContext );
             }
-            else
-            {
-                log.warn( "No static content available for Neo Server at %s, management console may not be available.",
-                        jettyAddress );
-            }
         }
         catch ( Exception e )
         {
@@ -512,28 +428,19 @@ public class Jetty9WebServer implements WebServer
         }
     }
 
-    private void loadJAXRSPackage( SessionManager sm, String mountPoint )
+    private void loadJaxRsResource( String mountPoint )
     {
-        loadJAXRSResource( sm, mountPoint, jaxRSPackages.get( mountPoint ) );
-    }
-
-    private void loadJAXRSClasses( SessionManager sm, String mountPoint )
-    {
-        loadJAXRSResource( sm, mountPoint, jaxRSClasses.get( mountPoint ) );
-    }
-
-    private void loadJAXRSResource( SessionManager sm, String mountPoint,
-                                    JaxRsServletHolderFactory jaxRsServletHolderFactory )
-    {
-        SessionHandler sessionHandler = new SessionHandler( sm );
-        sessionHandler.setServer( getJetty() );
         log.debug( "Mounting servlet at [%s]", mountPoint );
+
+        SessionHandler sessionHandler = new SessionHandler();
+        sessionHandler.setServer( getJetty() );
+        JaxRsServletHolderFactory jaxRsServletHolderFactory = jaxRsServletHolderFactories.get( mountPoint );
         ServletContextHandler jerseyContext = new ServletContextHandler();
         jerseyContext.setServer( getJetty() );
         jerseyContext.setErrorHandler( new NeoJettyErrorHandler() );
         jerseyContext.setContextPath( mountPoint );
         jerseyContext.setSessionHandler( sessionHandler );
-        jerseyContext.addServlet( jaxRsServletHolderFactory.create( defaultInjectables, wadlEnabled ), "/*" );
+        jerseyContext.addServlet( jaxRsServletHolderFactory.create( binder, wadlEnabled ), "/*" );
         addFiltersTo( jerseyContext );
         handlers.addHandler( jerseyContext );
     }
@@ -548,4 +455,67 @@ public class Jetty9WebServer implements WebServer
         }
     }
 
+    private static InetSocketAddress getAddress( String name, ServerConnector connector )
+    {
+        if ( connector == null )
+        {
+            throw new IllegalStateException( name + " connector is not configured" );
+        }
+        return new InetSocketAddress( connector.getHost(), connector.getLocalPort() );
+    }
+
+    private void verifyAddressConfiguration()
+    {
+        if ( httpAddress == null && httpsAddress == null )
+        {
+            throw new IllegalStateException( "Either HTTP or HTTPS address must be configured to run the server" );
+        }
+    }
+
+    @Override
+    public int allThreads()
+    {
+        if ( getJetty() != null )
+        {
+            return getJetty().getThreadPool().getThreads();
+        }
+        return -1;
+    }
+
+    @Override
+    public int idleThreads()
+    {
+        if ( getJetty() != null )
+        {
+            return getJetty().getThreadPool().getIdleThreads();
+        }
+        return -1;
+    }
+
+    private static class FilterDefinition
+    {
+        private final Filter filter;
+        private final String pathSpec;
+
+        FilterDefinition( Filter filter, String pathSpec )
+        {
+            this.filter = filter;
+            this.pathSpec = pathSpec;
+        }
+
+        public boolean matches( Filter filter, String pathSpec )
+        {
+            return filter == this.filter && pathSpec.equals( this.pathSpec );
+        }
+
+        public Filter getFilter()
+        {
+            return filter;
+        }
+
+        String getPathSpec()
+        {
+            return pathSpec;
+        }
+    }
 }

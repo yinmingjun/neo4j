@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,57 +19,91 @@
  */
 package org.neo4j.bolt.transport;
 
-import io.netty.buffer.PooledByteBufAllocator;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
-import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.ssl.SslContext;
 
-import org.neo4j.helpers.ListenSocketAddress;
-import org.neo4j.logging.LogProvider;
+import java.time.Duration;
 
-import java.util.Map;
-import java.util.function.BiFunction;
+import org.neo4j.bolt.BoltChannel;
+import org.neo4j.bolt.transport.pipeline.UnauthenticatedChannelProtector;
+import org.neo4j.configuration.helpers.SocketAddress;
+import org.neo4j.kernel.api.net.NetworkConnectionTracker;
+import org.neo4j.logging.LogProvider;
 
 /**
  * Implements a transport for the Neo4j Messaging Protocol that uses good old regular sockets.
  */
 public class SocketTransport implements NettyServer.ProtocolInitializer
 {
-    private final ListenSocketAddress address;
+    private final String connector;
+    private final SocketAddress address;
     private final SslContext sslCtx;
     private final boolean encryptionRequired;
-    private LogProvider logging;
-    private final Map<Long, BiFunction<Channel, Boolean, BoltProtocol>> protocolVersions;
+    private final LogProvider logging;
+    private final TransportThrottleGroup throttleGroup;
+    private final BoltProtocolFactory boltProtocolFactory;
+    private final NetworkConnectionTracker connectionTracker;
+    private final Duration channelTimeout;
+    private final long maxMessageSize;
+    private final ByteBufAllocator allocator;
 
-    public SocketTransport( ListenSocketAddress address, SslContext sslCtx, boolean encryptionRequired, LogProvider logging,
-                            Map<Long, BiFunction<Channel, Boolean, BoltProtocol>> protocolVersions )
+    public SocketTransport( String connector, SocketAddress address, SslContext sslCtx, boolean encryptionRequired,
+            LogProvider logging, TransportThrottleGroup throttleGroup,
+            BoltProtocolFactory boltProtocolFactory, NetworkConnectionTracker connectionTracker,
+            Duration channelTimeout, long maxMessageSize, ByteBufAllocator allocator )
     {
+        this.connector = connector;
         this.address = address;
         this.sslCtx = sslCtx;
         this.encryptionRequired = encryptionRequired;
         this.logging = logging;
-        this.protocolVersions = protocolVersions;
+        this.throttleGroup = throttleGroup;
+        this.boltProtocolFactory = boltProtocolFactory;
+        this.connectionTracker = connectionTracker;
+        this.channelTimeout = channelTimeout;
+        this.maxMessageSize = maxMessageSize;
+        this.allocator = allocator;
     }
 
     @Override
-    public ChannelInitializer<SocketChannel> channelInitializer()
+    public ChannelInitializer<Channel> channelInitializer()
     {
-        return new ChannelInitializer<SocketChannel>()
+        return new ChannelInitializer<>()
         {
             @Override
-            public void initChannel( SocketChannel ch ) throws Exception
+            public void initChannel( Channel ch )
             {
-                ch.config().setAllocator( PooledByteBufAllocator.DEFAULT );
-                ch.pipeline().addLast(
-                        new TransportSelectionHandler( sslCtx, encryptionRequired, false, logging, protocolVersions ) );
+                ch.config().setAllocator( allocator );
+
+                BoltChannel boltChannel = newBoltChannel( ch );
+                connectionTracker.add( boltChannel );
+                ch.closeFuture().addListener( future -> connectionTracker.remove( boltChannel ) );
+
+                // install throttles
+                throttleGroup.install( ch );
+
+                // add a close listener that will uninstall throttles
+                ch.closeFuture().addListener( future -> throttleGroup.uninstall( ch ) );
+
+                TransportSelectionHandler transportSelectionHandler =
+                        new TransportSelectionHandler( boltChannel, sslCtx,
+                                encryptionRequired, false, logging, boltProtocolFactory );
+                ch.pipeline().addLast( transportSelectionHandler );
             }
         };
     }
 
     @Override
-    public ListenSocketAddress address()
+    public SocketAddress address()
     {
         return address;
+    }
+
+    private BoltChannel newBoltChannel( Channel ch )
+    {
+        var protector = new UnauthenticatedChannelProtector( ch.pipeline(), channelTimeout, maxMessageSize );
+        return new BoltChannel( connectionTracker.newConnectionId( connector ), connector, ch, protector );
     }
 }

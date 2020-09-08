@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,19 +19,25 @@
  */
 package org.neo4j.server.rest.repr;
 
-import org.neo4j.graphdb.PropertyContainer;
+import java.time.temporal.Temporal;
+import java.time.temporal.TemporalAmount;
+
+import org.neo4j.graphdb.Entity;
+import org.neo4j.graphdb.spatial.CRS;
+import org.neo4j.graphdb.spatial.Point;
 import org.neo4j.server.helpers.PropertyTypeDispatcher;
 
 public final class PropertiesRepresentation extends MappingRepresentation
 {
-    private final PropertyContainer entity;
+    private final Entity entity;
 
-    public PropertiesRepresentation( PropertyContainer entity )
+    PropertiesRepresentation( Entity entity )
     {
         super( RepresentationType.PROPERTIES );
         this.entity = entity;
     }
 
+    @Override
     public boolean isEmpty()
     {
         return !entity.getPropertyKeys()
@@ -45,7 +51,7 @@ public final class PropertiesRepresentation extends MappingRepresentation
         serialize( serializer.writer );
     }
 
-    void serialize( MappingWriter writer )
+    public void serialize( MappingWriter writer )
     {
         PropertyTypeDispatcher.consumeProperties( new Consumer( writer ), entity );
     }
@@ -63,6 +69,29 @@ public final class PropertiesRepresentation extends MappingRepresentation
         protected Void dispatchBooleanProperty( boolean property, String param )
         {
             writer.writeBoolean( param, property );
+            return null;
+        }
+
+        @Override
+        protected Void dispatchPointProperty( Point property, String param )
+        {
+            MappingWriter pointWriter = writer.newMapping( RepresentationType.POINT, param );
+            writePoint( pointWriter, property );
+            pointWriter.done();
+            return null;
+        }
+
+        @Override
+        protected Void dispatchTemporalProperty( Temporal property, String param )
+        {
+            writer.writeString( param, property.toString() );
+            return null;
+        }
+
+        @Override
+        protected Void dispatchTemporalAmountProperty( TemporalAmount property, String param )
+        {
+            writer.writeString( param, property.toString() );
             return null;
         }
 
@@ -135,8 +164,46 @@ public final class PropertiesRepresentation extends MappingRepresentation
         }
 
         @Override
+        protected Void dispatchPointArrayProperty( Point[] property, String param )
+        {
+            ListWriter list = writer.newList( RepresentationType.POINT, param );
+            for ( Point p : property )
+            {
+                MappingWriter pointWriter = list.newMapping( RepresentationType.POINT );
+                writePoint( pointWriter, p);
+                pointWriter.done();
+            }
+            list.done();
+            return null;
+        }
+
+        @Override
+        protected Void dispatchTemporalArrayProperty( Temporal[] property, String param )
+        {
+            ListWriter list = writer.newList( RepresentationType.TEMPORAL, param );
+            for ( Temporal p : property )
+            {
+                list.writeString( p.toString() );
+            }
+            list.done();
+            return null;
+        }
+
+        @Override
+        protected Void dispatchTemporalAmountArrayProperty( TemporalAmount[] property, String param )
+        {
+            ListWriter list = writer.newList( RepresentationType.TEMPORAL_AMOUNT, param );
+            for ( TemporalAmount p : property )
+            {
+                list.writeString( p.toString() );
+            }
+            list.done();
+            return null;
+        }
+
+        @Override
         @SuppressWarnings( "boxing" )
-        protected Void dispatchByteArrayProperty( PropertyArray<byte[], Byte> array, String param )
+        protected Void dispatchByteArrayProperty( PropertyArray<Byte> array, String param )
         {
             ListWriter list = writer.newList( RepresentationType.BYTE, param );
             for ( Byte b : array )
@@ -149,7 +216,7 @@ public final class PropertiesRepresentation extends MappingRepresentation
 
         @Override
         @SuppressWarnings( "boxing" )
-        protected Void dispatchShortArrayProperty( PropertyArray<short[], Short> array, String param )
+        protected Void dispatchShortArrayProperty( PropertyArray<Short> array, String param )
         {
             ListWriter list = writer.newList( RepresentationType.SHORT, param );
             for ( Short s : array )
@@ -162,7 +229,7 @@ public final class PropertiesRepresentation extends MappingRepresentation
 
         @Override
         @SuppressWarnings( "boxing" )
-        protected Void dispatchCharacterArrayProperty( PropertyArray<char[], Character> array, String param )
+        protected Void dispatchCharacterArrayProperty( PropertyArray<Character> array, String param )
         {
             ListWriter list = writer.newList( RepresentationType.CHAR, param );
             for ( Character c : array )
@@ -175,7 +242,7 @@ public final class PropertiesRepresentation extends MappingRepresentation
 
         @Override
         @SuppressWarnings( "boxing" )
-        protected Void dispatchIntegerArrayProperty( PropertyArray<int[], Integer> array, String param )
+        protected Void dispatchIntegerArrayProperty( PropertyArray<Integer> array, String param )
         {
             ListWriter list = writer.newList( RepresentationType.INTEGER, param );
             for ( Integer i : array )
@@ -188,7 +255,7 @@ public final class PropertiesRepresentation extends MappingRepresentation
 
         @Override
         @SuppressWarnings( "boxing" )
-        protected Void dispatchLongArrayProperty( PropertyArray<long[], Long> array, String param )
+        protected Void dispatchLongArrayProperty( PropertyArray<Long> array, String param )
         {
             ListWriter list = writer.newList( RepresentationType.LONG, param );
             for ( Long j : array )
@@ -201,7 +268,7 @@ public final class PropertiesRepresentation extends MappingRepresentation
 
         @Override
         @SuppressWarnings( "boxing" )
-        protected Void dispatchFloatArrayProperty( PropertyArray<float[], Float> array, String param )
+        protected Void dispatchFloatArrayProperty( PropertyArray<Float> array, String param )
         {
             ListWriter list = writer.newList( RepresentationType.FLOAT, param );
             for ( Float f : array )
@@ -214,7 +281,7 @@ public final class PropertiesRepresentation extends MappingRepresentation
 
         @Override
         @SuppressWarnings( "boxing" )
-        protected Void dispatchDoubleArrayProperty( PropertyArray<double[], Double> array, String param )
+        protected Void dispatchDoubleArrayProperty( PropertyArray<Double> array, String param )
         {
             ListWriter list = writer.newList( RepresentationType.DOUBLE, param );
             for ( Double d : array )
@@ -227,7 +294,7 @@ public final class PropertiesRepresentation extends MappingRepresentation
 
         @Override
         @SuppressWarnings( "boxing" )
-        protected Void dispatchBooleanArrayProperty( PropertyArray<boolean[], Boolean> array, String param )
+        protected Void dispatchBooleanArrayProperty( PropertyArray<Boolean> array, String param )
         {
             ListWriter list = writer.newList( RepresentationType.BOOLEAN, param );
             for ( Boolean z : array )
@@ -236,6 +303,30 @@ public final class PropertiesRepresentation extends MappingRepresentation
             }
             list.done();
             return null;
+        }
+
+        private static void writePoint( MappingWriter pointWriter, Point property )
+        {
+            pointWriter.writeString( "type", property.getGeometryType() );
+            //write coordinates
+            ListWriter coordinatesWriter = pointWriter.newList( RepresentationType.DOUBLE, "coordinates" );
+            for ( Double coordinate : property.getCoordinate().getCoordinate() )
+            {
+                coordinatesWriter.writeFloatingPointNumber( RepresentationType.DOUBLE, coordinate );
+            }
+            coordinatesWriter.done();
+
+            //Write coordinate reference system
+            CRS crs = property.getCRS();
+            MappingWriter crsWriter = pointWriter.newMapping( RepresentationType.MAP, "crs" );
+            crsWriter.writeInteger( RepresentationType.INTEGER, "srid", crs.getCode() );
+            crsWriter.writeString( "name", crs.getType() );
+            crsWriter.writeString( "type", "link" );
+            MappingWriter propertiesWriter = crsWriter.newMapping( Representation.MAP, "properties" );
+            propertiesWriter.writeString( "href", crs.getHref() + "ogcwkt/" );
+            propertiesWriter.writeString( "type","ogcwkt" );
+            propertiesWriter.done();
+            crsWriter.done();
         }
     }
 

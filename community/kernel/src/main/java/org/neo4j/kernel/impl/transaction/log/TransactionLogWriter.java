@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -26,28 +26,45 @@ import org.neo4j.kernel.impl.transaction.log.entry.LogEntryWriter;
 
 public class TransactionLogWriter
 {
-    private final LogEntryWriter writer;
+    private final LogEntryWriter<FlushablePositionAwareChecksumChannel> writer;
 
-    public TransactionLogWriter( LogEntryWriter writer )
+    public TransactionLogWriter( LogEntryWriter<FlushablePositionAwareChecksumChannel> writer )
     {
         this.writer = writer;
     }
 
-    public void append( TransactionRepresentation transaction, long transactionId ) throws IOException
+    /**
+     * Append a transaction to the transaction log file
+     * @return checksum of the transaction
+     */
+    public int append( TransactionRepresentation transaction, long transactionId, int previousChecksum ) throws IOException
     {
-        writer.writeStartEntry( transaction.getMasterId(), transaction.getAuthorId(),
-                transaction.getTimeStarted(), transaction.getLatestCommittedTxWhenStarted(),
-                transaction.additionalHeader() );
+        writer.writeStartEntry( transaction.getTimeStarted(), transaction.getLatestCommittedTxWhenStarted(), previousChecksum, transaction.additionalHeader() );
 
         // Write all the commands to the log channel
         writer.serialize( transaction );
 
         // Write commit record
-        writer.writeCommitEntry( transactionId, transaction.getTimeCommitted() );
+        return writer.writeCommitEntry( transactionId, transaction.getTimeCommitted() );
     }
 
-    public void checkPoint( LogPosition logPosition ) throws IOException
+    public void legacyCheckPoint( LogPosition logPosition ) throws IOException
     {
-        writer.writeCheckPointEntry( logPosition );
+        writer.writeLegacyCheckPointEntry( logPosition );
+    }
+
+    public LogEntryWriter<FlushablePositionAwareChecksumChannel> getWriter()
+    {
+        return writer;
+    }
+
+    public LogPosition getCurrentPosition() throws IOException
+    {
+        return writer.getChannel().getCurrentPosition();
+    }
+
+    public LogPositionMarker getCurrentPosition( LogPositionMarker logPositionMarker ) throws IOException
+    {
+        return writer.getChannel().getCurrentPosition( logPositionMarker );
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,7 +21,11 @@ package org.neo4j.kernel.impl.transaction.log;
 
 import java.io.IOException;
 
+import org.neo4j.io.fs.ReadAheadChannel;
 import org.neo4j.io.fs.StoreChannel;
+import org.neo4j.io.memory.NativeScopedBuffer;
+import org.neo4j.io.memory.ScopedBuffer;
+import org.neo4j.memory.MemoryTracker;
 
 /**
  * Basically a sequence of {@link StoreChannel channels} seamlessly seen as one.
@@ -30,14 +34,22 @@ public class ReadAheadLogChannel extends ReadAheadChannel<LogVersionedStoreChann
 {
     private final LogVersionBridge bridge;
 
-    public ReadAheadLogChannel( LogVersionedStoreChannel startingChannel, LogVersionBridge bridge )
+    public ReadAheadLogChannel( LogVersionedStoreChannel startingChannel, MemoryTracker memoryTracker )
     {
-        this( startingChannel, bridge, DEFAULT_READ_AHEAD_SIZE );
+        this( startingChannel, LogVersionBridge.NO_MORE_CHANNELS, new NativeScopedBuffer( DEFAULT_READ_AHEAD_SIZE, memoryTracker ) );
     }
 
-    public ReadAheadLogChannel( LogVersionedStoreChannel startingChannel, LogVersionBridge bridge, int readAheadSize )
+    public ReadAheadLogChannel( LogVersionedStoreChannel startingChannel, LogVersionBridge bridge, MemoryTracker memoryTracker )
     {
-        super(startingChannel, readAheadSize);
+        this( startingChannel, bridge, new NativeScopedBuffer( DEFAULT_READ_AHEAD_SIZE, memoryTracker ) );
+    }
+
+    /**
+     * This constructor is private to ensure that the given buffer always comes form one of our own constructors.
+     */
+    private ReadAheadLogChannel( LogVersionedStoreChannel startingChannel, LogVersionBridge bridge, ScopedBuffer scopedBuffer )
+    {
+        super( startingChannel, scopedBuffer );
         this.bridge = bridge;
     }
 
@@ -61,8 +73,20 @@ public class ReadAheadLogChannel extends ReadAheadChannel<LogVersionedStoreChann
     }
 
     @Override
+    public LogPosition getCurrentPosition() throws IOException
+    {
+        return new LogPosition( channel.getVersion(),position() );
+    }
+
+    @Override
     protected LogVersionedStoreChannel next( LogVersionedStoreChannel channel ) throws IOException
     {
         return bridge.next( channel );
+    }
+
+    @Override
+    public void close() throws IOException
+    {
+        super.close();
     }
 }

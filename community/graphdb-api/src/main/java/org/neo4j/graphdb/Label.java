@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -18,6 +18,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 package org.neo4j.graphdb;
+
+import org.neo4j.annotations.api.PublicApi;
 
 /**
  * A label is a grouping facility for {@link Node} where all nodes having a label
@@ -56,6 +58,7 @@ package org.neo4j.graphdb;
  *
  * @see Node
  */
+@PublicApi
 public interface Label
 {
     /**

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -23,39 +23,51 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.Set;
 
-import org.neo4j.kernel.api.TokenNameLookup;
+import org.neo4j.common.TokenNameLookup;
+import org.neo4j.internal.helpers.Exceptions;
+import org.neo4j.internal.kernel.api.exceptions.schema.ConstraintValidationException;
+import org.neo4j.internal.schema.SchemaDescriptor;
+import org.neo4j.internal.schema.constraints.IndexBackedConstraintDescriptor;
 import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
-import org.neo4j.kernel.api.schema.constaints.IndexBackedConstraintDescriptor;
 
 public class UniquePropertyValueValidationException extends ConstraintValidationException
 {
     private final Set<IndexEntryConflictException> conflicts;
 
-    public UniquePropertyValueValidationException( IndexBackedConstraintDescriptor constraint,
-            ConstraintValidationException.Phase phase, IndexEntryConflictException conflict )
+    public UniquePropertyValueValidationException( IndexBackedConstraintDescriptor constraint, ConstraintValidationException.Phase phase,
+            IndexEntryConflictException conflict, TokenNameLookup tokenNameLookup )
     {
-        this( constraint, phase, Collections.singleton( conflict ) );
+        this( constraint, phase, Collections.singleton( conflict ), tokenNameLookup );
     }
 
-    public UniquePropertyValueValidationException( IndexBackedConstraintDescriptor constraint,
-            ConstraintValidationException.Phase phase, Set<IndexEntryConflictException> conflicts )
+    public UniquePropertyValueValidationException( IndexBackedConstraintDescriptor constraint, ConstraintValidationException.Phase phase,
+            Set<IndexEntryConflictException> conflicts, TokenNameLookup tokenNameLookup )
     {
-        super( constraint, phase, phase == Phase.VERIFICATION ? "Existing data" : "New data" );
+        super( constraint, phase, phase == Phase.VERIFICATION ? "Existing data" : "New data", buildCauseChain( conflicts ), tokenNameLookup );
         this.conflicts = conflicts;
     }
 
-    public UniquePropertyValueValidationException( IndexBackedConstraintDescriptor constraint,
-            ConstraintValidationException.Phase phase, Throwable cause )
+    private static IndexEntryConflictException buildCauseChain( Set<IndexEntryConflictException> conflicts )
     {
-        super( constraint, phase, phase == Phase.VERIFICATION ? "Existing data" : "New data", cause );
+        IndexEntryConflictException chainedConflicts = null;
+        for ( IndexEntryConflictException conflict : conflicts )
+        {
+            chainedConflicts = Exceptions.chain( chainedConflicts, conflict );
+        }
+        return chainedConflicts;
+    }
+
+    public UniquePropertyValueValidationException( IndexBackedConstraintDescriptor constraint, ConstraintValidationException.Phase phase, Throwable cause,
+            TokenNameLookup tokenNameLookup )
+    {
+        super( constraint, phase, phase == Phase.VERIFICATION ? "Existing data" : "New data", cause, tokenNameLookup );
         this.conflicts = Collections.emptySet();
     }
 
     @Override
     public String getUserMessage( TokenNameLookup tokenNameLookup )
     {
-        LabelSchemaDescriptor schema = (LabelSchemaDescriptor)constraint.schema();
+        SchemaDescriptor schema = constraint.schema();
         StringBuilder message = new StringBuilder();
         for ( Iterator<IndexEntryConflictException> iterator = conflicts.iterator(); iterator.hasNext(); )
         {

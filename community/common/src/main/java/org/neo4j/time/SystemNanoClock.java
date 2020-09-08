@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -24,10 +24,6 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 
-/**
- * {@link Clock} that support nano time resolution.
- * @see Clocks
- */
 public class SystemNanoClock extends Clock
 {
     static final SystemNanoClock INSTANCE = new SystemNanoClock();
@@ -46,17 +42,33 @@ public class SystemNanoClock extends Clock
     @Override
     public Clock withZone( ZoneId zone )
     {
-        throw new UnsupportedOperationException( "Zone update is not supported." );
+        return Clock.system( zone ); // the users of this method do not need a NanoClock
     }
 
     @Override
     public Instant instant()
     {
-        return Instant.now();
+        return Instant.ofEpochMilli( millis() );
     }
 
+    @Override
+    public long millis()
+    {
+        return System.currentTimeMillis();
+    }
+
+    /**
+     * It is <em>only</em> useful for comparing values returned from the same clock, as the wall clock time of this method is arbitrary.
+     *
+     * @return current nano time of the system.
+     */
     public long nanos()
     {
         return System.nanoTime();
+    }
+
+    public Stopwatch startStopWatch()
+    {
+        return new Stopwatch( System::nanoTime );
     }
 }

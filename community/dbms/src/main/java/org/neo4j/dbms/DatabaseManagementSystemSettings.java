@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,37 +19,24 @@
  */
 package org.neo4j.dbms;
 
-import java.io.File;
+import java.nio.file.Path;
 
-import org.neo4j.configuration.Description;
-import org.neo4j.configuration.LoadableConfig;
-import org.neo4j.graphdb.config.Setting;
+import org.neo4j.annotations.service.ServiceProvider;
+import org.neo4j.configuration.GraphDatabaseSettings;
 import org.neo4j.configuration.Internal;
+import org.neo4j.configuration.SettingsDeclaration;
+import org.neo4j.graphdb.config.Setting;
 
-import static org.neo4j.kernel.configuration.Settings.PATH;
-import static org.neo4j.kernel.configuration.Settings.STRING;
-import static org.neo4j.kernel.configuration.Settings.derivedSetting;
-import static org.neo4j.kernel.configuration.Settings.pathSetting;
-import static org.neo4j.kernel.configuration.Settings.setting;
+import static org.neo4j.configuration.SettingImpl.newBuilder;
+import static org.neo4j.configuration.SettingValueParsers.PATH;
 
-public class DatabaseManagementSystemSettings implements LoadableConfig
+
+@ServiceProvider
+public class DatabaseManagementSystemSettings implements SettingsDeclaration
 {
-    @Description( "Name of the database to load" )
-    public static final Setting<String> active_database = setting( "dbms.active_database", STRING, "graph.db" );
-
-    @Description( "Path of the data directory. You must not configure more than one Neo4j installation to use the " +
-            "same data directory." )
-    public static final Setting<File> data_directory = pathSetting( "dbms.directories.data", "data" );
-
     @Internal
-    public static final Setting<File> database_path = derivedSetting( "unsupported.dbms.directories.database",
-            data_directory, active_database,
-            ( data, current ) -> new File( new File( data, "databases" ), current ),
-            PATH );
-
-    @Internal
-    public static final Setting<File> auth_store_directory = derivedSetting( "unsupported.dbms.directories.auth",
-            data_directory,
-            ( data ) -> new File( data, "dbms" ),
-            PATH );
+    public static final Setting<Path> auth_store_directory = newBuilder( "unsupported.dbms.directories.auth", PATH, Path.of( "dbms" ) )
+            .immutable()
+            .setDependency( GraphDatabaseSettings.data_directory )
+            .build();
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -65,6 +65,27 @@ class JumpVisitor implements ExpressionVisitor
     public void load( LocalVariable variable )
     {
         eval.load( variable );
+        methodVisitor.visitJumpInsn( IFEQ, this.target );
+    }
+
+    @Override
+    public void arrayLoad( Expression array, Expression index )
+    {
+        eval.arrayLoad( array, index );
+        methodVisitor.visitJumpInsn( IFEQ, this.target );
+    }
+
+    @Override
+    public void arraySet( Expression array, Expression index, Expression value )
+    {
+        eval.arraySet( array, index, value );
+        methodVisitor.visitJumpInsn( IFEQ, this.target );
+    }
+
+    @Override
+    public void arrayLength( Expression array )
+    {
+        eval.arrayLength( array );
         methodVisitor.visitJumpInsn( IFEQ, this.target );
     }
 
@@ -219,7 +240,19 @@ class JumpVisitor implements ExpressionVisitor
     }
 
     @Override
-    public void newArray( TypeReference type, Expression... constants )
+    public void instanceOf( TypeReference type, Expression expression )
+    {
+        throw new IllegalArgumentException( "cast is not a boolean expression" );
+    }
+
+    @Override
+    public void newInitializedArray( TypeReference type, Expression... constants )
+    {
+        throw new IllegalArgumentException( "'new' (array) is not a boolean expression" );
+    }
+
+    @Override
+    public void newArray( TypeReference type, int size )
     {
         throw new IllegalArgumentException( "'new' (array) is not a boolean expression" );
     }

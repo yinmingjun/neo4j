@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,59 +19,62 @@
  */
 package org.neo4j.kernel.impl.transaction.log.stresstest;
 
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import java.util.function.BooleanSupplier;
 
 import org.neo4j.io.fs.DefaultFileSystemAbstraction;
 import org.neo4j.io.fs.FileSystemAbstraction;
-import org.neo4j.kernel.impl.transaction.log.PhysicalLogFile;
-import org.neo4j.kernel.impl.transaction.log.PhysicalLogFiles;
+import org.neo4j.io.layout.DatabaseLayout;
 import org.neo4j.kernel.impl.transaction.log.PhysicalLogVersionedStoreChannel;
 import org.neo4j.kernel.impl.transaction.log.ReadAheadLogChannel;
 import org.neo4j.kernel.impl.transaction.log.ReadableLogChannel;
 import org.neo4j.kernel.impl.transaction.log.ReaderLogVersionBridge;
 import org.neo4j.kernel.impl.transaction.log.entry.LogEntry;
-import org.neo4j.kernel.impl.transaction.log.entry.LogEntryByteCodes;
+import org.neo4j.kernel.impl.transaction.log.entry.LogEntryCommit;
 import org.neo4j.kernel.impl.transaction.log.entry.LogEntryReader;
-import org.neo4j.kernel.impl.transaction.log.entry.OnePhaseCommit;
-import org.neo4j.kernel.impl.transaction.log.entry.VersionAwareLogEntryReader;
+import org.neo4j.kernel.impl.transaction.log.files.LogFile;
+import org.neo4j.kernel.impl.transaction.log.files.LogFiles;
+import org.neo4j.kernel.impl.transaction.log.files.LogFilesBuilder;
 import org.neo4j.kernel.impl.transaction.log.stresstest.workload.Runner;
-import org.neo4j.test.rule.TestDirectory;
+import org.neo4j.storageengine.api.TransactionIdStore;
+import org.neo4j.test.extension.Inject;
+import org.neo4j.test.extension.Neo4jLayoutExtension;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.neo4j.function.Suppliers.untilTimeExpired;
+import static org.neo4j.kernel.impl.transaction.log.TestLogEntryReader.logEntryReader;
+import static org.neo4j.memory.EmptyMemoryTracker.INSTANCE;
 
+@Neo4jLayoutExtension
 public class TransactionAppenderStressTest
 {
-    @Rule
-    public final TestDirectory directory = TestDirectory.testDirectory( );
+    @Inject
+    private DatabaseLayout databaseLayout;
 
     @Test
-    public void concurrentTransactionAppendingTest() throws Exception
+    void concurrentTransactionAppendingTest() throws Exception
     {
         int threads = 10;
-        File workingDirectory = directory.directory( "work" );
         Callable<Long> runner = new Builder()
                 .with( untilTimeExpired( 10, SECONDS ) )
-                .withWorkingDirectory( workingDirectory )
+                .withWorkingDirectory( databaseLayout )
                 .withNumThreads( threads )
                 .build();
 
         long appendedTxs = runner.call();
 
-        assertEquals( new TransactionIdChecker( workingDirectory ).parseAllTxLogs(), appendedTxs );
+        assertEquals( new TransactionIdChecker( databaseLayout.getTransactionLogsDirectory() ).parseAllTxLogs(), appendedTxs );
     }
 
     public static class Builder
     {
         private BooleanSupplier condition;
-        private File workingDirectory;
+        private DatabaseLayout databaseLayout;
         private int threads;
 
         public Builder with( BooleanSupplier condition )
@@ -80,9 +83,9 @@ public class TransactionAppenderStressTest
             return this;
         }
 
-        public Builder withWorkingDirectory( File workingDirectory )
+        public Builder withWorkingDirectory( DatabaseLayout databaseLayout )
         {
-            this.workingDirectory = workingDirectory;
+            this.databaseLayout = databaseLayout;
             return this;
         }
 
@@ -94,32 +97,38 @@ public class TransactionAppenderStressTest
 
         public Callable<Long> build()
         {
-            return new Runner( workingDirectory, condition, threads );
+            return new Runner( databaseLayout, condition, threads );
         }
     }
 
     public static class TransactionIdChecker
     {
-        private final File workingDirectory;
+        private final Path workingDirectory;
 
-        public TransactionIdChecker( File workingDirectory )
+        public TransactionIdChecker( Path workingDirectory )
         {
             this.workingDirectory = workingDirectory;
         }
 
         public long parseAllTxLogs() throws IOException
         {
-            long txId = -1;
+            // Initialize this txId to the BASE_TX_ID because if we don't find any tx log that means that
+            // no transactions have been appended in this test and that getLastCommittedTransactionId()
+            // will also return this constant. Why this is, is another question - but thread scheduling and
+            // I/O spikes on some build machines can be all over the place and also the test duration is
+            // configurable.
+            long txId = TransactionIdStore.BASE_TX_ID;
+
             try ( FileSystemAbstraction fs = new DefaultFileSystemAbstraction();
                   ReadableLogChannel channel = openLogFile( fs, 0 ) )
             {
-                LogEntryReader<ReadableLogChannel> reader = new VersionAwareLogEntryReader<>();
+                LogEntryReader reader = logEntryReader();
                 LogEntry logEntry = reader.readLogEntry( channel );
                 for ( ; logEntry != null; logEntry = reader.readLogEntry( channel ) )
                 {
-                    if ( logEntry.getType() == LogEntryByteCodes.TX_1P_COMMIT )
+                    if ( logEntry instanceof LogEntryCommit )
                     {
-                        txId = logEntry.<OnePhaseCommit>as().getTxId();
+                        txId = ((LogEntryCommit) logEntry).getTxId();
                     }
                 }
             }
@@ -128,9 +137,12 @@ public class TransactionAppenderStressTest
 
         private ReadableLogChannel openLogFile( FileSystemAbstraction fs, int version ) throws IOException
         {
-            PhysicalLogFiles logFiles = new PhysicalLogFiles( workingDirectory, fs );
-            PhysicalLogVersionedStoreChannel channel = PhysicalLogFile.openForVersion( logFiles, fs, version, false );
-            return new ReadAheadLogChannel( channel, new ReaderLogVersionBridge( fs, logFiles ) );
+            LogFiles logFiles = LogFilesBuilder.logFilesBasedOnlyBuilder( workingDirectory, fs )
+                    .withLogEntryReader( logEntryReader() )
+                    .build();
+            LogFile logFile = logFiles.getLogFile();
+            PhysicalLogVersionedStoreChannel channel = logFile.openForVersion( version );
+            return new ReadAheadLogChannel( channel, new ReaderLogVersionBridge( logFile ), INSTANCE );
         }
     }
 }

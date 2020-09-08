@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -32,12 +32,16 @@ public class LocalVariables
     private final AtomicInteger counter = new AtomicInteger( 0 );
     private final Map<String,LocalVariable> localVariables = new HashMap<>();
 
-    public LocalVariable createNew( TypeReference type, String name )
+    LocalVariable createNew( TypeReference type, String name )
     {
+        if ( localVariables.containsKey( name ) )
+        {
+           throw new IllegalStateException( String.format( "Local variable %s already in scope", name ) );
+        }
         LocalVariable localVariable = new LocalVariable( type, name, counter.getAndIncrement() );
         localVariables.put( name, localVariable );
         //if 64 bit types we need to give it one more index
-        if (type.simpleName().equals( "double" ) || type.simpleName().equals( "long" ))
+        if ( type.simpleName().equals( "double" ) || type.simpleName().equals( "long" ) )
         {
             counter.incrementAndGet();
         }
@@ -47,9 +51,9 @@ public class LocalVariables
     public LocalVariable get( String name )
     {
         LocalVariable localVariable = localVariables.get( name );
-        if (localVariable == null)
+        if ( localVariable == null )
         {
-            throw new NoSuchElementException( "No variable " + name + " in scope" );
+            throw new NoSuchElementException( "No variable '" + name + "' in scope" );
         }
         return localVariable;
     }

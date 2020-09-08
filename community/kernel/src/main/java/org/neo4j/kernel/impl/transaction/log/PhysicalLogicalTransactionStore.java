@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,137 +19,108 @@
  */
 package org.neo4j.kernel.impl.transaction.log;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.NoSuchFileException;
 
-import org.neo4j.cursor.IOCursor;
-import org.neo4j.kernel.impl.transaction.CommittedTransactionRepresentation;
-import org.neo4j.kernel.impl.transaction.log.TransactionMetadataCache.TransactionMetadata;
 import org.neo4j.kernel.impl.transaction.log.entry.LogEntry;
 import org.neo4j.kernel.impl.transaction.log.entry.LogEntryCommit;
 import org.neo4j.kernel.impl.transaction.log.entry.LogEntryReader;
 import org.neo4j.kernel.impl.transaction.log.entry.LogEntryStart;
-import org.neo4j.kernel.impl.transaction.log.entry.VersionAwareLogEntryReader;
+import org.neo4j.kernel.impl.transaction.log.entry.LogHeader;
+import org.neo4j.kernel.impl.transaction.log.files.LogFile;
+import org.neo4j.kernel.impl.transaction.log.files.LogFiles;
+import org.neo4j.kernel.impl.transaction.log.files.LogHeaderVisitor;
+import org.neo4j.kernel.impl.transaction.log.reverse.ReversedMultiFileTransactionCursor;
+import org.neo4j.kernel.impl.transaction.log.reverse.ReversedTransactionCursorMonitor;
+import org.neo4j.monitoring.Monitors;
 
-import static org.neo4j.kernel.impl.transaction.log.TransactionIdStore.BASE_TX_CHECKSUM;
-import static org.neo4j.kernel.impl.transaction.log.TransactionIdStore.BASE_TX_COMMIT_TIMESTAMP;
-import static org.neo4j.kernel.impl.transaction.log.TransactionIdStore.BASE_TX_ID;
-import static org.neo4j.kernel.impl.transaction.log.entry.LogEntryByteCodes.TX_1P_COMMIT;
-import static org.neo4j.kernel.impl.transaction.log.entry.LogEntryByteCodes.TX_START;
+import static org.neo4j.kernel.impl.transaction.log.entry.LogEntryTypeCodes.TX_COMMIT;
+import static org.neo4j.kernel.impl.transaction.log.entry.LogEntryTypeCodes.TX_START;
 
 public class PhysicalLogicalTransactionStore implements LogicalTransactionStore
 {
     private final LogFile logFile;
     private final TransactionMetadataCache transactionMetadataCache;
-    private final LogEntryReader<ReadableClosablePositionAwareChannel> logEntryReader;
+    private final LogEntryReader logEntryReader;
+    private final Monitors monitors;
+    private final boolean failOnCorruptedLogFiles;
 
-    public PhysicalLogicalTransactionStore( LogFile logFile, TransactionMetadataCache transactionMetadataCache,
-            LogEntryReader<ReadableClosablePositionAwareChannel> logEntryReader )
+    public PhysicalLogicalTransactionStore( LogFiles logFiles,
+            TransactionMetadataCache transactionMetadataCache,
+            LogEntryReader logEntryReader, Monitors monitors,
+            boolean failOnCorruptedLogFiles )
     {
-        this.logFile = logFile;
+        this.logFile = logFiles.getLogFile();
         this.transactionMetadataCache = transactionMetadataCache;
         this.logEntryReader = logEntryReader;
+        this.monitors = monitors;
+        this.failOnCorruptedLogFiles = failOnCorruptedLogFiles;
     }
 
     @Override
     public TransactionCursor getTransactions( LogPosition position ) throws IOException
     {
-        return new PhysicalTransactionCursor<>( logFile.getReader( position ), new VersionAwareLogEntryReader<>() );
+        return new PhysicalTransactionCursor( logFile.getReader( position ), logEntryReader );
     }
 
     @Override
-    public TransactionCursor getTransactions( final long transactionIdToStartFrom )
-            throws IOException
+    public TransactionCursor getTransactionsInReverseOrder( LogPosition backToPosition )
+    {
+        return ReversedMultiFileTransactionCursor
+                .fromLogFile( logFile, backToPosition, logEntryReader, failOnCorruptedLogFiles,
+                        monitors.newMonitor( ReversedTransactionCursorMonitor.class ) );
+    }
+
+    @Override
+    public TransactionCursor getTransactions( final long transactionIdToStartFrom ) throws IOException
     {
         // look up in position cache
         try
         {
-            TransactionMetadataCache.TransactionMetadata transactionMetadata =
-                    transactionMetadataCache.getTransactionMetadata( transactionIdToStartFrom );
+            TransactionMetadataCache.TransactionMetadata transactionMetadata = transactionMetadataCache.getTransactionMetadata( transactionIdToStartFrom );
             if ( transactionMetadata != null )
             {
                 // we're good
                 ReadableLogChannel channel = logFile.getReader( transactionMetadata.getStartPosition() );
-                return new PhysicalTransactionCursor<>( channel, logEntryReader );
+                return new PhysicalTransactionCursor( channel, logEntryReader );
             }
 
-            // ask LogFile about the version it may be in
+            // ask logFiles about the version it may be in
             LogVersionLocator headerVisitor = new LogVersionLocator( transactionIdToStartFrom );
             logFile.accept( headerVisitor );
 
             // ask LogFile
-            TransactionPositionLocator transactionPositionLocator =
-                    new TransactionPositionLocator( transactionIdToStartFrom, logEntryReader );
+            TransactionPositionLocator transactionPositionLocator = new TransactionPositionLocator( transactionIdToStartFrom, logEntryReader );
             logFile.accept( transactionPositionLocator, headerVisitor.getLogPosition() );
             LogPosition position = transactionPositionLocator.getAndCacheFoundLogPosition( transactionMetadataCache );
-            return new PhysicalTransactionCursor<>( logFile.getReader( position ), logEntryReader );
+            return new PhysicalTransactionCursor( logFile.getReader( position ), logEntryReader );
         }
-        catch ( FileNotFoundException e )
+        catch ( NoSuchFileException e )
         {
-            throw new NoSuchTransactionException( transactionIdToStartFrom,
-                    "Log position acquired, but couldn't find the log file itself. Perhaps it just recently was deleted? [" + e.getMessage() + "]" );
+            throw new NoSuchTransactionException(
+                    transactionIdToStartFrom,
+                    "Log position acquired, but couldn't find the log file itself. Perhaps it just recently was " +
+                    "deleted? [" + e.getMessage() + "]",
+                    e );
         }
-    }
-
-    private static final TransactionMetadataCache.TransactionMetadata METADATA_FOR_EMPTY_STORE =
-            new TransactionMetadataCache.TransactionMetadata( -1, -1, LogPosition.start( 0 ), BASE_TX_CHECKSUM,
-                    BASE_TX_COMMIT_TIMESTAMP );
-
-    @Override
-    public TransactionMetadata getMetadataFor( long transactionId ) throws IOException
-    {
-        if ( transactionId <= BASE_TX_ID )
-        {
-            return METADATA_FOR_EMPTY_STORE;
-        }
-
-        TransactionMetadata transactionMetadata =
-                transactionMetadataCache.getTransactionMetadata( transactionId );
-        if ( transactionMetadata == null )
-        {
-            try ( IOCursor<CommittedTransactionRepresentation> cursor = getTransactions( transactionId ) )
-            {
-                while ( cursor.next() )
-                {
-                    CommittedTransactionRepresentation tx = cursor.get();
-                    LogEntryCommit commitEntry = tx.getCommitEntry();
-                    long committedTxId = commitEntry.getTxId();
-                    long timeWritten = commitEntry.getTimeWritten();
-                    TransactionMetadata metadata = transactionMetadataCache.cacheTransactionMetadata( committedTxId,
-                            tx.getStartEntry().getStartPosition(), tx.getStartEntry().getMasterId(),
-                            tx.getStartEntry().getLocalId(), LogEntryStart.checksum( tx.getStartEntry() ),
-                            timeWritten );
-                    if ( committedTxId == transactionId )
-                    {
-                        transactionMetadata = metadata;
-                    }
-                }
-            }
-            if ( transactionMetadata == null )
-            {
-                throw new NoSuchTransactionException( transactionId );
-            }
-        }
-
-        return transactionMetadata;
     }
 
     public static class TransactionPositionLocator implements LogFile.LogFileVisitor
     {
         private final long startTransactionId;
-        private final LogEntryReader<ReadableClosablePositionAwareChannel> logEntryReader;
+        private final LogEntryReader logEntryReader;
         private LogEntryStart startEntryForFoundTransaction;
         private long commitTimestamp;
+        private int commitChecksum;
 
-        public TransactionPositionLocator( long startTransactionId,
-                LogEntryReader<ReadableClosablePositionAwareChannel> logEntryReader )
+        TransactionPositionLocator( long startTransactionId, LogEntryReader logEntryReader )
         {
             this.startTransactionId = startTransactionId;
             this.logEntryReader = logEntryReader;
         }
 
         @Override
-        public boolean visit( LogPosition position, ReadableClosablePositionAwareChannel channel ) throws IOException
+        public boolean visit( ReadableClosablePositionAwareChecksumChannel channel ) throws IOException
         {
             LogEntry logEntry;
             LogEntryStart startEntry = null;
@@ -158,16 +129,18 @@ public class PhysicalLogicalTransactionStore implements LogicalTransactionStore
                 switch ( logEntry.getType() )
                 {
                 case TX_START:
-                    startEntry = logEntry.as();
+                    startEntry = (LogEntryStart) logEntry;
                     break;
-                case TX_1P_COMMIT:
-                    LogEntryCommit commit = logEntry.as();
+                case TX_COMMIT:
+                    LogEntryCommit commit = (LogEntryCommit) logEntry;
                     if ( commit.getTxId() == startTransactionId )
                     {
                         startEntryForFoundTransaction = startEntry;
                         commitTimestamp = commit.getTimeWritten();
+                        commitChecksum = commit.getChecksum();
                         return false;
                     }
+                    break;
                 default: // just skip commands
                     break;
                 }
@@ -175,8 +148,7 @@ public class PhysicalLogicalTransactionStore implements LogicalTransactionStore
             return true;
         }
 
-        public LogPosition getAndCacheFoundLogPosition( TransactionMetadataCache transactionMetadataCache )
-                throws NoSuchTransactionException
+        LogPosition getAndCacheFoundLogPosition( TransactionMetadataCache transactionMetadataCache ) throws NoSuchTransactionException
         {
             if ( startEntryForFoundTransaction == null )
             {
@@ -185,9 +157,7 @@ public class PhysicalLogicalTransactionStore implements LogicalTransactionStore
             transactionMetadataCache.cacheTransactionMetadata(
                     startTransactionId,
                     startEntryForFoundTransaction.getStartPosition(),
-                    startEntryForFoundTransaction.getMasterId(),
-                    startEntryForFoundTransaction.getLocalId(),
-                    LogEntryStart.checksum( startEntryForFoundTransaction ),
+                    commitChecksum,
                     commitTimestamp
             );
             return startEntryForFoundTransaction.getStartPosition();
@@ -205,7 +175,7 @@ public class PhysicalLogicalTransactionStore implements LogicalTransactionStore
         }
 
         @Override
-        public boolean visit( LogPosition position, long firstTransactionIdInLog, long lastTransactionIdInLog )
+        public boolean visit( LogHeader logHeader, LogPosition position, long firstTransactionIdInLog, long lastTransactionIdInLog )
         {
             boolean foundIt = transactionId >= firstTransactionIdInLog &&
                               transactionId <= lastTransactionIdInLog;
@@ -220,8 +190,7 @@ public class PhysicalLogicalTransactionStore implements LogicalTransactionStore
         {
             if ( foundPosition == null )
             {
-                throw new NoSuchTransactionException( transactionId,
-                        "Couldn't find any log containing " + transactionId );
+                throw new NoSuchTransactionException( transactionId, "Couldn't find any log containing " + transactionId );
             }
             return foundPosition;
         }

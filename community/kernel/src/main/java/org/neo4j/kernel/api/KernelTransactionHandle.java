@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,13 +19,17 @@
  */
 package org.neo4j.kernel.api;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
+import org.neo4j.internal.kernel.api.connectioninfo.ClientConnectionInfo;
+import org.neo4j.internal.kernel.api.security.AuthSubject;
+import org.neo4j.internal.kernel.api.security.LoginContext;
 import org.neo4j.kernel.api.exceptions.Status;
 import org.neo4j.kernel.api.query.ExecutingQuery;
-import org.neo4j.kernel.api.security.SecurityContext;
-import org.neo4j.kernel.impl.api.Kernel;
+import org.neo4j.kernel.impl.api.TransactionExecutionStatistic;
+import org.neo4j.kernel.impl.api.transaction.trace.TransactionInitializationTrace;
 import org.neo4j.kernel.impl.locking.ActiveLock;
 
 /**
@@ -33,12 +37,6 @@ import org.neo4j.kernel.impl.locking.ActiveLock;
  */
 public interface KernelTransactionHandle
 {
-    /**
-     * The id of the last transaction that was committed to the store when the underlying transaction started.
-     *
-     * @return the committed transaction id.
-     */
-    long lastTransactionIdWhenStarted();
 
     /**
      * The timestamp of the last transaction that was committed to the store when the underlying transaction started.
@@ -49,19 +47,40 @@ public interface KernelTransactionHandle
 
     /**
      * The start time of the underlying transaction. I.e. basically {@link System#currentTimeMillis()} when user
-     * called {@link Kernel#newTransaction(KernelTransaction.Type, SecurityContext)}.
+     * called {@link Kernel#beginTransaction(KernelTransaction.Type, LoginContext)}.
      *
      * @return the transaction start time.
      */
     long startTime();
 
     /**
+     * The start time of the underlying transaction.
+     *
+     * This can be used to measure elapsed time in a safe way that is not affected by system time changes.
+     *
+     * @return nanoTime at the start of the transaction.
+     */
+    long startTimeNanos();
+
+    /**
+     * Underlying transaction specific timeout. In case if timeout is 0 - transaction does not have a timeout.
+     * @return transaction timeout in milliseconds, <b>0 in case if transaction does not have a timeout<b/>
+     */
+    long timeoutMillis();
+
+    /**
      * Check if the underlying transaction is open.
      *
-     * @return {@code true} if the underlying transaction ({@link KernelTransaction#close()} was not called),
-     * {@code false} otherwise.
+     * @return {@code true} if the underlying transaction {@link KernelTransaction#close()} was not called, {@code false} otherwise.
      */
     boolean isOpen();
+
+    /**
+     * Check if the underlying transaction is closing. Closing means that the transaction is closed by the user and currently doing commit or rollback.
+     *
+     * @return {@code true} if the underlying transaction ({@link KernelTransaction#close()} is called, but not finished, {@code false} otherwise.
+     */
+    boolean isClosing();
 
     /**
      * Mark the underlying transaction for termination.
@@ -77,7 +96,13 @@ public interface KernelTransactionHandle
      *
      * @return underlying transaction security context
      */
-    SecurityContext securityContext();
+    AuthSubject subject();
+
+    /**
+     * Metadata of underlying transaction that transaction has when handle was created.
+     * @return underlying transaction metadata
+     */
+    Map<String, Object> getMetaData();
 
     /**
      * Transaction termination reason that transaction had when handle was created.
@@ -95,12 +120,51 @@ public interface KernelTransactionHandle
     boolean isUnderlyingTransaction( KernelTransaction tx );
 
     /**
-     * @return a list of all queries currently executing that use the underlying transaction
+     * User transaction id of underlying transaction. User transaction id is a not negative long number.
+     * Should be unique across transactions.
+     * @return user transaction id
      */
-    Stream<ExecutingQuery> executingQueries();
+    long getUserTransactionId();
+
+    /**
+     * User transaction name of the underlying transaction.
+     * User transaction name consists of the name prefix and user transaction id.
+     * Should be unique across transactions.
+     * @return user transaction name
+     */
+    String getUserTransactionName();
+
+    /**
+     * Query currently executing, if any, that use the underlying transaction
+     */
+    Optional<ExecutingQuery> executingQuery();
 
     /**
      * @return the lock requests granted for this transaction.
      */
-    Stream<? extends ActiveLock> activeLocks();
+    Stream<ActiveLock> activeLocks();
+
+    /**
+     * Provide underlying transaction execution statistics. For example: elapsed time, allocated bytes etc
+     * @return transaction statistics projection
+     */
+    TransactionExecutionStatistic transactionStatistic();
+
+    /**
+     * Provide stack trace of particular transaction initialisation call if that is available, empty record otherwise
+     * @return transaction initialization trace
+     */
+    TransactionInitializationTrace transactionInitialisationTrace();
+
+    /**
+     * Provide underlying transaction originator details
+     * @return transaction originator details
+     */
+    Optional<ClientConnectionInfo> clientInfo();
+
+    /**
+     * @return whether or not this transaction is a schema transaction. Type of transaction is decided
+     * on first write operation, be it data or schema operation.
+     */
+    boolean isSchemaTransaction();
 }

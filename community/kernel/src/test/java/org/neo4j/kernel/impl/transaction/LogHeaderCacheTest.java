@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,53 +19,56 @@
  */
 package org.neo4j.kernel.impl.transaction;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.kernel.impl.transaction.log.LogHeaderCache;
+import org.neo4j.kernel.impl.transaction.log.entry.LogHeader;
+import org.neo4j.storageengine.api.StoreId;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
-public class LogHeaderCacheTest
+class LogHeaderCacheTest
 {
     @Test
-    public void shouldReturnNullWhenThereIsNoHeaderInTheCache()
+    void shouldReturnNullWhenThereIsNoHeaderInTheCache()
     {
         // given
         final LogHeaderCache cache = new LogHeaderCache( 2 );
 
         // when
-        final Long logHeader = cache.getLogHeader( 5 );
+        final LogHeader logHeader = cache.getLogHeader( 5 );
 
         // then
-        assertEquals( null, logHeader );
+        assertNull( logHeader );
     }
 
     @Test
-    public void shouldReturnTheHeaderIfInTheCache()
+    void shouldReturnTheHeaderIfInTheCache()
     {
         // given
         final LogHeaderCache cache = new LogHeaderCache( 2 );
 
         // when
-        cache.putHeader( 5, 3 );
-        final long logHeader = cache.getLogHeader( 5 );
+        cache.putHeader( 5, new LogHeader( 1, 3, StoreId.UNKNOWN ) );
+        final LogHeader logHeader = cache.getLogHeader( 5 );
 
         // then
-        assertEquals( 3, logHeader );
+        assertEquals( 3, logHeader.getLastCommittedTxId() );
     }
 
     @Test
-    public void shouldClearTheCache()
+    void shouldClearTheCache()
     {
         // given
         final LogHeaderCache cache = new LogHeaderCache( 2 );
 
         // when
-        cache.putHeader( 5, 3 );
+        cache.putHeader( 5, new LogHeader( 1, 3, StoreId.UNKNOWN ) );
         cache.clear();
-        final Long logHeader = cache.getLogHeader( 5 );
+        final LogHeader logHeader = cache.getLogHeader( 5 );
 
         // then
-        assertEquals( null, logHeader );
+        assertNull( logHeader );
     }
 }

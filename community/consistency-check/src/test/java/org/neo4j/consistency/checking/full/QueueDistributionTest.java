@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,36 +19,33 @@
  */
 package org.neo4j.consistency.checking.full;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.ThreadLocalRandom;
 
 import org.neo4j.kernel.impl.store.record.RelationshipRecord;
 
-import static org.hamcrest.Matchers.allOf;
-import static org.hamcrest.Matchers.greaterThanOrEqualTo;
-import static org.hamcrest.Matchers.lessThan;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
-public class QueueDistributionTest
+class QueueDistributionTest
 {
 
     private static final int MAX_NUMBER_OF_THREADS = 1_000_000;
     private static final int NUMBER_OF_DISTRIBUTION_ITERATIONS = 1000;
 
     @Test
-    public void roundRobinRecordDistribution() throws Exception
+    void roundRobinRecordDistribution() throws Exception
     {
         testRecordDistribution( QueueDistribution.ROUND_ROBIN );
     }
 
     @Test
-    public void relationshipNodesDistribution() throws InterruptedException
+    void relationshipNodesDistribution() throws InterruptedException
     {
         testRecordDistribution( QueueDistribution.RELATIONSHIPS );
     }
 
-    private void testRecordDistribution( QueueDistribution queueDistribution ) throws InterruptedException
+    private static void testRecordDistribution( QueueDistribution queueDistribution ) throws InterruptedException
     {
         ThreadLocalRandom randomGenerator = ThreadLocalRandom.current();
         int numberOfThreads = randomGenerator.nextInt( MAX_NUMBER_OF_THREADS );
@@ -60,16 +57,13 @@ public class QueueDistributionTest
             RelationshipRecord relationshipRecord = new RelationshipRecord( 1 );
             relationshipRecord.setFirstNode( nextLong( randomGenerator ) );
             relationshipRecord.setSecondNode( nextLong( randomGenerator ) );
-            distributor.distribute( relationshipRecord, ( record, qIndex ) ->
-            {
-                assertThat( "Distribution index for record " + record + " should be within a range of available " +
-                                "executors, while expected records per cpu is: " + recordsPerCpu, qIndex,
-                        allOf( greaterThanOrEqualTo( 0 ), lessThan( numberOfThreads ) ) );
-            } );
+            distributor.distribute( relationshipRecord, ( record, qIndex ) -> assertThat( qIndex ).as(
+                    "Distribution index for record " + record + " should be within a range of available executors, while expected records per cpu is: " +
+                            recordsPerCpu ).isGreaterThanOrEqualTo( 0 ).isLessThan( numberOfThreads ) );
         }
     }
 
-    private long nextLong( ThreadLocalRandom randomGenerator )
+    private static long nextLong( ThreadLocalRandom randomGenerator )
     {
         return randomGenerator.nextLong();
     }

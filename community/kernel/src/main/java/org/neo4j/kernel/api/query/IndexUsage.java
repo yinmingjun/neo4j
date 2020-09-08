@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -23,22 +23,12 @@ import java.util.Map;
 
 public abstract class IndexUsage
 {
-    public static IndexUsage schemaIndexUsage( String identifier, String label, String... propertyKeys )
-    {
-        return new SchemaIndexUsage( identifier, label, propertyKeys );
-    }
-
-    public static IndexUsage legacyIndexUsage( String identifier, String entityType, String index )
-    {
-        return new LegacyIndexUsage( identifier, index, entityType );
-    }
-
-    public abstract Map<String,String> asMap();
-
-    final String identifier;
+    protected final String identifier;
 
     IndexUsage( String identifier )
     {
         this.identifier = identifier;
     }
+
+    public abstract Map<String,String> asMap();
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,25 +19,37 @@
  */
 package org.neo4j.kernel.impl.transaction.log.checkpoint;
 
-import java.time.Clock;
+import java.time.Duration;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 
-public class TimeCheckPointThreshold extends AbstractCheckPointThreshold
+import org.neo4j.internal.helpers.Format;
+import org.neo4j.time.Stopwatch;
+import org.neo4j.time.SystemNanoClock;
+
+class TimeCheckPointThreshold extends AbstractCheckPointThreshold
 {
     private volatile long lastCheckPointedTransactionId;
-    private volatile long nextCheckPointTime;
+    private volatile Duration timeout;
+    private volatile Stopwatch stopWatch;
 
     private final long timeMillisThreshold;
-    private final Clock clock;
+    private final SystemNanoClock clock;
 
-    public TimeCheckPointThreshold( long thresholdMillis, Clock clock )
+    TimeCheckPointThreshold( long thresholdMillis, SystemNanoClock clock )
     {
+        super( "every " + formatDuration( thresholdMillis ) + " threshold" );
         this.timeMillisThreshold = thresholdMillis;
         this.clock = clock;
         // The random start offset means database in a cluster will not all check-point at the same time.
         long randomStartOffset = thresholdMillis > 0 ? ThreadLocalRandom.current().nextLong( thresholdMillis ) : 0;
-        this.nextCheckPointTime = clock.millis() + thresholdMillis + randomStartOffset;
+        this.timeout = Duration.ofMillis( thresholdMillis + randomStartOffset );
+        this.stopWatch = clock.startStopWatch();
+    }
 
+    private static String formatDuration( long thresholdMillis )
+    {
+        return Format.duration( thresholdMillis, TimeUnit.DAYS, TimeUnit.MILLISECONDS, unit -> ' ' + unit.name().toLowerCase() );
     }
 
     @Override
@@ -49,20 +61,20 @@ public class TimeCheckPointThreshold extends AbstractCheckPointThreshold
     @Override
     protected boolean thresholdReached( long lastCommittedTransactionId )
     {
-        return lastCommittedTransactionId > lastCheckPointedTransactionId &&
-               clock.millis() >= nextCheckPointTime;
-    }
-
-    @Override
-    protected String description()
-    {
-        return "time threshold";
+        return lastCommittedTransactionId > lastCheckPointedTransactionId && stopWatch.hasTimedOut( timeout );
     }
 
     @Override
     public void checkPointHappened( long transactionId )
     {
-        nextCheckPointTime = clock.millis() + timeMillisThreshold;
         lastCheckPointedTransactionId = transactionId;
+        stopWatch = clock.startStopWatch();
+        timeout = Duration.ofMillis( timeMillisThreshold );
+    }
+
+    @Override
+    public long checkFrequencyMillis()
+    {
+        return timeMillisThreshold;
     }
 }

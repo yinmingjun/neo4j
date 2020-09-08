@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -25,9 +25,9 @@ import java.util.function.Consumer;
 public class CatchClause
 {
     private final Parameter exception;
-    private final List<Consumer<MethodEmitter>> actions;
+    private final List<Consumer<MethodWriter>> actions;
 
-    public CatchClause( Parameter exception, List<Consumer<MethodEmitter>> actions )
+    public CatchClause( Parameter exception, List<Consumer<MethodWriter>> actions )
     {
         this.exception = exception;
         this.actions = actions;
@@ -38,7 +38,7 @@ public class CatchClause
         return exception;
     }
 
-    public List<Consumer<MethodEmitter>> actions()
+    public List<Consumer<MethodWriter>> actions()
     {
         return actions;
     }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,34 +19,33 @@
  */
 package org.neo4j.kernel.impl.factory;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
 
-import org.neo4j.kernel.configuration.Config;
+import org.neo4j.configuration.Config;
 import org.neo4j.kernel.impl.locking.Locks;
 import org.neo4j.kernel.impl.locking.Locks.Client;
 import org.neo4j.kernel.impl.locking.SimpleStatementLocks;
 import org.neo4j.kernel.impl.locking.SimpleStatementLocksFactory;
 import org.neo4j.kernel.impl.locking.StatementLocks;
 import org.neo4j.kernel.impl.locking.StatementLocksFactory;
-import org.neo4j.kernel.impl.logging.LogService;
-import org.neo4j.kernel.impl.logging.NullLogService;
+import org.neo4j.logging.internal.LogService;
+import org.neo4j.logging.internal.NullLogService;
 
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertThat;
-import static org.mockito.Matchers.same;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-public class StatementLocksFactorySelectorTest
+class StatementLocksFactorySelectorTest
 {
     @Test
-    public void loadSimpleStatementLocksFactoryWhenNoServices()
+    void loadSimpleStatementLocksFactoryWhenNoServices()
     {
         Locks locks = mock( Locks.class );
         Locks.Client locksClient = mock( Client.class );
@@ -57,15 +56,15 @@ public class StatementLocksFactorySelectorTest
         StatementLocksFactory factory = loader.select();
         StatementLocks statementLocks = factory.newInstance();
 
-        assertThat( factory, instanceOf( SimpleStatementLocksFactory.class ) );
-        assertThat( statementLocks, instanceOf( SimpleStatementLocks.class ) );
+        assertThat( factory ).isInstanceOf( SimpleStatementLocksFactory.class );
+        assertThat( statementLocks ).isInstanceOf( SimpleStatementLocks.class );
 
         assertSame( locksClient, statementLocks.optimistic() );
         assertSame( locksClient, statementLocks.pessimistic() );
     }
 
     @Test
-    public void loadSingleAvailableFactory()
+    void loadSingleAvailableFactory()
     {
         Locks locks = mock( Locks.class );
         StatementLocksFactory factory = mock( StatementLocksFactory.class );
@@ -79,7 +78,7 @@ public class StatementLocksFactorySelectorTest
     }
 
     @Test
-    public void throwWhenMultipleFactoriesLoaded()
+    void throwWhenMultipleFactoriesLoaded()
     {
         TestStatementLocksFactorySelector loader = newLoader( mock( Locks.class ),
                 mock( StatementLocksFactory.class ),
@@ -92,13 +91,13 @@ public class StatementLocksFactorySelectorTest
         }
         catch ( Exception e )
         {
-            assertThat( e, instanceOf( IllegalStateException.class ) );
+            assertThat( e ).isInstanceOf( IllegalStateException.class );
         }
     }
 
     private static TestStatementLocksFactorySelector newLoader( Locks locks, StatementLocksFactory... factories )
     {
-        return new TestStatementLocksFactorySelector( locks, Config.empty(), NullLogService.getInstance(), factories );
+        return new TestStatementLocksFactorySelector( locks, Config.defaults(), NullLogService.getInstance(), factories );
     }
 
     private static class TestStatementLocksFactorySelector extends StatementLocksFactorySelector

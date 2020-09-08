@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -28,7 +28,6 @@ import org.neo4j.graphdb.Path;
  * should continue down that path or if it should be pruned so that the traverser
  * won't continue down that path.
  *
- * @author Mattias Persson
  * @see Evaluation
  * @see Evaluators
  * @see TraversalDescription#evaluator(Evaluator)

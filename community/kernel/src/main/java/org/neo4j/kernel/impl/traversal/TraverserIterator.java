@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,10 +19,11 @@
  */
 package org.neo4j.kernel.impl.traversal;
 
+import java.util.Iterator;
+
 import org.neo4j.graphdb.Path;
-import org.neo4j.graphdb.ResourceIterator;
 import org.neo4j.graphdb.traversal.TraversalContext;
 
-public interface TraverserIterator extends ResourceIterator<Path>, TraversalContext
+interface TraverserIterator extends Iterator<Path>, TraversalContext
 {
 }

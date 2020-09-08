@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,19 +19,23 @@
  */
 package org.neo4j.kernel.impl.locking;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+
+import org.neo4j.lock.Lock;
+import org.neo4j.lock.LockGroup;
 
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-public class LockGroupTest
+class LockGroupTest
 {
     @Test
-    public void shouldReleaseAllLocksWhenExitingTheLockGroupRegion() throws Exception
+    void shouldReleaseAllLocksWhenExitingTheLockGroupRegion()
     {
         // given
-        Lock lock1 = mock( Lock.class ), lock2 = mock( Lock.class ), lock3 = mock( Lock.class );
+        Lock lock1 = mock( Lock.class );
+        Lock lock2 = mock( Lock.class );
+        Lock lock3 = mock( Lock.class );
 
         // when
         try ( LockGroup locks = new LockGroup() )
@@ -42,8 +46,8 @@ public class LockGroupTest
         }
 
         // then
-        verify( lock1, times( 1 ) ).release();
-        verify( lock2, times( 1 ) ).release();
-        verify( lock3, times( 1 ) ).release();
+        verify( lock1 ).release();
+        verify( lock2 ).release();
+        verify( lock3 ).release();
     }
 }

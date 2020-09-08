@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,17 +19,21 @@
  */
 package org.neo4j.kernel.impl.transaction.log.pruning;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 
 import org.neo4j.kernel.impl.transaction.log.LogFileInformation;
+import org.neo4j.logging.Log;
+import org.neo4j.logging.LogProvider;
 
 public final class EntryCountThreshold implements Threshold
 {
     private final long maxTransactionCount;
+    private final Log log;
 
-    public EntryCountThreshold( long maxTransactionCount )
+    EntryCountThreshold( LogProvider logProvider, long maxTransactionCount )
     {
+        this.log = logProvider.getLog( getClass() );
         this.maxTransactionCount = maxTransactionCount;
     }
 
@@ -40,17 +44,17 @@ public final class EntryCountThreshold implements Threshold
     }
 
     @Override
-    public boolean reached( File ignored, long version, LogFileInformation source )
+    public boolean reached( Path ignored, long version, LogFileInformation source )
     {
+        long nextVersion = version + 1;
         try
         {
             // try to ask next version log file which is my last tx
-            long lastTx = source.getFirstEntryId( version + 1 );
+            long lastTx = source.getFirstEntryId( nextVersion );
             if ( lastTx == -1 )
             {
-                throw new IllegalStateException(
-                        "The next version should always exist, since this is called after rotation and the " +
-                        "PruneStrategy never checks the current active log file" );
+                log.warn( "Fail to get id of the first entry in the next transaction log file. Requested version: " + nextVersion );
+                return false;
             }
 
             long highest = source.getLastEntryId();
@@ -58,7 +62,14 @@ public final class EntryCountThreshold implements Threshold
         }
         catch ( IOException e )
         {
-            throw new RuntimeException( e );
+            log.warn( "Error on attempt to get entry ids from transaction log files. Checked version: " + version, e );
+            return false;
         }
+    }
+
+    @Override
+    public String toString()
+    {
+        return maxTransactionCount + " entries";
     }
 }

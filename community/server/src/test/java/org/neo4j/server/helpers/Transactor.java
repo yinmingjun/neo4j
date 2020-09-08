@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -48,8 +48,8 @@ public class Transactor
         {
             try ( Transaction tx = graphDb.beginTx() )
             {
-                unitOfWork.doWork();
-                tx.success();
+                unitOfWork.doWork( tx );
+                tx.commit();
             }
             catch ( RuntimeException e )
             {

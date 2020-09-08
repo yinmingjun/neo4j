@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -28,6 +28,12 @@ import org.neo4j.graphdb.Path;
 import org.neo4j.graphdb.Relationship;
 import org.neo4j.procedure.Name;
 import org.neo4j.procedure.Procedure;
+
+import static org.neo4j.procedure.Mode.DBMS;
+import static org.neo4j.procedure.Mode.DEFAULT;
+import static org.neo4j.procedure.Mode.READ;
+import static org.neo4j.procedure.Mode.SCHEMA;
+import static org.neo4j.procedure.Mode.WRITE;
 
 public class Procedures
 {
@@ -213,5 +219,30 @@ public class Procedures
             @Name( "foo" ) Map<String,List<List<Map<String,Map<String,List<Path>>>>>> input )
     {
         return Stream.of( new Records.GenericTypesWrapper() );
+    }
+
+    @Procedure( mode = DEFAULT )
+    public void defaultMode()
+    {
+    }
+
+    @Procedure( mode = READ )
+    public void readMode()
+    {
+    }
+
+    @Procedure( mode = WRITE )
+    public void writeMode()
+    {
+    }
+
+    @Procedure( mode = SCHEMA )
+    public void schemaMode()
+    {
+    }
+
+    @Procedure( mode = DBMS )
+    public void dbmsMode()
+    {
     }
 }

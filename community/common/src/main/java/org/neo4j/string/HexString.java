@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,9 +22,13 @@ package org.neo4j.string;
 /**
  * Utility for dealing with hexadecimal strings.
  */
-public class HexString
+public final class HexString
 {
     private static final char[] hexArray = "0123456789ABCDEF".toCharArray();
+
+    private HexString()
+    {
+    }
 
     /**
      * Converts a byte array to a hexadecimal string.

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -23,7 +23,7 @@ import java.util.Arrays;
 
 import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.store.RecordAccess;
-import org.neo4j.kernel.impl.store.record.NeoStoreRecord;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.record.NodeRecord;
 import org.neo4j.kernel.impl.store.record.PrimitiveRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipRecord;
@@ -33,31 +33,21 @@ public abstract class PrimitiveRecordCheck
         implements OwningRecordCheck<RECORD, REPORT>
 {
     private final RecordField<RECORD, REPORT>[] fields;
-    private final ComparativeRecordChecker<RECORD, PrimitiveRecord, REPORT> ownerCheck =
-            new ComparativeRecordChecker<RECORD, PrimitiveRecord, REPORT>()
+    private final ComparativeRecordChecker<RECORD, PrimitiveRecord, REPORT> ownerCheck = ( record, other, engine, records, cursorTracer ) ->
             {
-                @Override
-                public void checkReference( RECORD record, PrimitiveRecord other, CheckerEngine<RECORD, REPORT> engine,
-                                            RecordAccess records )
+                if ( record.getId() == other.getId() && record.getClass() == other.getClass() )
                 {
-                    if ( record.getId() == other.getId() && record.getClass() == other.getClass() )
-                    {
-                        // Owner identities match. Things are as they should be.
-                        return;
-                    }
+                    // Owner identities match. Things are as they should be.
+                    return;
+                }
 
-                    if ( other instanceof NodeRecord )
-                    {
-                        engine.report().multipleOwners( (NodeRecord) other );
-                    }
-                    else if ( other instanceof RelationshipRecord )
-                    {
-                        engine.report().multipleOwners( (RelationshipRecord) other );
-                    }
-                    else if ( other instanceof NeoStoreRecord )
-                    {
-                        engine.report().multipleOwners( (NeoStoreRecord) other );
-                    }
+                if ( other instanceof NodeRecord )
+                {
+                    engine.report().multipleOwners( (NodeRecord) other );
+                }
+                else if ( other instanceof RelationshipRecord )
+                {
+                    engine.report().multipleOwners( (RelationshipRecord) other );
                 }
             };
 
@@ -68,7 +58,7 @@ public abstract class PrimitiveRecordCheck
     }
 
     @Override
-    public void check( RECORD record, CheckerEngine<RECORD, REPORT> engine, RecordAccess records )
+    public void check( RECORD record, CheckerEngine<RECORD, REPORT> engine, RecordAccess records, PageCursorTracer cursorTracer )
     {
         if ( !record.inUse() )
         {
@@ -76,7 +66,7 @@ public abstract class PrimitiveRecordCheck
         }
         for ( RecordField<RECORD, REPORT> field : fields )
         {
-            field.checkConsistency( record, engine, records );
+            field.checkConsistency( record, engine, records, cursorTracer );
         }
     }
 

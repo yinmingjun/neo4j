@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,6 +20,8 @@
 package org.neo4j.io.fs.watcher.resource;
 
 import java.io.Closeable;
+import java.nio.file.Path;
+import java.nio.file.WatchKey;
 
 import org.neo4j.io.fs.watcher.FileWatcher;
 
@@ -31,8 +33,28 @@ import org.neo4j.io.fs.watcher.FileWatcher;
 public interface WatchedResource extends Closeable
 {
 
-    WatchedResource EMPTY = () ->
+    WatchedResource EMPTY = new WatchedResource()
     {
+        @Override
+        public Path getWatchedFile()
+        {
+            return null;
+        }
+
+        @Override
+        public WatchKey getWatchKey()
+        {
+            return null;
+        }
+
+        @Override
+        public void close()
+        {
+
+        }
     };
 
+    Path getWatchedFile();
+
+    WatchKey getWatchKey();
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -26,7 +26,6 @@ import java.util.Map;
 import org.neo4j.graphdb.Direction;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Path;
-import org.neo4j.graphdb.Resource;
 import org.neo4j.graphdb.traversal.BidirectionalUniquenessFilter;
 import org.neo4j.graphdb.traversal.BranchCollisionDetector;
 import org.neo4j.graphdb.traversal.BranchSelector;
@@ -57,15 +56,13 @@ class BidirectionalTraverserIterator extends AbstractTraverserIterator
         }
     }
 
-    BidirectionalTraverserIterator( Resource resource,
-                                    MonoDirectionalTraversalDescription start,
+    BidirectionalTraverserIterator( MonoDirectionalTraversalDescription start,
                                     MonoDirectionalTraversalDescription end,
                                     SideSelectorPolicy sideSelector,
                                     org.neo4j.graphdb.traversal.BranchCollisionPolicy collisionPolicy,
                                     PathEvaluator collisionEvaluator, int maxDepth,
                                     Iterable<Node> startNodes, Iterable<Node> endNodes )
     {
-        super( resource );
         this.sides.put( Direction.OUTGOING, new Side( start ) );
         this.sides.put( Direction.INCOMING, new Side( end ) );
         this.uniqueness = makeSureStartAndEndHasSameUniqueness( start, end );
@@ -139,19 +136,17 @@ class BidirectionalTraverserIterator extends AbstractTraverserIterator
             if ( foundPaths.hasNext() )
             {
                 numberOfPathsReturned++;
-                Path next = foundPaths.next();
-                return next;
+                return foundPaths.next();
             }
             foundPaths = null;
         }
 
-        TraversalBranch result = null;
+        TraversalBranch result;
         while ( true )
         {
             result = selector.next( this );
             if ( result == null )
             {
-                close();
                 return null;
             }
             Iterable<Path> pathCollisions = collisionDetector.evaluate( result, selector.currentSide() );
@@ -161,8 +156,7 @@ class BidirectionalTraverserIterator extends AbstractTraverserIterator
                 if ( foundPaths.hasNext() )
                 {
                     numberOfPathsReturned++;
-                    Path next = foundPaths.next();
-                    return next;
+                    return foundPaths.next();
                 }
             }
         }

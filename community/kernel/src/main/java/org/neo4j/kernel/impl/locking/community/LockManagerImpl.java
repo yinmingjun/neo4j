@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,90 +19,67 @@
  */
 package org.neo4j.kernel.impl.locking.community;
 
-import java.time.Clock;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.neo4j.graphdb.factory.GraphDatabaseSettings;
-import org.neo4j.helpers.collection.Visitor;
+import org.neo4j.configuration.Config;
+import org.neo4j.configuration.GraphDatabaseSettings;
+import org.neo4j.internal.helpers.collection.Visitor;
 import org.neo4j.kernel.DeadlockDetectedException;
-import org.neo4j.kernel.configuration.Config;
-import org.neo4j.kernel.impl.locking.LockTracer;
 import org.neo4j.kernel.impl.transaction.IllegalResourceException;
-import org.neo4j.logging.Logger;
+import org.neo4j.lock.LockTracer;
+import org.neo4j.time.SystemNanoClock;
+import org.neo4j.util.VisibleForTesting;
 
 public class LockManagerImpl
 {
     private final Map<Object,RWLock> resourceLockMap = new HashMap<>();
     private final RagManager ragManager;
-    private final Clock clock;
+    private final SystemNanoClock clock;
 
     /**
      * Time within which any particular lock should be acquired.
      * @see GraphDatabaseSettings#lock_acquisition_timeout
      */
-    private long lockAcquisitionTimeoutMillis;
+    private final long lockAcquisitionTimeoutNano;
 
-    public LockManagerImpl( RagManager ragManager, Config config, Clock clock )
+    LockManagerImpl( RagManager ragManager, Config config, SystemNanoClock clock )
     {
         this.ragManager = ragManager;
         this.clock = clock;
-        this.lockAcquisitionTimeoutMillis = config.get( GraphDatabaseSettings.lock_acquisition_timeout );
+        this.lockAcquisitionTimeoutNano = config.get( GraphDatabaseSettings.lock_acquisition_timeout ).toNanos();
     }
 
-    public boolean getReadLock( LockTracer tracer, LockResource resource, Object tx )
-            throws DeadlockDetectedException, IllegalResourceException
+    boolean getReadLock( LockTracer tracer, LockResource resource, LockTransaction tx )
+            throws DeadlockDetectedException
     {
         return unusedResourceGuard( resource, tx, getRWLockForAcquiring( resource, tx ).acquireReadLock( tracer, tx ) );
     }
 
-    public boolean tryReadLock( LockResource resource, Object tx )
-            throws IllegalResourceException
+    boolean tryReadLock( LockResource resource, LockTransaction tx )
     {
         return unusedResourceGuard( resource, tx, getRWLockForAcquiring( resource, tx ).tryAcquireReadLock( tx ) );
     }
 
-    public boolean getWriteLock( LockTracer tracer, LockResource resource, Object tx )
-            throws DeadlockDetectedException, IllegalResourceException
+    boolean getWriteLock( LockTracer tracer, LockResource resource, LockTransaction tx )
+            throws DeadlockDetectedException
     {
         return unusedResourceGuard( resource, tx, getRWLockForAcquiring( resource, tx ).acquireWriteLock( tracer, tx ) );
     }
 
-    public boolean tryWriteLock( LockResource resource, Object tx )
-            throws IllegalResourceException
+    boolean tryWriteLock( LockResource resource, LockTransaction tx )
     {
         return unusedResourceGuard( resource, tx, getRWLockForAcquiring( resource, tx ).tryAcquireWriteLock( tx ) );
     }
 
-    public void releaseReadLock( Object resource, Object tx )
-            throws LockNotFoundException, IllegalResourceException
+    void releaseReadLock( Object resource, LockTransaction tx )
     {
         getRWLockForReleasing( resource, tx, 1, 0, true ).releaseReadLock( tx );
     }
 
-    public void releaseWriteLock( Object resource, Object tx )
-            throws LockNotFoundException, IllegalResourceException
+    void releaseWriteLock( Object resource, LockTransaction tx )
     {
         getRWLockForReleasing( resource, tx, 0, 1, true ).releaseWriteLock( tx );
-    }
-
-    public void dumpLocksOnResource( final Object resource, Logger logger )
-    {
-        final RWLock lock;
-        synchronized ( resourceLockMap )
-        {
-            if ( !resourceLockMap.containsKey( resource ) )
-            {
-                logger.log( "No locks on " + resource );
-                return;
-            }
-            lock = resourceLockMap.get( resource );
-        }
-        logger.bulk( bulkLogger ->
-        {
-            bulkLogger.log( "Dump locks on resource %s", resource );
-            lock.logTo( bulkLogger );
-        } );
     }
 
     /**
@@ -111,7 +88,7 @@ public class LockManagerImpl
      *
      * @return {@code lockObtained }
      **/
-    private boolean unusedResourceGuard( Object resource, Object tx, boolean lockObtained )
+    private boolean unusedResourceGuard( Object resource, LockTransaction tx, boolean lockObtained )
     {
         if ( !lockObtained )
         {
@@ -144,7 +121,7 @@ public class LockManagerImpl
         }
     }
 
-    private void assertValidArguments( Object resource, Object tx )
+    private static void assertValidArguments( Object resource, Object tx )
     {
         if ( resource == null || tx == null )
         {
@@ -157,21 +134,16 @@ public class LockManagerImpl
         assertValidArguments( resource, tx );
         synchronized ( resourceLockMap )
         {
-            RWLock lock = resourceLockMap.get( resource );
-            if ( lock == null )
-            {
-                lock = createLock( resource );
-                resourceLockMap.put( resource, lock );
-            }
+            RWLock lock = resourceLockMap.computeIfAbsent( resource, k -> createLock( resource ) );
             lock.mark();
             return lock;
         }
     }
 
-    // visible for testing
+    @VisibleForTesting
     protected RWLock createLock( LockResource resource )
     {
-        return new RWLock( resource, ragManager, clock, lockAcquisitionTimeoutMillis );
+        return new RWLock( resource, ragManager, clock, lockAcquisitionTimeoutNano );
     }
 
     private RWLock getRWLockForReleasing( Object resource, Object tx, int readCountPrerequisite,

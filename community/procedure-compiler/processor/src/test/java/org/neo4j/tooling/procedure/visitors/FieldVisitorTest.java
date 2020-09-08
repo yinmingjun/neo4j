@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,10 +20,6 @@
 package org.neo4j.tooling.procedure.visitors;
 
 import com.google.testing.compile.CompilationRule;
-import org.neo4j.tooling.procedure.messages.CompilationMessage;
-import org.neo4j.tooling.procedure.testutils.ElementTestUtils;
-import org.neo4j.tooling.procedure.visitors.examples.GoodContextUse;
-import org.neo4j.tooling.procedure.visitors.examples.StaticNonContextMisuse;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -32,6 +28,11 @@ import java.util.stream.Stream;
 import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.VariableElement;
 import javax.tools.Diagnostic;
+
+import org.neo4j.tooling.procedure.messages.CompilationMessage;
+import org.neo4j.tooling.procedure.testutils.ElementTestUtils;
+import org.neo4j.tooling.procedure.visitors.examples.GoodContextUse;
+import org.neo4j.tooling.procedure.visitors.examples.StaticNonContextMisuse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
@@ -48,11 +49,11 @@ public class FieldVisitorTest
     public void prepare()
     {
         elementTestUtils = new ElementTestUtils( compilationRule );
-        fieldVisitor = new FieldVisitor( compilationRule.getTypes(), compilationRule.getElements(), false );
+        fieldVisitor = new FieldVisitor( compilationRule.getTypes(), compilationRule.getElements(), true );
     }
 
     @Test
-    public void validates_visibility_of_fields() throws Exception
+    public void validates_visibility_of_fields()
     {
         Stream<VariableElement> fields = elementTestUtils.getFields( GoodContextUse.class );
 

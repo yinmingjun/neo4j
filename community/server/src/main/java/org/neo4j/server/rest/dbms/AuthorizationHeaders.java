@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,10 +19,18 @@
  */
 package org.neo4j.server.rest.dbms;
 
-import com.sun.jersey.core.util.Base64;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.Base64;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class AuthorizationHeaders
 {
+    private AuthorizationHeaders()
+    {
+    }
+
     /**
      * Extract the encoded username and password from a HTTP Authorization header value.
      */
@@ -31,13 +39,13 @@ public class AuthorizationHeaders
         String[] parts = authorizationHeader.trim().split( " " );
         String tokenSegment = parts[parts.length - 1];
 
-        if ( tokenSegment.trim().length() == 0 )
+        if ( tokenSegment.isBlank() )
         {
             return null;
         }
 
-        String decoded = Base64.base64Decode( tokenSegment );
-        if ( decoded.length() < 1 )
+        String decoded = decodeBase64( tokenSegment );
+        if ( decoded.isEmpty() )
         {
             return null;
         }
@@ -49,5 +57,18 @@ public class AuthorizationHeaders
         }
 
         return userAndPassword;
+    }
+
+    private static String decodeBase64( String base64 )
+    {
+        try
+        {
+            byte[] decodedBytes = Base64.getDecoder().decode( base64 );
+            return new String( decodedBytes, UTF_8 );
+        }
+        catch ( IllegalArgumentException e )
+        {
+            return StringUtils.EMPTY;
+        }
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,8 +19,13 @@
  */
 package org.neo4j.kernel.api.security;
 
+import org.neo4j.internal.kernel.api.security.AccessMode;
+import org.neo4j.internal.kernel.api.security.AuthSubject;
+import org.neo4j.internal.kernel.api.security.LoginContext;
+import org.neo4j.internal.kernel.api.security.SecurityContext;
+
 /** Controls the capabilities of a KernelTransaction. */
-public class AnonymousContext implements SecurityContext
+public class AnonymousContext implements LoginContext
 {
     private final AccessMode accessMode;
 
@@ -29,9 +34,9 @@ public class AnonymousContext implements SecurityContext
         this.accessMode = accessMode;
     }
 
-    public static AnonymousContext none()
+    public static AnonymousContext access()
     {
-        return new AnonymousContext( AccessMode.Static.NONE );
+        return new AnonymousContext( AccessMode.Static.ACCESS );
     }
 
     public static AnonymousContext read()
@@ -54,6 +59,11 @@ public class AnonymousContext implements SecurityContext
         return new AnonymousContext( AccessMode.Static.WRITE_ONLY );
     }
 
+    public static AnonymousContext full()
+    {
+        return new AnonymousContext( AccessMode.Static.FULL );
+    }
+
     @Override
     public AuthSubject subject()
     {
@@ -61,32 +71,8 @@ public class AnonymousContext implements SecurityContext
     }
 
     @Override
-    public boolean isAdmin()
+    public SecurityContext authorize( IdLookup idLookup, String dbName )
     {
-        return false;
-    }
-
-    @Override
-    public SecurityContext freeze()
-    {
-        return this;
-    }
-
-    @Override
-    public SecurityContext withMode( AccessMode mode )
-    {
-        return new Frozen( subject(), mode );
-    }
-
-    @Override
-    public AccessMode mode()
-    {
-        return accessMode;
-    }
-
-    @Override
-    public String toString()
-    {
-        return defaultString( "anonymous" );
+        return new SecurityContext( subject(), accessMode );
     }
 }

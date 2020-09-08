@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -23,13 +23,13 @@ import java.util.Iterator;
 
 import org.neo4j.consistency.checking.cache.CacheAccess;
 import org.neo4j.consistency.checking.full.MultiPassStore;
-import org.neo4j.helpers.collection.PrefetchingIterator;
+import org.neo4j.internal.helpers.collection.PrefetchingIterator;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.RecordStore;
 import org.neo4j.kernel.impl.store.StoreAccess;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
 import org.neo4j.kernel.impl.store.record.LabelTokenRecord;
-import org.neo4j.kernel.impl.store.record.NeoStoreRecord;
 import org.neo4j.kernel.impl.store.record.NodeRecord;
 import org.neo4j.kernel.impl.store.record.PropertyKeyTokenRecord;
 import org.neo4j.kernel.impl.store.record.PropertyRecord;
@@ -37,6 +37,7 @@ import org.neo4j.kernel.impl.store.record.Record;
 import org.neo4j.kernel.impl.store.record.RelationshipGroupRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipTypeTokenRecord;
+import org.neo4j.kernel.impl.store.record.SchemaRecord;
 
 import static org.neo4j.kernel.impl.store.record.RecordLoad.FORCE;
 
@@ -52,39 +53,39 @@ public class DirectRecordAccess implements RecordAccess
     }
 
     @Override
-    public RecordReference<DynamicRecord> schema( long id )
+    public RecordReference<SchemaRecord> schema( long id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getSchemaStore(), id );
+        return referenceTo( access.getSchemaStore(), id, cursorTracer );
     }
 
     @Override
-    public RecordReference<NodeRecord> node( long id )
+    public RecordReference<NodeRecord> node( long id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getNodeStore(), id );
+        return referenceTo( access.getNodeStore(), id, cursorTracer );
     }
 
     @Override
-    public RecordReference<RelationshipRecord> relationship( long id )
+    public RecordReference<RelationshipRecord> relationship( long id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getRelationshipStore(), id );
+        return referenceTo( access.getRelationshipStore(), id, cursorTracer );
     }
 
     @Override
-    public RecordReference<RelationshipGroupRecord> relationshipGroup( long id )
+    public RecordReference<RelationshipGroupRecord> relationshipGroup( long id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getRelationshipGroupStore(), id );
+        return referenceTo( access.getRelationshipGroupStore(), id, cursorTracer );
     }
 
     @Override
-    public RecordReference<PropertyRecord> property( long id )
+    public RecordReference<PropertyRecord> property( long id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getPropertyStore(), id );
+        return referenceTo( access.getPropertyStore(), id, cursorTracer );
     }
 
     @Override
-    public Iterator<PropertyRecord> rawPropertyChain( final long firstId )
+    public Iterator<PropertyRecord> rawPropertyChain( final long firstId, PageCursorTracer cursorTracer )
     {
-        return new PrefetchingIterator<PropertyRecord>()
+        return new PrefetchingIterator<>()
         {
             private long next = firstId;
 
@@ -96,7 +97,7 @@ public class DirectRecordAccess implements RecordAccess
                     return null;
                 }
 
-                PropertyRecord record = referenceTo( access.getPropertyStore(), next ).record();
+                PropertyRecord record = referenceTo( access.getPropertyStore(), next, cursorTracer ).record();
                 next = record.getNextProp();
                 return record;
             }
@@ -104,63 +105,57 @@ public class DirectRecordAccess implements RecordAccess
     }
 
     @Override
-    public RecordReference<RelationshipTypeTokenRecord> relationshipType( int id )
+    public RecordReference<RelationshipTypeTokenRecord> relationshipType( int id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getRelationshipTypeTokenStore(), id );
+        return referenceTo( access.getRelationshipTypeTokenStore(), id, cursorTracer );
     }
 
     @Override
-    public RecordReference<PropertyKeyTokenRecord> propertyKey( int id )
+    public RecordReference<PropertyKeyTokenRecord> propertyKey( int id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getPropertyKeyTokenStore(), id );
+        return referenceTo( access.getPropertyKeyTokenStore(), id, cursorTracer );
     }
 
     @Override
-    public RecordReference<DynamicRecord> string( long id )
+    public RecordReference<DynamicRecord> string( long id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getStringStore(), id );
+        return referenceTo( access.getStringStore(), id, cursorTracer );
     }
 
     @Override
-    public RecordReference<DynamicRecord> array( long id )
+    public RecordReference<DynamicRecord> array( long id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getArrayStore(), id );
+        return referenceTo( access.getArrayStore(), id, cursorTracer );
     }
 
     @Override
-    public RecordReference<DynamicRecord> relationshipTypeName( int id )
+    public RecordReference<DynamicRecord> relationshipTypeName( int id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getRelationshipTypeNameStore(), id );
+        return referenceTo( access.getRelationshipTypeNameStore(), id, cursorTracer );
     }
 
     @Override
-    public RecordReference<DynamicRecord> nodeLabels( long id )
+    public RecordReference<DynamicRecord> nodeLabels( long id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getNodeDynamicLabelStore(), id );
+        return referenceTo( access.getNodeDynamicLabelStore(), id, cursorTracer );
     }
 
     @Override
-    public RecordReference<LabelTokenRecord> label( int id )
+    public RecordReference<LabelTokenRecord> label( int id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getLabelTokenStore(), id );
+        return referenceTo( access.getLabelTokenStore(), id, cursorTracer );
     }
 
     @Override
-    public RecordReference<DynamicRecord> labelName( int id )
+    public RecordReference<DynamicRecord> labelName( int id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getLabelNameStore(), id );
+        return referenceTo( access.getLabelNameStore(), id, cursorTracer );
     }
 
     @Override
-    public RecordReference<DynamicRecord> propertyKeyName( int id )
+    public RecordReference<DynamicRecord> propertyKeyName( int id, PageCursorTracer cursorTracer )
     {
-        return referenceTo( access.getPropertyKeyNameStore(), id );
-    }
-
-    @Override
-    public RecordReference<NeoStoreRecord> graph()
-    {
-        return new DirectRecordReference<>( access.getRawNeoStores().getMetaDataStore().graphPropertyRecord(), this );
+        return referenceTo( access.getPropertyKeyNameStore(), id, cursorTracer );
     }
 
     @Override
@@ -169,9 +164,9 @@ public class DirectRecordAccess implements RecordAccess
         return true;
     }
 
-    <RECORD extends AbstractBaseRecord> DirectRecordReference<RECORD> referenceTo( RecordStore<RECORD> store, long id )
+    <RECORD extends AbstractBaseRecord> DirectRecordReference<RECORD> referenceTo( RecordStore<RECORD> store, long id, PageCursorTracer cursorTracer )
     {
-        return new DirectRecordReference<>( store.getRecord( id, store.newRecord(), FORCE ), this);
+        return new DirectRecordReference<>( store.getRecord( id, store.newRecord(), FORCE, cursorTracer ), this, cursorTracer );
     }
 
     @Override

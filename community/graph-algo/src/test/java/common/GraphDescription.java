@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -52,27 +52,25 @@ public class GraphDescription implements GraphDefinition
             end = parts[2];
         }
 
-        public Relationship create( GraphDatabaseService graphdb,
-                Map<String, Node> nodes )
+        public Relationship create( Transaction transaction, Map<String, Node> nodes )
         {
-            Node startNode = getNode( graphdb, nodes, start );
-            Node endNode = getNode( graphdb, nodes, end );
+            Node startNode = getNode( transaction, nodes, start );
+            Node endNode = getNode( transaction, nodes, end );
             return startNode.createRelationshipTo( endNode, type );
         }
 
-        private Node getNode( GraphDatabaseService graphdb,
-                Map<String, Node> nodes, String name )
+        private Node getNode( Transaction transaction, Map<String, Node> nodes, String name )
         {
             Node node = nodes.get( name );
             if ( node == null )
             {
                 if ( nodes.size() == 0 )
                 {
-                    node = graphdb.createNode();
+                    node = transaction.createNode();
                 }
                 else
                 {
-                    node = graphdb.createNode();
+                    node = transaction.createNode();
                 }
                 node.setProperty( "name", name );
                 nodes.put( name, node );
@@ -85,7 +83,7 @@ public class GraphDescription implements GraphDefinition
 
     public GraphDescription( String... description )
     {
-        List<RelationshipDescription> lines = new ArrayList<RelationshipDescription>();
+        List<RelationshipDescription> lines = new ArrayList<>();
         for ( String part : description )
         {
             for ( String line : part.split( "\n" ) )
@@ -93,20 +91,21 @@ public class GraphDescription implements GraphDefinition
                 lines.add( new RelationshipDescription( line ) );
             }
         }
-        this.description = lines.toArray( new RelationshipDescription[lines.size()] );
+        this.description = lines.toArray( new RelationshipDescription[0] );
     }
 
+    @Override
     public Node create( GraphDatabaseService graphdb )
     {
-        Map<String, Node> nodes = new HashMap<String, Node>();
+        Map<String, Node> nodes = new HashMap<>();
         Node node = null;
         try ( Transaction tx = graphdb.beginTx() )
         {
             for ( RelationshipDescription rel : description )
             {
-                node = rel.create( graphdb, nodes ).getEndNode();
+                node = rel.create( tx, nodes ).getEndNode();
             }
-            tx.success();
+            tx.commit();
         }
         return node;
     }

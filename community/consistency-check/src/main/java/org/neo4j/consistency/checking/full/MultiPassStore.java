@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -31,6 +31,7 @@ import org.neo4j.consistency.report.ConsistencyReporter.Monitor;
 import org.neo4j.consistency.report.InconsistencyReport;
 import org.neo4j.consistency.store.FilteringRecordAccess;
 import org.neo4j.consistency.store.RecordAccess;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
 import org.neo4j.kernel.impl.store.RecordStore;
 import org.neo4j.kernel.impl.store.StoreAccess;
 
@@ -122,15 +123,17 @@ public enum MultiPassStore
         private final InconsistencyReport report;
         private final CacheAccess cacheAccess;
         private final Monitor monitor;
+        private final PageCacheTracer pageCacheTracer;
 
         Factory( CheckDecorator decorator,
-                RecordAccess recordAccess, CacheAccess cacheAccess, InconsistencyReport report, Monitor monitor )
+                RecordAccess recordAccess, CacheAccess cacheAccess, InconsistencyReport report, Monitor monitor, PageCacheTracer pageCacheTracer )
         {
             this.decorator = decorator;
             this.recordAccess = recordAccess;
             this.cacheAccess = cacheAccess;
             this.report = report;
             this.monitor = monitor;
+            this.pageCacheTracer = pageCacheTracer;
         }
 
         ConsistencyReporter[] reporters( MultiPassStore... stores )
@@ -141,16 +144,16 @@ public enum MultiPassStore
                 List<RecordAccess> filters = store.multiPassFilters( recordAccess, stores );
                 for ( RecordAccess filter : filters )
                 {
-                    result.add( new ConsistencyReporter( filter, report ) );
+                    result.add( new ConsistencyReporter( filter, report, pageCacheTracer ) );
                 }
             }
-            return result.toArray( new ConsistencyReporter[result.size()] );
+            return result.toArray( new ConsistencyReporter[0] );
         }
 
         ConsistencyReporter reporter( MultiPassStore store )
         {
             RecordAccess filter = store.multiPassFilter( recordAccess, store );
-            return new ConsistencyReporter( filter, report, monitor ) ;
+            return new ConsistencyReporter( filter, report, monitor, pageCacheTracer ) ;
         }
 
         StoreProcessor processor( Stage stage, MultiPassStore store )

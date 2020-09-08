@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,130 +19,152 @@
  */
 package org.neo4j.kernel.impl.api;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
+import org.neo4j.collection.Dependencies;
 import org.neo4j.collection.pool.Pool;
+import org.neo4j.configuration.Config;
 import org.neo4j.graphdb.TransactionTerminatedException;
-import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracerSupplier;
+import org.neo4j.internal.index.label.LabelScanStore;
+import org.neo4j.internal.index.label.RelationshipTypeScanStore;
+import org.neo4j.internal.kernel.api.exceptions.TransactionFailureException;
+import org.neo4j.internal.schema.SchemaState;
+import org.neo4j.io.pagecache.tracing.cursor.context.EmptyVersionContextSupplier;
 import org.neo4j.kernel.api.KernelTransaction;
 import org.neo4j.kernel.api.exceptions.Status;
-import org.neo4j.kernel.api.exceptions.TransactionFailureException;
-import org.neo4j.kernel.api.txstate.LegacyIndexTransactionState;
+import org.neo4j.kernel.api.procedure.GlobalProcedures;
+import org.neo4j.kernel.database.DatabaseTracers;
+import org.neo4j.kernel.database.TestDatabaseIdRepository;
+import org.neo4j.kernel.impl.api.index.IndexingService;
+import org.neo4j.kernel.impl.api.index.stats.IndexStatisticsStore;
 import org.neo4j.kernel.impl.api.state.ConstraintIndexCreator;
+import org.neo4j.kernel.impl.constraints.StandardConstraintSemantics;
 import org.neo4j.kernel.impl.factory.CanWrite;
-import org.neo4j.kernel.impl.locking.LockTracer;
+import org.neo4j.kernel.impl.factory.GraphDatabaseFacade;
 import org.neo4j.kernel.impl.locking.NoOpClient;
 import org.neo4j.kernel.impl.locking.SimpleStatementLocks;
-import org.neo4j.kernel.impl.proc.Procedures;
-import org.neo4j.kernel.impl.transaction.TransactionHeaderInformationFactory;
 import org.neo4j.kernel.impl.transaction.TransactionMonitor;
-import org.neo4j.kernel.impl.transaction.tracing.TransactionTracer;
+import org.neo4j.kernel.internal.event.DatabaseTransactionEventListeners;
+import org.neo4j.memory.MemoryPools;
+import org.neo4j.resources.CpuClock;
 import org.neo4j.storageengine.api.StorageEngine;
 import org.neo4j.test.Race;
 import org.neo4j.time.Clocks;
+import org.neo4j.token.TokenHolders;
+import org.neo4j.token.api.TokenHolder;
 
 import static java.lang.System.currentTimeMillis;
-import static org.hamcrest.Matchers.instanceOf;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.RETURNS_MOCKS;
 import static org.mockito.Mockito.mock;
-import static org.neo4j.kernel.api.security.SecurityContext.AUTH_DISABLED;
+import static org.neo4j.internal.kernel.api.connectioninfo.ClientConnectionInfo.EMBEDDED_CONNECTION;
+import static org.neo4j.internal.kernel.api.security.SecurityContext.AUTH_DISABLED;
+import static org.neo4j.kernel.impl.util.collection.CollectionsFactorySupplier.ON_HEAP;
 
-public class KernelTransactionTerminationTest
+class KernelTransactionTerminationTest
 {
-    private static final int TEST_RUN_TIME_MS = 5_000;
+    private static final int TEST_RUN_TIME_SECS = 5;
 
-    @Test( timeout = TEST_RUN_TIME_MS * 2 )
-    public void transactionCantBeTerminatedAfterItIsClosed() throws Throwable
+    @Test
+    @Timeout( TEST_RUN_TIME_SECS * 20 )
+    void transactionCantBeTerminatedAfterItIsClosed() throws Throwable
     {
         runTwoThreads(
-                tx -> tx.markForTermination( Status.Transaction.TransactionMarkedAsFailed ),
-                tx ->
-                {
-                    close( tx );
-                    assertFalse( tx.getReasonIfTerminated().isPresent() );
-                    tx.initialize();
-                }
-        );
+            () -> {},
+            tx -> tx.markForTermination( Status.Transaction.TransactionMarkedAsFailed ),
+            tx ->
+            {
+                close( tx );
+                assertFalse( tx.getReasonIfTerminated().isPresent() );
+                tx.initialize();
+            } );
     }
 
-    @Test( timeout = TEST_RUN_TIME_MS * 2 )
-    public void closeTransaction() throws Throwable
+    @Test
+    @Timeout( TEST_RUN_TIME_SECS * 20 )
+    void closeTransaction() throws Throwable
     {
         BlockingQueue<Boolean> committerToTerminator = new LinkedBlockingQueue<>( 1 );
         BlockingQueue<TerminatorAction> terminatorToCommitter = new LinkedBlockingQueue<>( 1 );
+        AtomicBoolean t1Done = new AtomicBoolean();
 
         runTwoThreads(
-                tx ->
+            () ->
+            {
+                committerToTerminator.clear();
+                terminatorToCommitter.clear();
+                t1Done.set( false );
+            },
+            tx ->
+            {
+                Boolean terminatorShouldAct = committerToTerminator.poll();
+                if ( terminatorShouldAct != null && terminatorShouldAct )
                 {
-                    Boolean terminatorShouldAct = committerToTerminator.poll();
-                    if ( terminatorShouldAct != null && terminatorShouldAct )
+                    TerminatorAction action = TerminatorAction.random();
+                    action.executeOn( tx );
+                    assertTrue( terminatorToCommitter.add( action ) );
+                }
+                t1Done.set( true );
+            },
+            tx ->
+            {
+                CommitterAction committerAction = CommitterAction.random();
+                if ( committerToTerminator.offer( true ) )
+                {
+                    TerminatorAction terminatorAction = null;
+                    try
                     {
-                        TerminatorAction action = TerminatorAction.random();
-                        action.executeOn( tx );
-                        assertTrue( terminatorToCommitter.add( action ) );
+                        // This loop optimizes the wait instead of waiting potentially a long time for T1 when it would lose the race and not do anything
+                        while ( !t1Done.get() && terminatorAction == null )
+                        {
+                            terminatorAction = terminatorToCommitter.poll( 10, MILLISECONDS );
+                        }
                     }
-                },
-                tx ->
-                {
-                    tx.initialize();
-                    CommitterAction committerAction = CommitterAction.random();
-                    committerAction.executeOn( tx );
-                    if ( committerToTerminator.offer( true ) )
+                    catch ( InterruptedException e )
                     {
-                        TerminatorAction terminatorAction;
-                        try
-                        {
-                            terminatorAction = terminatorToCommitter.poll( 1, TimeUnit.SECONDS );
-                        }
-                        catch ( InterruptedException e )
-                        {
-                            Thread.currentThread().interrupt();
-                            return;
-                        }
-                        if ( terminatorAction != null )
-                        {
-                            close( tx, committerAction, terminatorAction );
-                        }
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    if ( terminatorAction != null )
+                    {
+                        close( tx, committerAction, terminatorAction );
                     }
                 }
+            }
         );
     }
 
-    private void runTwoThreads( Consumer<TestKernelTransaction> thread1Action,
+    private void runTwoThreads(
+            Runnable cleaner,
+            Consumer<TestKernelTransaction> thread1Action,
             Consumer<TestKernelTransaction> thread2Action ) throws Throwable
     {
-        TestKernelTransaction tx = TestKernelTransaction.create().initialize();
-        AtomicLong t1Count = new AtomicLong();
-        AtomicLong t2Count = new AtomicLong();
-        long endTime = currentTimeMillis() + TEST_RUN_TIME_MS;
+        TestKernelTransaction tx = TestKernelTransaction.create();
+        long endTime = currentTimeMillis() + SECONDS.toMillis( TEST_RUN_TIME_SECS );
         int limit = 20_000;
-
-        Race race = new Race();
-        race.withEndCondition(
-                () -> ((t1Count.get() >= limit) && (t2Count.get() >= limit)) || (currentTimeMillis() >= endTime) );
-        race.addContestant( () ->
+        for ( int i = 0; i < limit && currentTimeMillis() < endTime; i++ )
         {
-            thread1Action.accept( tx );
-            t1Count.incrementAndGet();
-        } );
-        race.addContestant( () ->
-        {
-            thread2Action.accept( tx );
-            t2Count.incrementAndGet();
-        } );
-        race.go();
+            cleaner.run();
+            tx.initialize();
+            Race race = new Race().withRandomStartDelays( 0, 10 );
+            race.withEndCondition( () -> currentTimeMillis() >= endTime );
+            race.addContestant( () -> thread1Action.accept( tx ), 1 );
+            race.addContestant( () -> thread2Action.accept( tx ), 1 );
+            race.go();
+        }
     }
 
     private static void close( KernelTransaction tx )
@@ -207,11 +229,6 @@ public class KernelTransactionTerminationTest
         NONE
                 {
                     @Override
-                    void executeOn( KernelTransaction tx )
-                    {
-                    }
-
-                    @Override
                     void closeTerminated( TestKernelTransaction tx ) throws TransactionFailureException
                     {
                         tx.assertTerminated();
@@ -230,24 +247,10 @@ public class KernelTransactionTerminationTest
         MARK_SUCCESS
                 {
                     @Override
-                    void executeOn( KernelTransaction tx )
-                    {
-                        tx.success();
-                    }
-
-                    @Override
                     void closeTerminated( TestKernelTransaction tx )
                     {
                         tx.assertTerminated();
-                        try
-                        {
-                            tx.close();
-                            fail( "Exception expected" );
-                        }
-                        catch ( Exception e )
-                        {
-                            assertThat( e, instanceOf( TransactionTerminatedException.class ) );
-                        }
+                        assertThrows( TransactionTerminatedException.class, tx::commit );
                         tx.assertRolledBack();
                     }
 
@@ -255,18 +258,12 @@ public class KernelTransactionTerminationTest
                     void closeNotTerminated( TestKernelTransaction tx ) throws TransactionFailureException
                     {
                         tx.assertNotTerminated();
-                        tx.close();
+                        tx.commit();
                         tx.assertCommitted();
                     }
                 },
         MARK_FAILURE
                 {
-                    @Override
-                    void executeOn( KernelTransaction tx )
-                    {
-                        tx.failure();
-                    }
-
                     @Override
                     void closeTerminated( TestKernelTransaction tx ) throws TransactionFailureException
                     {
@@ -278,42 +275,9 @@ public class KernelTransactionTerminationTest
                     {
                         NONE.closeNotTerminated( tx );
                     }
-                },
-        MARK_SUCCESS_AND_FAILURE
-                {
-                    @Override
-                    void executeOn( KernelTransaction tx )
-                    {
-                        tx.success();
-                        tx.failure();
-                    }
-
-                    @Override
-                    void closeTerminated( TestKernelTransaction tx ) throws TransactionFailureException
-                    {
-                        MARK_SUCCESS.closeTerminated( tx );
-                    }
-
-                    @Override
-                    void closeNotTerminated( TestKernelTransaction tx )
-                    {
-                        tx.assertNotTerminated();
-                        try
-                        {
-                            tx.close();
-                            fail( "Exception expected" );
-                        }
-                        catch ( Exception e )
-                        {
-                            assertThat( e, instanceOf( TransactionFailureException.class ) );
-                        }
-                        tx.assertRolledBack();
-                    }
                 };
 
         static final CommitterAction[] VALUES = values();
-
-        abstract void executeOn( KernelTransaction tx );
 
         abstract void closeTerminated( TestKernelTransaction tx ) throws TransactionFailureException;
 
@@ -329,27 +293,31 @@ public class KernelTransactionTerminationTest
     {
         final CommitTrackingMonitor monitor;
 
-        @SuppressWarnings( "unchecked" )
-        TestKernelTransaction( CommitTrackingMonitor monitor )
+        TestKernelTransaction( CommitTrackingMonitor monitor, Dependencies dependencies )
         {
-            super( mock( StatementOperationContainer.class ), mock( SchemaWriteGuard.class ), new TransactionHooks(),
-                    mock( ConstraintIndexCreator.class ), new Procedures(), TransactionHeaderInformationFactory.DEFAULT,
-                    mock( TransactionCommitProcess.class ), monitor, () -> mock( LegacyIndexTransactionState.class ),
-                    mock( Pool.class ), Clocks.fakeClock(), TransactionTracer.NULL,
-                    LockTracer.NONE, PageCursorTracerSupplier.NULL,
-                            mock( StorageEngine.class, RETURNS_MOCKS ), new CanWrite() );
+            super( Config.defaults(), mock( DatabaseTransactionEventListeners.class ),
+                    mock( ConstraintIndexCreator.class ), mock( GlobalProcedures.class ),
+                    mock( TransactionCommitProcess.class ), monitor, mock( Pool.class ), Clocks.fakeClock(),
+                    new AtomicReference<>( CpuClock.NOT_AVAILABLE ),
+                    mock( DatabaseTracers.class, RETURNS_MOCKS ), mock( StorageEngine.class, RETURNS_MOCKS ), new CanWrite(),
+                    EmptyVersionContextSupplier.EMPTY, ON_HEAP, new StandardConstraintSemantics(), mock( SchemaState.class ),
+                    mockedTokenHolders(), mock( IndexingService.class ), mock( LabelScanStore.class ), mock( RelationshipTypeScanStore.class ),
+                    mock( IndexStatisticsStore.class ), dependencies, new TestDatabaseIdRepository().defaultDatabase(), LeaseService.NO_LEASES,
+                    MemoryPools.NO_TRACKING );
 
             this.monitor = monitor;
         }
 
         static TestKernelTransaction create()
         {
-            return new TestKernelTransaction( new CommitTrackingMonitor() );
+            Dependencies dependencies = new Dependencies();
+            dependencies.satisfyDependency( mock( GraphDatabaseFacade.class ) );
+            return new TestKernelTransaction( new CommitTrackingMonitor(), dependencies );
         }
 
         TestKernelTransaction initialize()
         {
-            initialize( 42, 42, new SimpleStatementLocks( new NoOpClient() ), Type.implicit, AUTH_DISABLED, 0L );
+            initialize( 42, 42, new SimpleStatementLocks( new NoOpClient() ), Type.IMPLICIT, AUTH_DISABLED, 0L, 1L, EMBEDDED_CONNECTION );
             monitor.reset();
             return this;
         }
@@ -374,6 +342,14 @@ public class KernelTransactionTerminationTest
         {
             assertFalse( getReasonIfTerminated().isPresent() );
             assertFalse( monitor.terminated );
+        }
+
+        private static TokenHolders mockedTokenHolders()
+        {
+            return new TokenHolders(
+                    mock( TokenHolder.class ),
+                    mock( TokenHolder.class ),
+                    mock( TokenHolder.class ) );
         }
     }
 
@@ -409,6 +385,16 @@ public class KernelTransactionTerminationTest
 
         @Override
         public void upgradeToWriteTransaction()
+        {
+        }
+
+        @Override
+        public void addHeapTransactionSize( long transactionSizeHeap )
+        {
+        }
+
+        @Override
+        public void addNativeTransactionSize( long transactionSizeNative )
         {
         }
 

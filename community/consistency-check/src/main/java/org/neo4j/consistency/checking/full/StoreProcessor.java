@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -32,7 +32,9 @@ import org.neo4j.consistency.report.ConsistencyReport.RelationshipGroupConsisten
 import org.neo4j.consistency.statistics.Counts;
 import org.neo4j.graphdb.ResourceIterable;
 import org.neo4j.graphdb.ResourceIterator;
-import org.neo4j.helpers.progress.ProgressListener;
+import org.neo4j.internal.helpers.progress.ProgressListener;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.RecordStore;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
@@ -43,6 +45,7 @@ import org.neo4j.kernel.impl.store.record.PropertyRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipGroupRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipTypeTokenRecord;
+import org.neo4j.kernel.impl.store.record.SchemaRecord;
 
 import static org.neo4j.consistency.checking.cache.DefaultCacheAccess.DEFAULT_QUEUE_SIZE;
 import static org.neo4j.consistency.checking.full.CloningRecordIterator.cloned;
@@ -55,7 +58,6 @@ import static org.neo4j.kernel.impl.store.Scanner.scan;
  */
 public class StoreProcessor extends AbstractStoreProcessor
 {
-    private final int qSize = DEFAULT_QUEUE_SIZE;
     protected final CacheAccess cacheAccess;
     private final ConsistencyReport.Reporter report;
     private SchemaRecordCheck schemaRecordCheck;
@@ -76,34 +78,23 @@ public class StoreProcessor extends AbstractStoreProcessor
         return stage;
     }
 
-    public int getStageIndex()
-    {
-        return stage.ordinal();
-    }
-
     @Override
-    public void processNode( RecordStore<NodeRecord> store, NodeRecord node )
+    public void processNode( RecordStore<NodeRecord> store, NodeRecord node, PageCursorTracer cursorTracer )
     {
         cacheAccess.client().incAndGetCount( node.isDense() ? Counts.Type.nodeDense : Counts.Type.nodeSparse );
-        super.processNode( store, node );
-    }
-
-    protected void checkSchema( RecordType type, RecordStore<DynamicRecord> store, DynamicRecord schema,
-            RecordCheck<DynamicRecord,ConsistencyReport.SchemaConsistencyReport> checker )
-    {
-        report.forSchema( schema, checker );
+        super.processNode( store, node, cursorTracer );
     }
 
     @Override
     protected void checkNode( RecordStore<NodeRecord> store, NodeRecord node,
-            RecordCheck<NodeRecord,ConsistencyReport.NodeConsistencyReport> checker )
+            RecordCheck<NodeRecord,ConsistencyReport.NodeConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        report.forNode( node, checker );
+        report.forNode( node, checker, cursorTracer );
     }
 
-    public void countLinks( long id1, long id2, CacheAccess.Client client )
+    private void countLinks( long id1, long id2, CacheAccess.Client client )
     {
-        Counts.Type type = null;
+        Counts.Type type;
         if ( id2 == -1 )
         {
             type = Counts.Type.nullLinks;
@@ -121,7 +112,8 @@ public class StoreProcessor extends AbstractStoreProcessor
 
     @Override
     protected void checkRelationship( RecordStore<RelationshipRecord> store, RelationshipRecord rel,
-                                      RecordCheck<RelationshipRecord,ConsistencyReport.RelationshipConsistencyReport> checker )
+                                      RecordCheck<RelationshipRecord,ConsistencyReport.RelationshipConsistencyReport> checker,
+            PageCursorTracer cursorTracer )
     {
         if ( stage != null && (stage == CheckStage.Stage6_RS_Forward || stage == CheckStage.Stage7_RS_Backward) )
         {
@@ -132,60 +124,59 @@ public class StoreProcessor extends AbstractStoreProcessor
             countLinks( id, rel.getSecondNextRel(), client );
             countLinks( id, rel.getSecondPrevRel(), client );
         }
-        report.forRelationship( rel, checker );
+        report.forRelationship( rel, checker, cursorTracer );
     }
 
     @Override
     protected void checkProperty( RecordStore<PropertyRecord> store, PropertyRecord property,
-            RecordCheck<PropertyRecord,ConsistencyReport.PropertyConsistencyReport> checker )
+            RecordCheck<PropertyRecord,ConsistencyReport.PropertyConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        report.forProperty( property, checker );
+        report.forProperty( property, checker, cursorTracer );
     }
 
     @Override
     protected void checkRelationshipTypeToken( RecordStore<RelationshipTypeTokenRecord> store,
                                                RelationshipTypeTokenRecord relationshipType,
                                                RecordCheck<RelationshipTypeTokenRecord,
-                                                       ConsistencyReport.RelationshipTypeConsistencyReport> checker )
+                                                       ConsistencyReport.RelationshipTypeConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        report.forRelationshipTypeName( relationshipType, checker );
+        report.forRelationshipTypeName( relationshipType, checker, cursorTracer );
     }
 
     @Override
     protected void checkLabelToken( RecordStore<LabelTokenRecord> store, LabelTokenRecord label,
-                                    RecordCheck<LabelTokenRecord, ConsistencyReport.LabelTokenConsistencyReport>
-                                            checker )
+                                    RecordCheck<LabelTokenRecord, ConsistencyReport.LabelTokenConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        report.forLabelName( label, checker );
+        report.forLabelName( label, checker, cursorTracer );
     }
 
     @Override
     protected void checkPropertyKeyToken( RecordStore<PropertyKeyTokenRecord> store, PropertyKeyTokenRecord key,
                                           RecordCheck<PropertyKeyTokenRecord,
-                                          ConsistencyReport.PropertyKeyTokenConsistencyReport> checker )
+                                          ConsistencyReport.PropertyKeyTokenConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        report.forPropertyKey( key, checker );
+        report.forPropertyKey( key, checker, cursorTracer);
     }
 
     @Override
     protected void checkDynamic( RecordType type, RecordStore<DynamicRecord> store, DynamicRecord string,
-                                 RecordCheck<DynamicRecord,ConsistencyReport.DynamicConsistencyReport> checker )
+                                 RecordCheck<DynamicRecord,ConsistencyReport.DynamicConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        report.forDynamicBlock( type, string, checker );
+        report.forDynamicBlock( type, string, checker, cursorTracer );
     }
 
     @Override
     protected void checkDynamicLabel( RecordType type, RecordStore<DynamicRecord> store, DynamicRecord string,
-                                      RecordCheck<DynamicRecord,DynamicLabelConsistencyReport> checker )
+                                      RecordCheck<DynamicRecord,DynamicLabelConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        report.forDynamicLabelBlock( type, string, checker );
+        report.forDynamicLabelBlock( type, string, checker, cursorTracer );
     }
 
     @Override
     protected void checkRelationshipGroup( RecordStore<RelationshipGroupRecord> store, RelationshipGroupRecord record,
-            RecordCheck<RelationshipGroupRecord,RelationshipGroupConsistencyReport> checker )
+            RecordCheck<RelationshipGroupRecord,RelationshipGroupConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        report.forRelationshipGroup( record, checker );
+        report.forRelationshipGroup( record, checker, cursorTracer );
     }
 
     void setSchemaRecordCheck( SchemaRecordCheck schemaRecordCheck )
@@ -194,25 +185,23 @@ public class StoreProcessor extends AbstractStoreProcessor
     }
 
     @Override
-    public void processSchema( RecordStore<DynamicRecord> store, DynamicRecord schema )
+    public void processSchema( RecordStore<SchemaRecord> store, SchemaRecord schema, PageCursorTracer cursorTracer )
     {
         if ( null == schemaRecordCheck )
         {
-            super.processSchema( store, schema );
+            super.processSchema( store, schema, cursorTracer );
         }
         else
         {
-            checkSchema( RecordType.SCHEMA, store, schema, schemaRecordCheck );
+            report.forSchema( schema, schemaRecordCheck, cursorTracer );
         }
     }
 
-    public <R extends AbstractBaseRecord> void applyFilteredParallel( final RecordStore<R> store,
-            final ProgressListener progressListener, int numberOfThreads, long recordsPerCpu,
-            final QueueDistributor<R> distributor )
-            throws Exception
+    <R extends AbstractBaseRecord> void applyFilteredParallel( RecordStore<R> store, ProgressListener progressListener, int numberOfThreads, long recordsPerCpu,
+            final QueueDistributor<R> distributor, PageCacheTracer pageCacheTracer )
     {
         cacheAccess.prepareForProcessingOfSingleStore( recordsPerCpu );
-        RecordProcessor<R> processor = new RecordProcessor.Adapter<R>()
+        RecordProcessor<R> processor = new RecordProcessor.Adapter<>()
         {
             @Override
             public void init( int id )
@@ -223,17 +212,17 @@ public class StoreProcessor extends AbstractStoreProcessor
             }
 
             @Override
-            public void process( R record )
+            public void process( R record, PageCursorTracer cursorTracer )
             {
-                store.accept( StoreProcessor.this, record );
+                store.accept( StoreProcessor.this, record, cursorTracer );
             }
         };
 
-        ResourceIterable<R> scan = scan( store, stage.isForward() );
+        ResourceIterable<R> scan = scan( store, stage.isForward(), pageCacheTracer );
         try ( ResourceIterator<R> records = scan.iterator() )
         {
-            distributeRecords( numberOfThreads, getClass().getSimpleName(), qSize,
-                    cloned( records ), progressListener, processor, distributor );
+            distributeRecords( numberOfThreads, getClass().getSimpleName(), DEFAULT_QUEUE_SIZE, cloned( records ), progressListener, processor, distributor,
+                    pageCacheTracer );
         }
     }
 }

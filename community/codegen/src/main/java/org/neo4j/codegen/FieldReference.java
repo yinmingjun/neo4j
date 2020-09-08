@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,7 +19,10 @@
  */
 package org.neo4j.codegen;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+
+import static org.neo4j.codegen.TypeReference.typeReference;
 
 public class FieldReference
 {
@@ -28,9 +31,20 @@ public class FieldReference
         return new FieldReference( Modifier.PUBLIC, owner, type, name );
     }
 
+    public static FieldReference field( Field field )
+    {
+        return new FieldReference( field.getModifiers(), typeReference( field.getDeclaringClass() ),
+                typeReference( field.getType() ), field.getName() );
+    }
+
     public static FieldReference staticField( TypeReference owner, TypeReference type, String name )
     {
         return new FieldReference( Modifier.STATIC | Modifier.PRIVATE, owner, type, name );
+    }
+
+    public static FieldReference staticField( Class<?> owner, Class<?> type, String name )
+    {
+        return staticField( typeReference( owner ), typeReference( type ), name );
     }
 
     private final int modifiers;

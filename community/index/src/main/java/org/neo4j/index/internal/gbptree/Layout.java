@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -38,6 +38,9 @@ import static java.lang.String.format;
  */
 public interface Layout<KEY, VALUE> extends Comparator<KEY>
 {
+    int FIXED_SIZE_KEY = -1;
+    int FIXED_SIZE_VALUE = -1;
+
     /**
      * @return new key instance.
      */
@@ -58,14 +61,16 @@ public interface Layout<KEY, VALUE> extends Comparator<KEY>
     VALUE newValue();
 
     /**
-     * @return size, in bytes, of a key.
+     * @param key for which to give size.
+     * @return size, in bytes, of given key.
      */
-    int keySize();
+    int keySize( KEY key );
 
     /**
-     * @return size, in bytes, of a value.
+     * @param value for which to give size.
+     * @return size, in bytes, of given value.
      */
-    int valueSize();
+    int valueSize( VALUE value );
 
     /**
      * Writes contents of {@code key} into {@code cursor} at its current offset.
@@ -85,22 +90,40 @@ public interface Layout<KEY, VALUE> extends Comparator<KEY>
 
     /**
      * Reads key contents at {@code cursor} at its current offset into {@code key}.
-     *
      * @param cursor {@link PageCursor} to read from, at current offset.
      * @param into key instances to read into.
+     * @param keySize size of key to read or {@link #FIXED_SIZE_KEY} if key is fixed size.
      */
-    void readKey( PageCursor cursor, KEY into );
+    void readKey( PageCursor cursor, KEY into, int keySize );
 
     /**
      * Reads value contents at {@code cursor} at its current offset into {@code value}.
-     *
      * @param cursor {@link PageCursor} to read from, at current offset.
      * @param into value instances to read into.
+     * @param valueSize size of key to read or {@link #FIXED_SIZE_VALUE} if value is fixed size.
      */
-    void readValue( PageCursor cursor, VALUE into );
+    void readValue( PageCursor cursor, VALUE into, int valueSize );
 
     /**
-     * Used as a checksum for when loading an index after creation, to verify that the same layout is used,
+     * Indicate if keys and values are fixed or dynamix size.
+     * @return true if keys and values are fixed size, otherwise true.
+     */
+    boolean fixedSize();
+
+    /**
+     * Find shortest key (best effort) that separate left from right in sort order
+     * and initialize into with result.
+     * @param left key that is less than right
+     * @param right key that is greater than left.
+     * @param into will be initialized with result.
+     */
+    default void minimalSplitter( KEY left, KEY right, KEY into )
+    {
+        copyKey( right, into );
+    }
+
+    /**
+     * Used as verification when loading an index after creation, to verify that the same layout is used,
      * as the one it was initially created with.
      *
      * @return a long acting as an identifier, written in the header of an index.
@@ -140,13 +163,14 @@ public interface Layout<KEY, VALUE> extends Comparator<KEY>
     }
 
     /**
-     * Utility method for generating an {@link #identifier()}.
+     * Utility method for generating an {@link #identifier()}. Generates an 8-byte identifier from a short name
+     * plus a 4-byte identifier.
      *
      * @param name name to be part of this identifier, must at most be 4 characters.
-     * @param checksum checksum to include into the identifier.
-     * @return a long which is a combination of {@code name} and {@code checksum}.
+     * @param identifier to include into the returned named identifier.
+     * @return a long which is a combination of {@code name} and {@code identifier}.
      */
-    static long namedIdentifier( String name, int checksum )
+    static long namedIdentifier( String name, int identifier )
     {
         char[] chars = name.toCharArray();
         if ( chars.length > 4 )
@@ -161,8 +185,38 @@ public interface Layout<KEY, VALUE> extends Comparator<KEY>
             upperInt |= byteValue & 0xFF;
         }
 
-        return upperInt << Integer.SIZE | (checksum & 0xFFFFFFFF);
+        return (upperInt << Integer.SIZE) | identifier;
     }
+
+    /**
+     * Typically, a layout is compatible with given identifier, major and minor version if
+     * <ul>
+     * <li>{@code layoutIdentifier == this.identifier()}</li>
+     * <li>{@code majorVersion == this.majorVersion()}</li>
+     * <li>{@code minorVersion == this.minorVersion()}</li>
+     * </ul>
+     * <p>
+     * When opening a {@link GBPTree tree} to 'use' it, read and write to it, providing a layout with the right compatibility is
+     * important because it decides how to read and write entries in the tree.
+     *
+     * @param layoutIdentifier the stored layout identifier we want to check compatibility against.
+     * @param majorVersion the stored major version we want to check compatibility against.
+     * @param minorVersion the stored minor version we want to check compatibility against.
+     * @return true if this layout is compatible with combination of identifier, major and minor version, false otherwise.
+     */
+    boolean compatibleWith( long layoutIdentifier, int majorVersion, int minorVersion );
+
+    /**
+     * Initializes the given key to a state where it's lower than any possible key in the tree.
+     * @param key key to initialize.
+     */
+    void initializeAsLowest( KEY key );
+
+    /**
+     * Initializes the given key to a state where it's higher than any possible key in the tree.
+     * @param key key to initialize.
+     */
+    void initializeAsHighest( KEY key );
 
     /**
      * Adapter for {@link Layout}, which contains convenient standard implementations of some methods.
@@ -170,14 +224,56 @@ public interface Layout<KEY, VALUE> extends Comparator<KEY>
      * @param <KEY> type of key
      * @param <VALUE> type of value
      */
-    abstract class Adapter<KEY,VALUE> implements Layout<KEY,VALUE>
+    abstract class Adapter<KEY, VALUE> implements Layout<KEY,VALUE>
     {
+        private final boolean fixedSize;
+        private final long identifier;
+        private final int majorVersion;
+        private final int minorVersion;
+
+        protected Adapter( boolean fixedSize, long identifier, int majorVersion, int minorVersion )
+        {
+            this.fixedSize = fixedSize;
+            this.identifier = identifier;
+            this.majorVersion = majorVersion;
+            this.minorVersion = minorVersion;
+        }
+
+        @Override
+        public boolean fixedSize()
+        {
+            return fixedSize;
+        }
+
+        @Override
+        public long identifier()
+        {
+            return identifier;
+        }
+
+        @Override
+        public int majorVersion()
+        {
+            return majorVersion;
+        }
+
+        @Override
+        public int minorVersion()
+        {
+            return minorVersion;
+        }
+
         @Override
         public String toString()
         {
-            return format( "%s[version:%d.%d, identifier:%d, keySize:%d, valueSize:%d]",
-                    getClass().getSimpleName(), majorVersion(), minorVersion(), identifier(),
-                    keySize(), valueSize() );
+            return format( "%s[version:%d.%d, identifier:%d, fixedSize:%b]",
+                    getClass().getSimpleName(), majorVersion(), minorVersion(), identifier(), fixedSize() );
+        }
+
+        @Override
+        public boolean compatibleWith( long layoutIdentifier, int majorVersion, int minorVersion )
+        {
+            return layoutIdentifier == identifier() && majorVersion == majorVersion() && minorVersion == minorVersion();
         }
     }
 }

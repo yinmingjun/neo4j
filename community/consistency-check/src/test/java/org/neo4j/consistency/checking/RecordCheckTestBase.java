@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,13 +22,19 @@ package org.neo4j.consistency.checking;
 import org.neo4j.consistency.checking.full.MultiPassStore;
 import org.neo4j.consistency.checking.full.Stage;
 import org.neo4j.consistency.report.ConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.DynamicConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.NodeConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.PropertyConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.PropertyKeyTokenConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.RelationshipConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.RelationshipTypeConsistencyReport;
 import org.neo4j.consistency.store.RecordAccess;
 import org.neo4j.consistency.store.RecordAccessStub;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.PropertyType;
 import org.neo4j.kernel.impl.store.RecordStore;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
-import org.neo4j.kernel.impl.store.record.NeoStoreRecord;
 import org.neo4j.kernel.impl.store.record.NodeRecord;
 import org.neo4j.kernel.impl.store.record.PropertyBlock;
 import org.neo4j.kernel.impl.store.record.PropertyKeyTokenRecord;
@@ -36,8 +42,9 @@ import org.neo4j.kernel.impl.store.record.PropertyRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipTypeTokenRecord;
 
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.Mockito.mock;
+import static org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer.NULL;
 
 public abstract class RecordCheckTestBase<RECORD extends AbstractBaseRecord,
         REPORT extends ConsistencyReport,
@@ -71,85 +78,72 @@ public abstract class RecordCheckTestBase<RECORD extends AbstractBaseRecord,
         }
     }
 
-    public static PrimitiveRecordCheck<NodeRecord, ConsistencyReport.NodeConsistencyReport> dummyNodeCheck()
+    public static PrimitiveRecordCheck<NodeRecord, NodeConsistencyReport> dummyNodeCheck()
     {
         return new NodeRecordCheck()
         {
             @Override
             public void check( NodeRecord record,
-                               CheckerEngine<NodeRecord, ConsistencyReport.NodeConsistencyReport> engine,
-                               RecordAccess records )
+                               CheckerEngine<NodeRecord, NodeConsistencyReport> engine,
+                               RecordAccess records, PageCursorTracer cursorTracer )
             {
             }
         };
     }
 
-    public static PrimitiveRecordCheck<RelationshipRecord, ConsistencyReport.RelationshipConsistencyReport> dummyRelationshipChecker()
+    public static PrimitiveRecordCheck<RelationshipRecord, RelationshipConsistencyReport> dummyRelationshipChecker()
     {
         return new RelationshipRecordCheck()
         {
             @Override
             public void check( RelationshipRecord record,
-                               CheckerEngine<RelationshipRecord, ConsistencyReport.RelationshipConsistencyReport> engine,
-                               RecordAccess records )
+                               CheckerEngine<RelationshipRecord, RelationshipConsistencyReport> engine,
+                               RecordAccess records, PageCursorTracer cursorTracer )
             {
             }
         };
     }
 
-    public static RecordCheck<PropertyRecord, ConsistencyReport.PropertyConsistencyReport> dummyPropertyChecker()
+    public static RecordCheck<PropertyRecord, PropertyConsistencyReport> dummyPropertyChecker()
     {
-        return ( record, engine, records ) -> {};
+        return ( record, engine, records, cursorTracer ) -> {};
     }
 
-    public static PrimitiveRecordCheck<NeoStoreRecord, ConsistencyReport.NeoStoreConsistencyReport> dummyNeoStoreCheck()
-    {
-        return new NeoStoreCheck( new PropertyChain<>( from -> null ) )
-        {
-            @Override
-            public void check( NeoStoreRecord record,
-                               CheckerEngine<NeoStoreRecord, ConsistencyReport.NeoStoreConsistencyReport> engine,
-                               RecordAccess records )
-            {
-            }
-        };
-    }
-
-    public static RecordCheck<DynamicRecord, ConsistencyReport.DynamicConsistencyReport> dummyDynamicCheck(
+    public static RecordCheck<DynamicRecord, DynamicConsistencyReport> dummyDynamicCheck(
             RecordStore<DynamicRecord> store, DynamicStore dereference )
     {
-        return new DynamicRecordCheck(store, dereference )
+        return new DynamicRecordCheck( store, dereference )
         {
             @Override
             public void check( DynamicRecord record,
-                               CheckerEngine<DynamicRecord, ConsistencyReport.DynamicConsistencyReport> engine,
-                               RecordAccess records )
+                               CheckerEngine<DynamicRecord, DynamicConsistencyReport> engine,
+                               RecordAccess records, PageCursorTracer cursorTracer )
             {
             }
         };
     }
 
-    public static RecordCheck<PropertyKeyTokenRecord, ConsistencyReport.PropertyKeyTokenConsistencyReport> dummyPropertyKeyCheck()
+    public static RecordCheck<PropertyKeyTokenRecord, PropertyKeyTokenConsistencyReport> dummyPropertyKeyCheck()
     {
         return new PropertyKeyTokenRecordCheck()
         {
             @Override
             public void check( PropertyKeyTokenRecord record,
-                               CheckerEngine<PropertyKeyTokenRecord, ConsistencyReport.PropertyKeyTokenConsistencyReport> engine,
-                               RecordAccess records )
+                               CheckerEngine<PropertyKeyTokenRecord, PropertyKeyTokenConsistencyReport> engine,
+                               RecordAccess records, PageCursorTracer cursorTracer )
             {
             }
         };
     }
 
-    public static RecordCheck<RelationshipTypeTokenRecord, ConsistencyReport.RelationshipTypeConsistencyReport> dummyRelationshipLabelCheck()
+    public static RecordCheck<RelationshipTypeTokenRecord, RelationshipTypeConsistencyReport> dummyRelationshipLabelCheck()
     {
         return new RelationshipTypeTokenRecordCheck()
         {
             @Override
             public void check( RelationshipTypeTokenRecord record,
-                               CheckerEngine<RelationshipTypeTokenRecord, ConsistencyReport.RelationshipTypeConsistencyReport> engine,
-                               RecordAccess records )
+                               CheckerEngine<RelationshipTypeTokenRecord, RelationshipTypeConsistencyReport> engine,
+                               RecordAccess records, PageCursorTracer cursorTracer )
             {
             }
         };
@@ -183,13 +177,8 @@ public abstract class RecordCheckTestBase<RECORD extends AbstractBaseRecord,
     void check( REPORT report, RecordCheck<RECORD, REPORT> checker, RECORD record,
                   final RecordAccessStub records )
     {
-        checker.check( record, records.engine( record, report ), records );
+        checker.check( record, records.engine( record, report ), records, NULL );
         records.checkDeferred();
-    }
-
-    <R extends AbstractBaseRecord> R addChange( R oldRecord, R newRecord )
-    {
-        return records.addChange( oldRecord, newRecord );
     }
 
     <R extends AbstractBaseRecord> R add( R record )
@@ -207,7 +196,7 @@ public abstract class RecordCheckTestBase<RECORD extends AbstractBaseRecord,
         return records.addPropertyKeyName( name );
     }
 
-    DynamicRecord addRelationshipTypeName(DynamicRecord name )
+    DynamicRecord addRelationshipTypeName( DynamicRecord name )
     {
         return records.addRelationshipTypeName( name );
     }

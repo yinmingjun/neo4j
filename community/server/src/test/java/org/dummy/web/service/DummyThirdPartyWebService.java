@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -30,6 +30,7 @@ import javax.ws.rs.core.HttpHeaders;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
+import org.neo4j.dbms.api.DatabaseManagementService;
 import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Transaction;
@@ -50,23 +51,22 @@ public class DummyThirdPartyWebService
     }
 
     @GET
-    @Path("/{something}/{somethingElse}")
+    @Path( "/{something}/{somethingElse}" )
     @Produces( MediaType.TEXT_PLAIN )
     public Response forSecurityTesting()
     {
-        return Response.ok().entity("you've reached a dummy service").build();
+        return Response.ok().entity( "you've reached a dummy service" ).build();
     }
 
     @GET
     @Path( "inject-test" )
     @Produces( MediaType.TEXT_PLAIN )
-    public Response countNodes( @Context GraphDatabaseService db )
+    public Response countNodes( @Context DatabaseManagementService dbms )
     {
-        try (Transaction transaction = db.beginTx())
+        GraphDatabaseService db = dbms.database( "neo4j" );
+        try ( Transaction transaction = db.beginTx() )
         {
-            return Response.ok()
-                    .entity( String.valueOf( countNodesIn( db ) ) )
-                    .build();
+            return Response.ok().entity( String.valueOf( countNodesIn( transaction ) ) ).build();
         }
     }
 
@@ -80,10 +80,9 @@ public class DummyThirdPartyWebService
         while ( headerIt.hasNext() )
         {
             Map.Entry<String, List<String>> header = headerIt.next();
-            if (header.getValue().size() != 1)
+            if ( header.getValue().size() != 1 )
             {
-                throw new IllegalArgumentException( "Mutlivalued header: "
-                                                    + header.getKey() );
+                throw new IllegalArgumentException( "Multivalued header: " + header.getKey() );
             }
             theEntity.append( "\"" ).append( header.getKey() ).append( "\":\"" )
                      .append( header.getValue().get( 0 ) ).append( "\"" );
@@ -92,14 +91,14 @@ public class DummyThirdPartyWebService
                 theEntity.append( ", " );
             }
         }
-        theEntity.append( "}" );
+        theEntity.append( '}' );
         return Response.ok().entity( theEntity.toString() ).build();
     }
 
-    private int countNodesIn( GraphDatabaseService db )
+    private int countNodesIn( Transaction tx )
     {
         int count = 0;
-        for ( Node ignore : db.getAllNodes() )
+        for ( Node ignore : tx.getAllNodes() )
         {
             count++;
         }

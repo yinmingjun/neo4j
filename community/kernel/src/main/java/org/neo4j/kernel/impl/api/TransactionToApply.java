@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,15 +20,25 @@
 package org.neo4j.kernel.impl.api;
 
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.function.LongConsumer;
 
-import org.neo4j.helpers.collection.Visitor;
+import org.neo4j.common.HexPrinter;
+import org.neo4j.internal.helpers.collection.Visitor;
+import org.neo4j.internal.kernel.api.security.AuthSubject;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.io.pagecache.tracing.cursor.context.EmptyVersionContext;
+import org.neo4j.io.pagecache.tracing.cursor.context.VersionContext;
 import org.neo4j.kernel.impl.transaction.TransactionRepresentation;
 import org.neo4j.kernel.impl.transaction.log.Commitment;
+import org.neo4j.kernel.impl.transaction.log.LogPosition;
 import org.neo4j.kernel.impl.transaction.tracing.CommitEvent;
 import org.neo4j.storageengine.api.CommandsToApply;
 import org.neo4j.storageengine.api.StorageCommand;
+import org.neo4j.common.Subject;
 import org.neo4j.storageengine.api.TransactionApplicationMode;
+
+import static org.neo4j.internal.helpers.Format.date;
 
 /**
  * A chain of transactions to apply. Transactions form a linked list, each pointing to the {@link #next()}
@@ -49,10 +59,8 @@ import org.neo4j.storageengine.api.TransactionApplicationMode;
  * <li>Pass into {@link TransactionCommitProcess#commit(TransactionToApply, CommitEvent, TransactionApplicationMode)}</li>
  * <li>=== COMMIT PROCESS ===</li>
  * <li>Commit, where {@link #commitment(Commitment, long)} is called to store the {@link Commitment} and transaction id</li>
- * <li>Apply, where {@link #commitment()},
+ * <li>Apply, where {@link #publishAsCommitted()} ()},
  * {@link #transactionRepresentation()} and {@link #next()} are called</li>
- * <li>=== USER ===</li>
- * <li>Data about the commit can now also be accessed using f.ex {@link #commitment()} or {@link #transactionId()}</li>
  * </ol>
  */
 public class TransactionToApply implements CommandsToApply, AutoCloseable
@@ -62,29 +70,43 @@ public class TransactionToApply implements CommandsToApply, AutoCloseable
     // These fields are provided by user
     private final TransactionRepresentation transactionRepresentation;
     private long transactionId;
+    private final VersionContext versionContext;
+    private final PageCursorTracer cursorTracer;
     private TransactionToApply nextTransactionInBatch;
 
-    // These fields are provided by commit process/storage engine
+    // These fields are provided by commit process, storage engine, or recovery process
     private Commitment commitment;
-
     private LongConsumer closedCallback;
+    private LogPosition logPosition;
 
     /**
      * Used when committing a transaction that hasn't already gotten a transaction id assigned.
      */
-    public TransactionToApply( TransactionRepresentation transactionRepresentation )
+    public TransactionToApply( TransactionRepresentation transactionRepresentation, PageCursorTracer cursorTracer )
     {
-        this( transactionRepresentation, TRANSACTION_ID_NOT_SPECIFIED );
+        this( transactionRepresentation, EmptyVersionContext.EMPTY, cursorTracer );
     }
 
     /**
-     * Used as convenience when committing a transaction that has already gotten a transaction id assigned,
-     * i.e. when replicating a transaction.
+     * Used when committing a transaction that hasn't already gotten a transaction id assigned.
      */
-    public TransactionToApply( TransactionRepresentation transactionRepresentation, long transactionId )
+    public TransactionToApply( TransactionRepresentation transactionRepresentation, VersionContext versionContext, PageCursorTracer cursorTracer )
+    {
+        this( transactionRepresentation, TRANSACTION_ID_NOT_SPECIFIED, versionContext, cursorTracer );
+    }
+
+    public TransactionToApply( TransactionRepresentation transactionRepresentation, long transactionId, PageCursorTracer cursorTracer )
+    {
+        this( transactionRepresentation, transactionId, EmptyVersionContext.EMPTY, cursorTracer );
+    }
+
+    public TransactionToApply( TransactionRepresentation transactionRepresentation, long transactionId, VersionContext versionContext,
+            PageCursorTracer cursorTracer )
     {
         this.transactionRepresentation = transactionRepresentation;
         this.transactionId = transactionId;
+        this.versionContext = versionContext;
+        this.cursorTracer = cursorTracer;
     }
 
     // These methods are called by the user when building a batch
@@ -93,16 +115,45 @@ public class TransactionToApply implements CommandsToApply, AutoCloseable
         nextTransactionInBatch = next;
     }
 
-    // These methods are called by the commit process
-    public Commitment commitment()
+    public void publishAsCommitted()
     {
-        return commitment;
+        commitment.publishAsCommitted( cursorTracer );
+    }
+
+    public void publishAsClosed()
+    {
+        if ( commitment.markedAsCommitted() )
+        {
+            commitment.publishAsClosed( cursorTracer );
+        }
     }
 
     @Override
     public long transactionId()
     {
         return transactionId;
+    }
+
+    @Override
+    public Subject subject()
+    {
+        if ( transactionRepresentation.getAuthSubject() == AuthSubject.AUTH_DISABLED )
+        {
+            return Subject.AUTH_DISABLED;
+        }
+
+        if ( transactionRepresentation.getAuthSubject() == AuthSubject.ANONYMOUS )
+        {
+            return Subject.ANONYMOUS;
+        }
+
+        return new Subject( transactionRepresentation.getAuthSubject().username() );
+    }
+
+    @Override
+    public PageCursorTracer cursorTracer()
+    {
+        return cursorTracer;
     }
 
     @Override
@@ -116,16 +167,16 @@ public class TransactionToApply implements CommandsToApply, AutoCloseable
         return transactionRepresentation;
     }
 
-    @Override
-    public boolean requiresApplicationOrdering()
-    {
-        return commitment.hasLegacyIndexChanges();
-    }
-
     public void commitment( Commitment commitment, long transactionId )
     {
         this.commitment = commitment;
         this.transactionId = transactionId;
+        this.versionContext.initWrite( transactionId );
+    }
+
+    public void logPosition( LogPosition position )
+    {
+        this.logPosition = position;
     }
 
     @Override
@@ -147,4 +198,50 @@ public class TransactionToApply implements CommandsToApply, AutoCloseable
             closedCallback.accept( transactionId );
         }
     }
+
+    @Override
+    public String toString()
+    {
+        TransactionRepresentation tr = this.transactionRepresentation;
+        return "Transaction #" + transactionId +
+               (logPosition != null ? " at log position " + logPosition : " (no log position)") +
+               " {started " + date( tr.getTimeStarted() ) +
+               ", committed " + date( tr.getTimeCommitted() ) +
+               ", with " + countCommands() + " commands in this transaction" +
+               ", lease " + tr.getLeaseId() +
+               ", latest committed transaction id when started was " + tr.getLatestCommittedTxWhenStarted() +
+               ", additional header bytes: " + HexPrinter.hex( tr.additionalHeader(), Integer.MAX_VALUE, "" ) + "}";
+    }
+
+    private String countCommands()
+    {
+        class Counter implements Visitor<StorageCommand,IOException>
+        {
+            private int count;
+
+            @Override
+            public boolean visit( StorageCommand element )
+            {
+                count++;
+                return false;
+            }
+        }
+        try
+        {
+            Counter counter = new Counter();
+            accept( counter );
+            return String.valueOf( counter.count );
+        }
+        catch ( Throwable e )
+        {
+            return "(unable to count: " + e.getMessage() + ")";
+        }
+    }
+
+    @Override
+    public Iterator<StorageCommand> iterator()
+    {
+        return transactionRepresentation.iterator();
+    }
+
 }

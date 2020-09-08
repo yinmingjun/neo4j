@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,7 +21,11 @@ package org.neo4j.kernel.lifecycle;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
+import org.neo4j.internal.helpers.Exceptions;
+
+import static java.lang.String.format;
 import static java.util.stream.Collectors.toList;
 
 /**
@@ -32,12 +36,12 @@ import static java.util.stream.Collectors.toList;
  * <p>
  * Components that internally owns other components that has a lifecycle can use this to control them as well.
  */
-public class LifeSupport
-        implements Lifecycle
+public class LifeSupport implements Lifecycle
 {
     private volatile List<LifecycleInstance> instances = new ArrayList<>();
     private volatile LifecycleStatus status = LifecycleStatus.NONE;
     private final List<LifecycleListener> listeners = new ArrayList<>();
+    private LifecycleInstance last;
 
     public LifeSupport()
     {
@@ -50,7 +54,6 @@ public class LifeSupport
      */
     @Override
     public synchronized void init()
-            throws LifecycleException
     {
         if ( status == LifecycleStatus.NONE )
         {
@@ -140,7 +143,7 @@ public class LifeSupport
         if ( status == LifecycleStatus.STARTED )
         {
             status = changedStatus( this, status, LifecycleStatus.STOPPING );
-            LifecycleException ex = stopInstances(instances);
+            LifecycleException ex = stopInstances( instances );
             status = changedStatus( this, status, LifecycleStatus.STOPPED );
 
             if ( ex != null )
@@ -148,31 +151,6 @@ public class LifeSupport
                 throw ex;
             }
         }
-    }
-
-    private LifecycleException stopInstances(List<LifecycleInstance> instances)
-    {
-        LifecycleException ex = null;
-        for ( int i = instances.size() - 1; i >= 0; i-- )
-        {
-            LifecycleInstance lifecycleInstance = instances.get( i );
-            try
-            {
-                lifecycleInstance.stop();
-            }
-            catch ( LifecycleException e )
-            {
-                if ( ex != null )
-                {
-                    ex.addSuppressed( e );
-                }
-                else
-                {
-                    ex = e;
-                }
-            }
-        }
-        return ex;
     }
 
     /**
@@ -207,14 +185,7 @@ public class LifeSupport
                 }
                 catch ( LifecycleException e )
                 {
-                    if ( ex != null )
-                    {
-                        ex.addSuppressed( e );
-                    }
-                    else
-                    {
-                        ex = e;
-                    }
+                    ex = Exceptions.chain( ex, e );
                 }
             }
 
@@ -239,17 +210,35 @@ public class LifeSupport
     public synchronized <T extends Lifecycle> T add( T instance )
             throws LifecycleException
     {
-        assert instance != null;
-        assert notAlreadyAdded( instance );
-        LifecycleInstance newInstance = new LifecycleInstance( instance );
-        List<LifecycleInstance> tmp = new ArrayList<>( instances );
-        tmp.add( newInstance );
-        instances = tmp;
-        bringToState( newInstance );
+        addNewComponent( instance );
         return instance;
     }
 
-    private boolean notAlreadyAdded( Lifecycle instance )
+    public synchronized <T extends Lifecycle> T setLast( T instance )
+    {
+        if ( last != null )
+        {
+            throw new IllegalStateException(
+                    format( "Lifecycle supports only one last component. Already defined component: %s, new component: %s", last, instance ) );
+        }
+        last = addNewComponent( instance );
+        return instance;
+    }
+
+    private <T extends Lifecycle> LifecycleInstance addNewComponent( T instance )
+    {
+        Objects.requireNonNull( instance );
+        validateNotAlreadyPartOfLifecycle( instance );
+        LifecycleInstance newInstance = new LifecycleInstance( instance );
+        List<LifecycleInstance> tmp = new ArrayList<>( instances );
+        int position = last != null ? tmp.size() - 1 : tmp.size();
+        tmp.add( position, newInstance );
+        instances = tmp;
+        bringToState( newInstance );
+        return newInstance;
+    }
+
+    private void validateNotAlreadyPartOfLifecycle( Lifecycle instance )
     {
         for ( LifecycleInstance candidate : instances )
         {
@@ -258,7 +247,24 @@ public class LifeSupport
                 throw new IllegalStateException( instance + " already added", candidate.addedWhere );
             }
         }
-        return true;
+    }
+
+    private LifecycleException stopInstances( List<LifecycleInstance> instances )
+    {
+        LifecycleException ex = null;
+        for ( int i = instances.size() - 1; i >= 0; i-- )
+        {
+            LifecycleInstance lifecycleInstance = instances.get( i );
+            try
+            {
+                lifecycleInstance.stop();
+            }
+            catch ( LifecycleException e )
+            {
+                ex = Exceptions.chain( ex, e );
+            }
+        }
+        return ex;
     }
 
     public synchronized boolean remove( Lifecycle instance )
@@ -277,9 +283,9 @@ public class LifeSupport
         return false;
     }
 
-    public Iterable<Lifecycle> getLifecycleInstances()
+    public List<Lifecycle> getLifecycleInstances()
     {
-        return instances.stream().map( (l) -> l.instance ).collect( toList() );
+        return instances.stream().map( l -> l.instance ).collect( toList() );
     }
 
     /**
@@ -309,8 +315,8 @@ public class LifeSupport
     private void bringToState( LifecycleInstance instance )
             throws LifecycleException
     {
-        switch ( status )
-        {
+            switch ( status )
+            {
             case STARTED:
                 instance.start();
                 break;
@@ -343,36 +349,28 @@ public class LifeSupport
     @Override
     public String toString()
     {
-        StringBuilder sb = new StringBuilder(  );
-        toString(0, sb);
+        StringBuilder sb = new StringBuilder();
+        toString( 0, sb );
         return sb.toString();
     }
 
-    private void toString(int indent, StringBuilder sb)
+    private void toString( int indent, StringBuilder sb )
     {
-        for ( int i = 0; i < indent; i++ )
-        {
-            sb.append( ' ' );
-        }
-        sb.append("Lifecycle status:" + status.name()).append( '\n' );
+        sb.append( " ".repeat( Math.max( 0, indent ) ) );
+        sb.append( "Lifecycle status:" + status.name() ).append( '\n' );
         for ( LifecycleInstance instance : instances )
         {
-            if (instance.instance instanceof LifeSupport)
+            if ( instance.instance instanceof LifeSupport )
             {
                 ((LifeSupport) instance.instance).toString( indent + 3, sb );
             }
             else
             {
-                for ( int i = 0; i < indent + 3; i++ )
-                {
-                    sb.append( ' ' );
-                }
-                sb.append( instance.toString() ).append( '\n' );
+                sb.append( " ".repeat( Math.max( 0, indent + 3 ) ) );
+                sb.append( instance ).append( '\n' );
 
             }
-
         }
-
     }
 
     private class LifecycleInstance
@@ -396,7 +394,6 @@ public class LifeSupport
 
         @Override
         public void init()
-                throws LifecycleException
         {
             if ( currentStatus == LifecycleStatus.NONE )
             {
@@ -409,6 +406,17 @@ public class LifeSupport
                 catch ( Throwable e )
                 {
                     currentStatus = changedStatus( instance, currentStatus, LifecycleStatus.NONE );
+                    try
+                    {
+                        instance.shutdown();
+                    }
+                    catch ( Throwable se )
+                    {
+                        LifecycleException lifecycleException = new LifecycleException( "Exception during graceful " +
+                                "attempt to shutdown partially initialized component. Please use non suppressed" +
+                                " exception to see original component failure.", se );
+                        e.addSuppressed( lifecycleException );
+                    }
                     if ( e instanceof LifecycleException )
                     {
                         throw (LifecycleException) e;
@@ -437,6 +445,17 @@ public class LifeSupport
                 catch ( Throwable e )
                 {
                     currentStatus = changedStatus( instance, currentStatus, LifecycleStatus.STOPPED );
+                    try
+                    {
+                        instance.stop();
+                    }
+                    catch ( Throwable se )
+                    {
+                        LifecycleException lifecycleException = new LifecycleException( "Exception during graceful " +
+                                "attempt to stop partially started component. Please use non suppressed" +
+                                " exception to see original component failure.", se );
+                        e.addSuppressed( lifecycleException );
+                    }
                     if ( e instanceof LifecycleException )
                     {
                         throw (LifecycleException) e;
@@ -506,7 +525,7 @@ public class LifeSupport
         @Override
         public String toString()
         {
-            return instance.toString() + ": " + currentStatus.name();
+            return instance + ": " + currentStatus.name();
         }
 
         public boolean isInstance( Lifecycle instance )

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,13 +19,9 @@
  */
 package org.neo4j.kernel.impl.coreapi.schema;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import org.neo4j.graphdb.schema.ConstraintDefinition;
-import org.neo4j.graphdb.schema.ConstraintType;
 import org.neo4j.graphdb.schema.IndexDefinition;
-import org.neo4j.helpers.collection.Iterables;
+import org.neo4j.internal.helpers.collection.Iterables;
+import org.neo4j.internal.schema.ConstraintDescriptor;
 
 import static java.util.Arrays.asList;
 import static java.util.Objects.requireNonNull;
@@ -34,15 +30,15 @@ abstract class MultiPropertyConstraintDefinition extends PropertyConstraintDefin
 {
     protected final String[] propertyKeys;
 
-    protected MultiPropertyConstraintDefinition( InternalSchemaActions actions, String[] propertyKeys )
+    MultiPropertyConstraintDefinition( InternalSchemaActions actions, ConstraintDescriptor constraint, String[] propertyKeys )
     {
-        super( actions );
+        super( actions, constraint );
         this.propertyKeys = requireNonEmpty( propertyKeys );
     }
 
-    protected MultiPropertyConstraintDefinition( InternalSchemaActions actions, IndexDefinition indexDefinition )
+    MultiPropertyConstraintDefinition( InternalSchemaActions actions, ConstraintDescriptor constraint, IndexDefinition indexDefinition )
     {
-        super( actions );
+        super( actions, constraint );
         this.propertyKeys = requireNonEmpty( Iterables.asArray( String.class, indexDefinition.getPropertyKeys() ) );
     }
 

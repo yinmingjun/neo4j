@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -24,8 +24,8 @@ import java.util.Iterator;
 import org.neo4j.graphalgo.CostEvaluator;
 import org.neo4j.graphalgo.WeightedPath;
 import org.neo4j.graphdb.Path;
-import org.neo4j.helpers.collection.PrefetchingIterator;
-import org.neo4j.kernel.impl.util.NoneStrictMath;
+import org.neo4j.internal.helpers.MathUtil;
+import org.neo4j.internal.helpers.collection.PrefetchingIterator;
 
 public class WeightedPathIterator extends PrefetchingIterator<WeightedPath>
 {
@@ -34,13 +34,7 @@ public class WeightedPathIterator extends PrefetchingIterator<WeightedPath>
     private Double foundWeight;
     private int foundTotal;
     private final double epsilon;
-    private final PathInterest interest;
-
-    public WeightedPathIterator( Iterator<Path> paths, CostEvaluator<Double> costEvaluator,
-            boolean stopAfterLowestWeight )
-    {
-        this( paths, costEvaluator, NoneStrictMath.EPSILON, stopAfterLowestWeight );
-    }
+    private final PathInterest<?> interest;
 
     public WeightedPathIterator( Iterator<Path> paths, CostEvaluator<Double> costEvaluator,
             double epsilon, boolean stopAfterLowestWeight )
@@ -49,8 +43,7 @@ public class WeightedPathIterator extends PrefetchingIterator<WeightedPath>
                                                                      PathInterestFactory.all( epsilon ) );
     }
 
-    public WeightedPathIterator( Iterator<Path> paths, CostEvaluator<Double> costEvaluator,
-            double epsilon, PathInterest interest )
+    public WeightedPathIterator( Iterator<Path> paths, CostEvaluator<Double> costEvaluator, double epsilon, PathInterest<?> interest )
     {
         this.paths = paths;
         this.costEvaluator = costEvaluator;
@@ -70,8 +63,7 @@ public class WeightedPathIterator extends PrefetchingIterator<WeightedPath>
             return null;
         }
         WeightedPath path = new WeightedPathImpl( costEvaluator, paths.next() );
-        if ( interest.stopAfterLowestCost() && foundWeight != null &&
-             NoneStrictMath.compare( path.weight(), foundWeight, epsilon ) > 0 )
+        if ( interest.stopAfterLowestCost() && foundWeight != null && MathUtil.compare( path.weight(), foundWeight, epsilon ) > 0 )
         {
             return null;
         }

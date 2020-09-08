@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,41 +19,40 @@
  */
 package org.neo4j.server.security.auth;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import org.neo4j.kernel.impl.security.Credential;
+import org.neo4j.cypher.internal.security.SystemGraphCredential;
 import org.neo4j.kernel.impl.security.User;
 
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.CoreMatchers.not;
-import static org.hamcrest.MatcherAssert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.neo4j.server.security.auth.SecurityTestUtils.credentialFor;
 
-public class UserTest
+class UserTest
 {
     @Test
-    public void shouldBuildImmutableUser()
+    void shouldBuildImmutableUser()
     {
-        Credential abc = Credential.forPassword( "123abc" );
-        Credential fruit = Credential.forPassword( "fruit" );
-        User u1 = new User.Builder("Steve", abc).build();
-        User u2 = new User.Builder("Steve", fruit)
+        SystemGraphCredential abc = credentialFor( "123abc" );
+        SystemGraphCredential fruit = credentialFor( "fruit" );
+        User u1 = new User.Builder( "Steve", abc ).build();
+        User u2 = new User.Builder( "Steve", fruit )
                 .withRequiredPasswordChange( true )
                 .withFlag( "nice_guy" ).build();
-        assertThat( u1, equalTo( u1 ) );
-        assertThat( u1, not( equalTo( u2 ) ) );
+        assertThat( u1 ).isEqualTo( u1 );
+        assertThat( u1 ).isNotEqualTo( u2 );
 
-        User u1_as_u2 = u1.augment().withCredentials( fruit )
+        User u1AsU2 = u1.augment().withCredentials( fruit )
                 .withRequiredPasswordChange( true )
                 .withFlag( "nice_guy" ).build();
-        assertThat( u1, not( equalTo( u1_as_u2 )));
-        assertThat( u2, equalTo( u1_as_u2 ));
+        assertThat( u1 ).isNotEqualTo( u1AsU2 );
+        assertThat( u2 ).isEqualTo( u1AsU2 );
 
-        User u2_as_u1 = u2.augment().withCredentials( abc )
+        User u2AsU1 = u2.augment().withCredentials( abc )
                 .withRequiredPasswordChange( false )
                 .withoutFlag( "nice_guy" ).build();
-        assertThat( u2, not( equalTo( u2_as_u1 )));
-        assertThat( u1, equalTo( u2_as_u1 ));
+        assertThat( u2 ).isNotEqualTo( u2AsU1 );
+        assertThat( u1 ).isEqualTo( u2AsU1 );
 
-        assertThat( u1, not( equalTo( u2 ) ) );
+        assertThat( u1 ).isNotEqualTo( u2 );
     }
 }

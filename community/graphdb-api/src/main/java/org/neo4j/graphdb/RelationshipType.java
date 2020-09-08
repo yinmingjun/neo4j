@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,6 +19,7 @@
  */
 package org.neo4j.graphdb;
 
+import org.neo4j.annotations.api.PublicApi;
 import org.neo4j.graphdb.traversal.TraversalDescription;
 
 /**
@@ -58,8 +59,10 @@ import org.neo4j.graphdb.traversal.TraversalDescription;
  *
  * <pre>
  * <code>
- * node.{@link Node#createRelationshipTo(Node, RelationshipType) createRelationshipTo}( anotherNode, {@link RelationshipType MyRelationshipTypes.KNOWS} );
- * for ( {@link Relationship} rel : node.{@link Node#getRelationships(RelationshipType...) getRelationships}( MyRelationshipTypes.KNOWS ) )
+ * node.{@link Node#createRelationshipTo(Node, RelationshipType)
+ * createRelationshipTo}( anotherNode, {@link RelationshipType MyRelationshipTypes.KNOWS} );
+ * for ( {@link Relationship} rel : node.{@link Node#getRelationships(RelationshipType...)
+ * getRelationships}( MyRelationshipTypes.KNOWS ) )
  * {
  *     // ...
  * }
@@ -88,6 +91,7 @@ import org.neo4j.graphdb.traversal.TraversalDescription;
  * </code>
  * </pre>
  */
+@PublicApi
 public interface RelationshipType
 {
     /**

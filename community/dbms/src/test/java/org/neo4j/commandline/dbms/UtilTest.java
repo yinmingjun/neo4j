@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,24 +19,25 @@
  */
 package org.neo4j.commandline.dbms;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import org.neo4j.commandline.Util;
+import java.nio.file.Path;
 
-import static org.junit.Assert.assertNotNull;
-import static org.neo4j.commandline.Util.neo4jVersion;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.neo4j.commandline.Util.isSameOrChildFile;
 
-public class UtilTest
+class UtilTest
 {
     @Test
-    public void canonicalPath() throws Exception
+    void correctlyIdentifySameOrChildFile()
     {
-        assertNotNull( Util.canonicalPath( "foo" ).getParent() );
-    }
+        Path home = Path.of( "." ).toAbsolutePath();
+        assertTrue( isSameOrChildFile( home, home ) );
+        assertTrue( isSameOrChildFile( home, home.resolve( "a" ) ) );
+        assertTrue( isSameOrChildFile( home.resolve( "a/./b" ), home.resolve( "a/b" ) ) );
+        assertTrue( isSameOrChildFile( home.resolve( "a/b" ), home.resolve( "a/./b" ) ) );
 
-    @Test
-    public void returnsAVersion() throws Exception
-    {
-        assertNotNull( "A version should be returned", neo4jVersion() );
+        assertFalse( isSameOrChildFile( home.resolve( "a" ), home.resolve( "b" ) ) );
     }
 }

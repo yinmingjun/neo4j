@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,58 +19,33 @@
  */
 package org.neo4j.io.fs;
 
+import org.junit.jupiter.api.Test;
+
 import java.io.IOException;
 import java.nio.file.FileVisitor;
-import java.nio.file.Path;
 
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.mockito.Mock;
-import org.mockito.runners.MockitoJUnitRunner;
-
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.stub;
-
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
 import static org.neo4j.io.fs.FileVisitors.throwExceptions;
 
-@RunWith( MockitoJUnitRunner.class )
-public class ThrowExceptionsFileVisitorTest
+@SuppressWarnings( "unchecked" )
+class ThrowExceptionsFileVisitorTest
 {
-    @Mock
-    public FileVisitor<Path> wrapped;
 
     @Test
-    public void shouldThrowExceptionFromVisitFileFailed() throws IOException
+    void shouldThrowExceptionFromVisitFileFailed()
     {
-        IOException exception = new IOException();
-        stub( wrapped.visitFileFailed( any(), any() ) ).toThrow( exception );
-        try
-        {
-            throwExceptions( wrapped ).visitFileFailed( null, exception );
-            fail( "Expected exception" );
-        }
-        catch ( Exception e )
-        {
-            assertThat( e, is( exception ) );
-        }
+        var exception = new IOException( "test" );
+        var actual = assertThrows( Exception.class, () -> throwExceptions( mock( FileVisitor.class ) ).visitFileFailed( null, exception ) );
+        assertEquals( exception, actual );
     }
 
     @Test
-    public void shouldThrowExceptionFromPostVisitDirectory() throws IOException
+    void shouldThrowExceptionFromPostVisitDirectory()
     {
-        IOException exception = new IOException();
-        stub( wrapped.postVisitDirectory( any(), any() ) ).toThrow( exception );
-        try
-        {
-            throwExceptions( wrapped ).postVisitDirectory( null, exception );
-            fail( "Expected exception" );
-        }
-        catch ( Exception e )
-        {
-            assertThat( e, is( exception ) );
-        }
+        var exception = new IOException( "test" );
+        var actual = assertThrows( Exception.class, () -> throwExceptions( mock( FileVisitor.class ) ).postVisitDirectory( null, exception ) );
+        assertEquals( exception, actual );
     }
 }

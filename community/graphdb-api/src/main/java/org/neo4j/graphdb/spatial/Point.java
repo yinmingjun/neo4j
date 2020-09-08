@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,11 +19,14 @@
  */
 package org.neo4j.graphdb.spatial;
 
+import org.neo4j.annotations.api.PublicApi;
+
 /**
  * A point is a geometry described by a single coordinate in space.
  * <p>
  * A call to {@link #getCoordinates()} must return a single element list.
  */
+@PublicApi
 public interface Point extends Geometry
 {
     /**
@@ -34,6 +37,12 @@ public interface Point extends Geometry
     default Coordinate getCoordinate()
     {
         return getCoordinates().get( 0 );
+    }
+
+    @Override
+    default String getGeometryType()
+    {
+        return "Point";
     }
 }
 

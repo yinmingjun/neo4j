@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,9 +22,21 @@ package org.neo4j.kernel.impl.factory;
 public enum OperationalMode
 {
     // Note, these are sent verbatim via UDC if UDC is enabled
-    unknown,
-    single,
-    ha,
-    core,
-    read_replica
+    UNKNOWN( "unknown" ),
+    SINGLE( "single" ),
+    CORE( "core" ),
+    READ_REPLICA( "read_replica" );
+
+    private final String description;
+
+    OperationalMode( String description )
+    {
+        this.description = description;
+    }
+
+    @Override
+    public String toString()
+    {
+        return description;
+    }
 }

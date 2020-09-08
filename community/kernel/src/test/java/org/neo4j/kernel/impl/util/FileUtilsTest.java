@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,222 +19,479 @@
  */
 package org.neo4j.kernel.impl.util;
 
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
-import org.junit.rules.RuleChain;
+import org.apache.commons.lang3.SystemUtils;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryNotEmptyException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Stream;
 
 import org.neo4j.io.fs.FileUtils;
+import org.neo4j.test.extension.Inject;
+import org.neo4j.test.extension.testdirectory.TestDirectoryExtension;
 import org.neo4j.test.rule.TestDirectory;
 
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
+import static java.nio.file.Path.of;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.neo4j.io.fs.FileUtils.pathToFileAfterMove;
 
-public class FileUtilsTest
+@TestDirectoryExtension
+class FileUtilsTest
 {
-    public TestDirectory testDirectory = TestDirectory.testDirectory();
-    public ExpectedException expected = ExpectedException.none();
+    @Inject
+    private TestDirectory testDirectory;
 
-    @Rule
-    public RuleChain chain = RuleChain.outerRule( testDirectory ).around( expected );
+    private Path path;
 
-    private File path;
-
-    @Before
-    public void doBefore() throws Exception
+    @BeforeEach
+    void beforeEach()
     {
-        path = testDirectory.directory( "path" );
+        path = testDirectory.directoryPath( "path" );
     }
 
     @Test
-    public void moveFileToDirectory() throws Exception
+    void moveFileToDirectory() throws Exception
     {
-        File file = touchFile( "source" );
-        File targetDir = directory( "dir" );
+        Path file = touchFile( "source" );
+        Path targetDir = directory( "dir" );
 
-        File newLocationOfFile = FileUtils.moveFileToDirectory( file, targetDir );
-        assertTrue( newLocationOfFile.exists() );
-        assertFalse( file.exists() );
-        assertEquals( newLocationOfFile, targetDir.listFiles()[0] );
+        Path newLocationOfFile = FileUtils.moveFileToDirectory( file, targetDir );
+        assertTrue( Files.exists( newLocationOfFile ) );
+        assertFalse( Files.exists( file ) );
+        Path[] files = FileUtils.listPaths( targetDir );
+        assertNotNull( files );
+        assertEquals( newLocationOfFile, files[0] );
     }
 
     @Test
-    public void moveFile() throws Exception
+    void moveFileToDirectoryCreatesNonExistingDirectory() throws Exception
     {
-        File file = touchFile( "source" );
-        File targetDir = directory( "dir" );
+        Path file = touchFile( "source" );
+        Path targetDir = path.resolve( "nonexisting" );
 
-        File newLocationOfFile = new File( targetDir, "new-name" );
+        Path newLocationOfFile = FileUtils.moveFileToDirectory( file, targetDir );
+        assertTrue( Files.exists( newLocationOfFile ) );
+        assertFalse( Files.exists( file ) );
+        Path[] files = FileUtils.listPaths( targetDir );
+        assertNotNull( files );
+        assertEquals( newLocationOfFile, files[0] );
+    }
+
+    @Test
+    void moveFile() throws Exception
+    {
+        Path file = touchFile( "source" );
+        Path targetDir = directory( "dir" );
+
+        Path newLocationOfFile = targetDir.resolve( "new-name" );
         FileUtils.moveFile( file, newLocationOfFile );
-        assertTrue( newLocationOfFile.exists() );
-        assertFalse( file.exists() );
-        assertEquals( newLocationOfFile, targetDir.listFiles()[0] );
+        assertTrue( Files.exists( newLocationOfFile ) );
+        assertFalse( Files.exists( file ) );
+        Path[] files = FileUtils.listPaths( targetDir );
+        assertNotNull( files );
+        assertEquals( newLocationOfFile, files[0] );
     }
 
     @Test
-    public void testEmptyDirectory() throws IOException
+    void deletePathRecursively() throws IOException
     {
-        File emptyDir = directory( "emptyDir" );
+        Path root = testDirectory.directoryPath( "a" );
+        Path child = root.resolve( "b" );
+        Path file = child.resolve( "c" );
 
-        File nonEmptyDir = directory( "nonEmptyDir" );
-        File directoryContent = new File( nonEmptyDir, "somefile" );
-        assert directoryContent.createNewFile();
+        Files.createDirectories( child );
+        Files.createFile( file );
 
-        assertTrue( FileUtils.isEmptyDirectory( emptyDir ) );
-        assertFalse( FileUtils.isEmptyDirectory( nonEmptyDir ) );
+        FileUtils.deleteDirectory( root );
+
+        assertFalse( Files.exists( file ) );
+        assertFalse( Files.exists( child ) );
     }
 
     @Test
-    public void pathToFileAfterMoveMustThrowIfFileNotSubPathToFromShorter() throws Exception
+    void deletePathRecursivelyWithFilter() throws IOException
     {
-        File file = new File( "/a" );
-        File from = new File( "/a/b" );
-        File to   = new File( "/a/c" );
+        Path root = testDirectory.directoryPath( "a" );
+        Path child = root.resolve( "b" );
+        Path file = child.resolve( "c" );
 
-        expected.expect( IllegalArgumentException.class );
-        pathToFileAfterMove( from, to, file );
+        Path toKeepDir = root.resolve( "d" );
+        Path toKeepFile = toKeepDir.resolve( "e" );
+
+        Files.createDirectories( child );
+        Files.createFile( file );
+        Files.createDirectories( toKeepDir );
+        Files.createFile( toKeepFile );
+
+        FileUtils.deleteDirectory( root, path -> !path.equals( toKeepFile ) );
+
+        assertFalse( Files.exists( file ) );
+        assertFalse( Files.exists( child ) );
+
+        assertTrue( Files.exists( toKeepFile ) );
+        assertTrue( Files.exists( toKeepDir ) );
+    }
+
+    @Test
+    void deleteNestedPathRecursivelyWithFilter() throws IOException
+    {
+        Path root = testDirectory.directoryPath( "a" );
+        Path child = root.resolve( "a" );
+        Path file = child.resolve( "aaFile" );
+
+        Path toKeepDelete = root.resolve( "b" );
+
+        Files.createDirectories( child );
+        Files.createFile( file );
+        Files.createDirectories( toKeepDelete );
+
+        FileUtils.deleteDirectory( root, path -> !path.equals( file ) );
+
+        assertTrue( Files.exists( file ) );
+        assertTrue( Files.exists( child ) );
+
+        assertFalse( Files.exists( toKeepDelete ) );
+    }
+
+    @Test
+    void pathToFileAfterMoveMustThrowIfFileNotSubPathToFromShorter()
+    {
+        Path file = Path.of( "/a" );
+        Path from = Path.of( "/a/b" );
+        Path to   = Path.of( "/a/c" );
+
+        assertThrows( IllegalArgumentException.class, () -> pathToFileAfterMove( from, to, file ) );
     }
 
     // INVALID
     @Test
-    public void pathToFileAfterMoveMustThrowIfFileNotSubPathToFromSameLength() throws Exception
+    void pathToFileAfterMoveMustThrowIfFileNotSubPathToFromSameLength()
     {
-        File file = new File( "/a/f" );
-        File from = new File( "/a/b" );
-        File to   = new File( "/a/c" );
+        Path file = Path.of( "/a/f" );
+        Path from = Path.of( "/a/b" );
+        Path to   = Path.of( "/a/c" );
 
-        expected.expect( IllegalArgumentException.class );
-        pathToFileAfterMove( from, to, file );
+        assertThrows( IllegalArgumentException.class, () -> pathToFileAfterMove( from, to, file ) );
     }
 
     @Test
-    public void pathToFileAfterMoveMustThrowIfFileNotSubPathToFromLonger() throws Exception
+    void pathToFileAfterMoveMustThrowIfFileNotSubPathToFromLonger()
     {
-        File file = new File( "/a/c/f" );
-        File from = new File( "/a/b" );
-        File to   = new File( "/a/c" );
+        Path file = Path.of( "/a/c/f" );
+        Path from = Path.of( "/a/b" );
+        Path to   = Path.of( "/a/c" );
 
-        expected.expect( IllegalArgumentException.class );
-        pathToFileAfterMove( from, to, file );
+        assertThrows( IllegalArgumentException.class, () -> pathToFileAfterMove( from, to, file ) );
     }
 
     @Test
-    public void pathToFileAfterMoveMustThrowIfFromDirIsCompletePathToFile() throws Exception
+    void pathToFileAfterMoveMustThrowIfFromDirIsCompletePathToFile()
     {
-        File file = new File( "/a/b/f" );
-        File from = new File( "/a/b/f" );
-        File to   = new File( "/a/c" );
+        Path file = Path.of( "/a/b/f" );
+        Path from = Path.of( "/a/b/f" );
+        Path to   = Path.of( "/a/c" );
 
-        expected.expect( IllegalArgumentException.class );
-        pathToFileAfterMove( from, to, file );
+        assertThrows( IllegalArgumentException.class, () -> pathToFileAfterMove( from, to, file ) );
     }
 
     // SIBLING
     @Test
-    public void pathToFileAfterMoveMustWorkIfMovingToSibling() throws Exception
+    void pathToFileAfterMoveMustWorkIfMovingToSibling()
     {
-        File file = new File( "/a/b/f" );
-        File from = new File( "/a/b" );
-        File to   = new File( "/a/c" );
+        Path file = Path.of( "/a/b/f" );
+        Path from = Path.of( "/a/b" );
+        Path to   = Path.of( "/a/c" );
 
-        assertThat( pathToFileAfterMove( from, to, file ).getPath(), is( path( "/a/c/f" ) ) );
+        assertThat( pathToFileAfterMove( from, to, file ) ).isEqualTo( path( "/a/c/f" ) );
     }
 
     @Test
-    public void pathToFileAfterMoveMustWorkIfMovingToSiblingAndFileHasSubDir() throws Exception
+    void pathToFileAfterMoveMustWorkIfMovingToSiblingAndFileHasSubDir()
     {
-        File file = new File( "/a/b/d/f" );
-        File from = new File( "/a/b" );
-        File to   = new File( "/a/c" );
+        Path file = Path.of( "/a/b/d/f" );
+        Path from = Path.of( "/a/b" );
+        Path to   = Path.of( "/a/c" );
 
-        assertThat( pathToFileAfterMove( from, to, file ).getPath(), is( path( "/a/c/d/f" ) ) );
+        assertThat( pathToFileAfterMove( from, to, file ) ).isEqualTo( path( "/a/c/d/f" ) );
     }
 
     // DEEPER
     @Test
-    public void pathToFileAfterMoveMustWorkIfMovingToSubDir() throws Exception
+    void pathToFileAfterMoveMustWorkIfMovingToSubDir()
     {
-        File file = new File( "/a/b/f" );
-        File from = new File( "/a/b" );
-        File to   = new File( "/a/b/c" );
+        Path file = Path.of( "/a/b/f" );
+        Path from = Path.of( "/a/b" );
+        Path to   = Path.of( "/a/b/c" );
 
-        assertThat( pathToFileAfterMove( from, to, file ).getPath(), is( path( "/a/b/c/f" ) ) );
+        assertThat( pathToFileAfterMove( from, to, file ) ).isEqualTo( path( "/a/b/c/f" ) );
     }
 
     @Test
-    public void pathToFileAfterMoveMustWorkIfMovingToSubDirAndFileHasSubDir() throws Exception
+    void pathToFileAfterMoveMustWorkIfMovingToSubDirAndFileHasSubDir()
     {
-        File file = new File( "/a/b/d/f" );
-        File from = new File( "/a/b" );
-        File to   = new File( "/a/b/c" );
+        Path file = Path.of( "/a/b/d/f" );
+        Path from = Path.of( "/a/b" );
+        Path to   = Path.of( "/a/b/c" );
 
-        assertThat( pathToFileAfterMove( from, to, file ).getPath(), is( path( "/a/b/c/d/f" ) ) );
+        assertThat( pathToFileAfterMove( from, to, file ) ).isEqualTo( path( "/a/b/c/d/f" ) );
     }
 
     @Test
-    public void pathToFileAfterMoveMustWorkIfMovingOutOfDir() throws Exception
+    void pathToFileAfterMoveMustWorkIfMovingOutOfDir()
     {
-        File file = new File( "/a/b/f" );
-        File from = new File( "/a/b" );
-        File to   = new File( "/c" );
+        Path file = Path.of( "/a/b/f" );
+        Path from = Path.of( "/a/b" );
+        Path to   = Path.of( "/c" );
 
-        assertThat( pathToFileAfterMove( from, to, file ).getPath(), is( path( "/c/f" ) ) );
+        assertThat( pathToFileAfterMove( from, to, file ) ).isEqualTo( path( "/c/f" ) );
     }
 
     @Test
-    public void pathToFileAfterMoveMustWorkIfMovingOutOfDirAndFileHasSubDir() throws Exception
+    void pathToFileAfterMoveMustWorkIfMovingOutOfDirAndFileHasSubDir()
     {
-        File file = new File( "/a/b/d/f" );
-        File from = new File( "/a/b" );
-        File to   = new File( "/c" );
+        Path file = Path.of( "/a/b/d/f" );
+        Path from = Path.of( "/a/b" );
+        Path to   = Path.of( "/c" );
 
-        assertThat( pathToFileAfterMove( from, to, file ).getPath(), is( path( "/c/d/f" ) ) );
+        assertThat( pathToFileAfterMove( from, to, file ) ).isEqualTo( path( "/c/d/f" ) );
     }
 
     @Test
-    public void pathToFileAfterMoveMustWorkIfNotMovingAtAll() throws Exception
+    void pathToFileAfterMoveMustWorkIfNotMovingAtAll()
     {
-        File file = new File( "/a/b/f" );
-        File from = new File( "/a/b" );
-        File to   = new File( "/a/b" );
+        Path file = Path.of( "/a/b/f" );
+        Path from = Path.of( "/a/b" );
+        Path to   = Path.of( "/a/b" );
 
-        assertThat( pathToFileAfterMove( from, to, file ).getPath(), is( path( "/a/b/f" ) ) );
+        assertThat( pathToFileAfterMove( from, to, file ) ).isEqualTo( path( "/a/b/f" ) );
     }
 
     @Test
-    public void pathToFileAfterMoveMustWorkIfNotMovingAtAllAndFileHasSubDir() throws Exception
+    void pathToFileAfterMoveMustWorkIfNotMovingAtAllAndFileHasSubDir()
     {
-        File file = new File( "/a/b/d/f" );
-        File from = new File( "/a/b" );
-        File to   = new File( "/a/b" );
+        Path file = Path.of( "/a/b/d/f" );
+        Path from = Path.of( "/a/b" );
+        Path to   = Path.of( "/a/b" );
 
-        assertThat( pathToFileAfterMove( from, to, file ).getPath(), is( path( "/a/b/d/f" ) ) );
+        assertThat( pathToFileAfterMove( from, to, file ) ).isEqualTo( path( "/a/b/d/f" ) );
     }
 
-    private File directory( String name )
+    @Test
+    void allMacsHaveHighIO()
     {
-        File dir = new File( path, name );
-        dir.mkdirs();
+        assumeTrue( SystemUtils.IS_OS_MAC );
+        assertTrue( FileUtils.highIODevice( Paths.get( "." ) ) );
+    }
+
+    @Test
+    void allWindowsHaveHighIO()
+    {
+        assumeTrue( SystemUtils.IS_OS_WINDOWS );
+        assertTrue( FileUtils.highIODevice( Paths.get( "." ) ) );
+    }
+
+    @Test
+    void onLinuxDevShmHasHighIO()
+    {
+        assumeTrue( SystemUtils.IS_OS_LINUX );
+        assertTrue( FileUtils.highIODevice( Paths.get( "/dev/shm" ) ) );
+    }
+
+    @Test
+    void mustCountDirectoryContents() throws Exception
+    {
+        Path dir = directory( "dir" );
+        Path file = dir.resolve( "file" );
+        Path subdir = dir.resolve( "subdir" );
+        Files.createFile( file );
+        Files.createDirectories( subdir );
+
+        assertThat( FileUtils.countFilesInDirectoryPath( dir ) ).isEqualTo( 2L );
+    }
+
+    @Test
+    void nonExistingDirectoryCanBeDeleted() throws IOException
+    {
+        Path dir = path.resolve( "dir" );
+        FileUtils.deleteFile( dir );
+    }
+
+    @Test
+    void emptyDirectoryCanBeDeleted() throws Exception
+    {
+        Path dir = directory( "dir" );
+        FileUtils.deleteFile( dir );
+    }
+
+    @Test
+    void nonEmptyDirectoryCannotBeDeleted() throws Exception
+    {
+        Path dir = directory( "dir" );
+        Path file = dir.resolve( "file" );
+
+        Files.createFile( file );
+        assertThrows( DirectoryNotEmptyException.class, () -> FileUtils.deleteFile( dir ) );
+    }
+
+    @Test
+    void copySubTree() throws IOException
+    {
+        // Setup directory structure
+        // dir/
+        // dir/file1
+        // dir/sub1/
+        // dir/sub2/
+        // dir/sub2/file2
+
+        Path dir = Files.createTempDirectory( "dir" );
+        Files.writeString( dir.resolve( "file1" ), "file1", StandardCharsets.UTF_8 );
+        Files.createDirectory( dir.resolve( "sub1" ) );
+        Path sub2 = dir.resolve( "sub2" );
+        Files.createDirectory( sub2 );
+        Files.writeString( sub2.resolve( "file2" ), "file2", StandardCharsets.UTF_8 );
+
+        // Copy
+        FileUtils.copyDirectory( dir, dir.resolve( "sub2" ) );
+
+        // Validate result
+        // dir/
+        // dir/file1
+        // dir/sub1/
+        // dir/sub2/
+        // dir/sub2/file1
+        // dir/sub2/file2
+        // dir/sub2/sub1/
+        // dir/sub2/sub2/
+        // dir/sub2/sub2/file2
+
+        Set<Path> structure = new TreeSet<>();
+        try ( Stream<Path> walk = Files.walk( dir ) )
+        {
+            walk.forEach( path -> structure.add( dir.relativize( path ) ) );
+        }
+        assertThat( structure ).containsExactly(
+                of( "" ),
+                of( "file1" ),
+                of( "sub1" ),
+                of( "sub2" ),
+                of( "sub2/file1" ),
+                of( "sub2/file2" ),
+                of( "sub2/sub1" ),
+                of( "sub2/sub2" ),
+                of( "sub2/sub2/file2" ) );
+    }
+
+    @Test
+    void copyWithFilter() throws IOException
+    {
+        // Setup directory structure
+        // source/
+        // source/file1
+        // source/file2
+        // source/file3
+        // source/file14
+
+        Path source = Files.createTempDirectory( "source" );
+        Files.writeString( source.resolve( "file1" ), "file1", StandardCharsets.UTF_8 );
+        Files.writeString( source.resolve( "file2" ), "file2", StandardCharsets.UTF_8 );
+        Files.writeString( source.resolve( "file3" ), "file3", StandardCharsets.UTF_8 );
+        Files.writeString( source.resolve( "file14" ), "file14", StandardCharsets.UTF_8 );
+
+        Path target = Files.createTempDirectory( "target" );
+
+        // Copy
+        FileUtils.copyDirectory( source, target, path -> path.getFileName().toString().startsWith( "file1" ) );
+
+        // Validate result
+        // target/
+        // target/file1
+        // target/file14
+
+        Set<Path> structure = new TreeSet<>();
+        try ( Stream<Path> walk = Files.walk( target ) )
+        {
+            walk.forEach( path -> structure.add( target.relativize( path ) ) );
+        }
+        assertThat( structure ).containsExactly(
+                of( "" ),
+                of( "file1" ),
+                of( "file14" ) );
+    }
+
+    @Test
+    void copyWithFilterInSubTree() throws IOException
+    {
+        // Setup directory structure
+        // dir/
+        // dir/file1
+        // dir/sub1/
+        // dir/sub2/
+        // dir/sub2/file2
+
+        Path dir = Files.createTempDirectory( "dir" );
+        Files.writeString( dir.resolve( "file1" ), "file1", StandardCharsets.UTF_8 );
+        Files.createDirectory( dir.resolve( "sub1" ) );
+        Path sub2 = dir.resolve( "sub2" );
+        Files.createDirectory( sub2 );
+        Files.writeString( sub2.resolve( "file2" ), "file2", StandardCharsets.UTF_8 );
+
+        // Copy
+        FileUtils.copyDirectory( dir, dir.resolve( "sub2" ), path -> Files.isDirectory( path ) || path.getFileName().toString().startsWith( "file1" ) );
+
+        // Validate result
+        // dir/
+        // dir/file1
+        // dir/sub1/
+        // dir/sub2/
+        // dir/sub2/file1
+        // dir/sub2/sub1/
+        // dir/sub2/sub2/
+
+        Set<Path> structure = new TreeSet<>();
+        try ( Stream<Path> walk = Files.walk( dir ) )
+        {
+            walk.forEach( path -> structure.add( dir.relativize( path ) ) );
+        }
+        assertThat( structure ).containsExactly(
+                of( "" ),
+                of( "file1" ),
+                of( "sub1" ),
+                of( "sub2" ),
+                of( "sub2/file1" ),
+                of( "sub2/file2" ),
+                of( "sub2/sub1" ),
+                of( "sub2/sub2" ) );
+    }
+
+    private Path directory( String name ) throws IOException
+    {
+        Path dir = path.resolve( name );
+        Files.createDirectories( dir );
         return dir;
     }
 
-    private File touchFile( String name ) throws IOException
+    private Path touchFile( String name ) throws IOException
     {
-        File file = new File( path, name );
-        file.createNewFile();
+        Path file = path.resolve( name );
+        Files.createFile( file );
         return file;
     }
 
-    private String path( String path )
+    private Path path( String path )
     {
-        return new File( path ).getPath();
+        return Path.of( path );
     }
 }

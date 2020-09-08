@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,7 +20,7 @@
 package org.neo4j.consistency.checking.full;
 
 import org.neo4j.consistency.checking.full.RecordDistributor.RecordConsumer;
-import org.neo4j.helpers.Exceptions;
+import org.neo4j.internal.helpers.Exceptions;
 import org.neo4j.kernel.impl.store.record.RelationshipRecord;
 
 /**
@@ -67,7 +67,7 @@ public interface QueueDistribution
     class RoundRobinQueueDistributor<RECORD> implements QueueDistributor<RECORD>
     {
         private final int numberOfThreads;
-        private int nextQIndex = 0;
+        private int nextQIndex;
 
         RoundRobinQueueDistributor( int numberOfThreads )
         {

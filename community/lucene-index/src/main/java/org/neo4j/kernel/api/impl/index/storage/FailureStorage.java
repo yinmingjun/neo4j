@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,9 +19,9 @@
  */
 package org.neo4j.kernel.api.impl.index.storage;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 
 import org.neo4j.io.fs.FileSystemAbstraction;
 import org.neo4j.io.fs.StoreChannel;
@@ -35,7 +35,7 @@ import org.neo4j.string.UTF8;
 public class FailureStorage
 {
     private static final int MAX_FAILURE_SIZE = 16384;
-    private static final String DEFAULT_FAILURE_FILE_NAME = "failure-message";
+    public static final String DEFAULT_FAILURE_FILE_NAME = "failure-message";
 
     private final FileSystemAbstraction fs;
     private final FolderLayout folderLayout;
@@ -67,10 +67,10 @@ public class FailureStorage
     public synchronized void reserveForIndex() throws IOException
     {
         fs.mkdirs( folderLayout.getIndexFolder() );
-        File failureFile = failureFile();
-        try ( StoreChannel channel = fs.create( failureFile ) )
+        Path failureFile = failureFile();
+        try ( StoreChannel channel = fs.write( failureFile ) )
         {
-            channel.write( ByteBuffer.wrap( new byte[MAX_FAILURE_SIZE] ) );
+            channel.writeAll( ByteBuffer.wrap( new byte[MAX_FAILURE_SIZE] ) );
             channel.force( true );
         }
     }
@@ -89,7 +89,7 @@ public class FailureStorage
      */
     public synchronized String loadIndexFailure()
     {
-        File failureFile = failureFile();
+        Path failureFile = failureFile();
         try
         {
             if ( !fs.fileExists( failureFile ) || !isFailed( failureFile ) )
@@ -112,34 +112,32 @@ public class FailureStorage
      */
     public synchronized void storeIndexFailure( String failure ) throws IOException
     {
-        File failureFile = failureFile();
-        try ( StoreChannel channel = fs.open( failureFile, "rw" ) )
+        Path failureFile = failureFile();
+        try ( StoreChannel channel = fs.write( failureFile ) )
         {
             byte[] existingData = new byte[(int) channel.size()];
-            channel.read( ByteBuffer.wrap( existingData ) );
+            channel.readAll( ByteBuffer.wrap( existingData ) );
             channel.position( lengthOf( existingData ) );
 
             byte[] data = UTF8.encode( failure );
-            channel.write( ByteBuffer.wrap( data, 0, Math.min( data.length, MAX_FAILURE_SIZE ) ) );
+            channel.writeAll( ByteBuffer.wrap( data, 0, Math.min( data.length, MAX_FAILURE_SIZE ) ) );
 
             channel.force( true );
-            channel.close();
         }
     }
 
-    File failureFile()
+    Path failureFile()
     {
-        File folder = folderLayout.getIndexFolder();
-        return new File( folder, failureFileName );
+        return folderLayout.getIndexFolder().resolve( failureFileName );
     }
 
-    private String readFailure( File failureFile ) throws IOException
+    private String readFailure( Path failureFile ) throws IOException
     {
-        try ( StoreChannel channel = fs.open( failureFile, "r" ) )
+        try ( StoreChannel channel = fs.read( failureFile ) )
         {
             byte[] data = new byte[(int) channel.size()];
-            int readData = channel.read( ByteBuffer.wrap( data ) );
-            return readData <= 0 ? "" : UTF8.decode( withoutZeros( data ) );
+            channel.readAll( ByteBuffer.wrap( data ) );
+            return UTF8.decode( withoutZeros( data ) );
         }
     }
 
@@ -162,12 +160,12 @@ public class FailureStorage
         return data.length;
     }
 
-    private boolean isFailed( File failureFile ) throws IOException
+    private boolean isFailed( Path failureFile ) throws IOException
     {
-        try ( StoreChannel channel = fs.open( failureFile, "r" ) )
+        try ( StoreChannel channel = fs.read( failureFile ) )
         {
             byte[] data = new byte[(int) channel.size()];
-            channel.read( ByteBuffer.wrap( data ) );
+            channel.readAll( ByteBuffer.wrap( data ) );
             channel.close();
             return !allZero( data );
         }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,23 +19,25 @@
  */
 package org.neo4j.kernel.impl.locking;
 
+import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 
-import org.neo4j.kernel.DeadlockDetectedException;
-import org.neo4j.logging.Logger;
-import org.neo4j.storageengine.api.lock.AcquireLockTimeoutException;
+import org.neo4j.lock.LockTracer;
 import org.neo4j.test.OtherThreadExecutor;
 
-import static org.neo4j.kernel.impl.locking.ResourceTypes.NODE;
+import static org.neo4j.lock.ResourceTypes.NODE;
 
-public class LockWorker extends OtherThreadExecutor<LockWorkerState>
+public class LockWorker extends OtherThreadExecutor
 {
+    private final LockWorkerState state;
+
     public LockWorker( String name, Locks locks )
     {
-        super( name, new LockWorkerState( locks ) );
+        super( name );
+        state = new LockWorkerState( locks );
     }
 
-    private Future<Void> perform( AcquireLockCommand acquireLockCommand, boolean wait ) throws Exception
+    private Future<Void> perform( Callable<Void> acquireLockCommand, boolean wait ) throws Exception
     {
         Future<Void> future = executeDontWait( acquireLockCommand );
         if ( wait )
@@ -51,95 +53,45 @@ public class LockWorker extends OtherThreadExecutor<LockWorkerState>
 
     public Future<Void> getReadLock( final long resource, final boolean wait ) throws Exception
     {
-        return perform( new AcquireLockCommand()
+        return perform( () ->
         {
-            @Override
-            protected void acquireLock( LockWorkerState state ) throws AcquireLockTimeoutException
-            {
-                state.doing( "+R " + resource + ", wait:" + wait );
-                state.client.acquireShared( LockTracer.NONE, NODE, resource );
-                state.done();
-            }
+            state.doing( "+R " + resource + ", wait:" + wait );
+            state.client.acquireShared( LockTracer.NONE, NODE, resource );
+            state.done();
+            return null;
         }, wait );
     }
 
     public Future<Void> getWriteLock( final long resource, final boolean wait ) throws Exception
     {
-        return perform( new AcquireLockCommand()
+        return perform( () ->
         {
-            @Override
-            protected void acquireLock( LockWorkerState state ) throws AcquireLockTimeoutException
-            {
-                state.doing( "+W " + resource + ", wait:" + wait );
-                state.client.acquireExclusive( LockTracer.NONE, NODE, resource );
-                state.done();
-            }
+            state.doing( "+W " + resource + ", wait:" + wait );
+            state.client.acquireExclusive( LockTracer.NONE, NODE, resource );
+            state.done();
+            return null;
         }, wait );
     }
 
     public void releaseReadLock( final long resource ) throws Exception
     {
-        perform( new AcquireLockCommand()
+        perform( () ->
         {
-            @Override
-            protected void acquireLock( LockWorkerState state )
-            {
-                state.doing( "-R " + resource );
-                state.client.releaseShared( NODE, resource );
-                state.done();
-            }
+            state.doing( "-R " + resource );
+            state.client.releaseShared( NODE, resource );
+            state.done();
+            return null;
         }, true );
     }
 
     public void releaseWriteLock( final long resource ) throws Exception
     {
-        perform( new AcquireLockCommand()
+        perform( () ->
         {
-            @Override
-            protected void acquireLock( LockWorkerState state )
-            {
-                state.doing( "-W " + resource );
-                state.client.releaseExclusive( NODE, resource );
-                state.done();
-            }
-        }, true );
-    }
-
-    public boolean isLastGetLockDeadLock()
-    {
-        return state.deadlockOnLastWait;
-    }
-
-    @Override
-    public void dump( Logger logger )
-    {
-        super.dump( logger );
-        logger.log( "What have I done up until now?" );
-        for ( String op : state.completedOperations )
-        {
-            logger.log( op );
-        }
-        logger.log( "Doing right now:" );
-        logger.log( state.doing == null ? "???" : state.doing );
-    }
-
-    private abstract static class AcquireLockCommand implements WorkerCommand<LockWorkerState, Void>
-    {
-        @Override
-        public Void doWork( LockWorkerState state ) throws Exception
-        {
-            try
-            {
-                acquireLock( state );
-                state.deadlockOnLastWait = false;
-            }
-            catch ( DeadlockDetectedException e )
-            {
-                state.deadlockOnLastWait = true;
-            }
+            state.doing( "-W " + resource );
+            state.client.releaseExclusive( NODE, resource );
+            state.done();
             return null;
-        }
-
-        protected abstract void acquireLock( LockWorkerState state ) throws AcquireLockTimeoutException;
+        }, true );
     }
 }

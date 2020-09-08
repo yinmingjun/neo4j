@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,22 +19,21 @@
  */
 package org.neo4j.kernel.impl.transaction.log;
 
-import java.io.File;
+import java.nio.file.Path;
 
-import org.neo4j.kernel.impl.transaction.log.rotation.LogRotation;
-import org.neo4j.kernel.recovery.Recovery;
-import org.neo4j.kernel.recovery.PositionToRecoverFrom;
+import org.neo4j.kernel.impl.transaction.log.entry.LogEntryCommit;
+import org.neo4j.kernel.impl.transaction.log.rotation.monitor.LogRotationMonitor;
+import org.neo4j.kernel.recovery.RecoveryMonitor;
+import org.neo4j.kernel.recovery.RecoveryStartInformationProvider;
 import org.neo4j.logging.Log;
 
 import static java.lang.String.format;
+import static org.neo4j.internal.helpers.Format.duration;
 
-public class LoggingLogFileMonitor implements
-        PhysicalLogFile.Monitor,
-        LogRotation.Monitor,
-        Recovery.Monitor,
-        PositionToRecoverFrom.Monitor
+public class LoggingLogFileMonitor implements RecoveryMonitor, RecoveryStartInformationProvider.Monitor, LogRotationMonitor
 {
-    private long firstTransactionRecovered = -1, lastTransactionRecovered;
+    private long firstTransactionRecovered = -1;
+    private long lastTransactionRecovered;
     private final Log log;
 
     public LoggingLogFileMonitor( Log log )
@@ -49,12 +48,12 @@ public class LoggingLogFileMonitor implements
     }
 
     @Override
-    public void recoveryCompleted( int numberOfRecoveredTransactions )
+    public void recoveryCompleted( int numberOfRecoveredTransactions, long recoveryTimeInMilliseconds )
     {
         if ( numberOfRecoveredTransactions != 0 )
         {
-            log.info( format( "Recovery completed. %d transactions, first:%d, last:%d recovered",
-                    numberOfRecoveredTransactions, firstTransactionRecovered, lastTransactionRecovered ) );
+            log.info( format( "Recovery completed. %d transactions, first:%d, last:%d recovered, time spent: %s", numberOfRecoveredTransactions,
+                    firstTransactionRecovered, lastTransactionRecovered, duration( recoveryTimeInMilliseconds ) ) );
         }
         else
         {
@@ -63,15 +62,24 @@ public class LoggingLogFileMonitor implements
     }
 
     @Override
-    public void startedRotating( long currentVersion )
+    public void failToRecoverTransactionsAfterCommit( Throwable t, LogEntryCommit commitEntry, LogPosition recoveryToPosition )
     {
-        log.info( format( "Rotating log version:%d", currentVersion ) );
+        log.warn( format( "Fail to recover all transactions. Last recoverable transaction id:%d, committed " +
+                        "at:%d. Any later transaction after %s are unreadable and will be truncated.",
+                commitEntry.getTxId(), commitEntry.getTimeWritten(), recoveryToPosition ), t );
     }
 
     @Override
-    public void finishedRotating( long currentVersion )
+    public void failToRecoverTransactionsAfterPosition( Throwable t, LogPosition recoveryFromPosition )
     {
-        log.info( format( "Finished rotating log version:%d", currentVersion ) );
+        log.warn( format( "Fail to recover all transactions. Any later transactions after position %s are " +
+                "unreadable and will be truncated.", recoveryFromPosition ), t );
+    }
+
+    @Override
+    public void failToExtractInitialFileHeader( Exception e )
+    {
+        log.warn( "Fail to read initial transaction log file header.", e );
     }
 
     @Override
@@ -82,13 +90,6 @@ public class LoggingLogFileMonitor implements
             firstTransactionRecovered = txId;
         }
         lastTransactionRecovered = txId;
-    }
-
-    @Override
-    public void opened( File logFile, long logVersion, long lastTransactionId, boolean clean )
-    {
-        log.info( format( "Opened logical log [%s] version=%d, lastTxId=%d (%s)",
-                logFile, logVersion, lastTransactionId, clean ? "clean" : "recovered" ) );
     }
 
     @Override
@@ -110,5 +111,23 @@ public class LoggingLogFileMonitor implements
     public void noCheckPointFound()
     {
         log.info( "No check point found in transaction log" );
+    }
+
+    @Override
+    public void startRotation( long currentLogVersion )
+    {
+    }
+
+    @Override
+    public void finishLogRotation( Path logFile, long logVersion, long lastTransactionId, long rotationMillis, long millisSinceLastRotation )
+    {
+        StringBuilder sb = new StringBuilder( "Rotated to transaction log [" );
+        sb.append( logFile ).append( "] version=" ).append( logVersion ).append( ", last transaction in previous log=" );
+        sb.append( lastTransactionId ).append( ", rotation took " ).append( rotationMillis ).append( " millis" );
+        if ( millisSinceLastRotation > 0 )
+        {
+            sb.append( ", started after " ).append( millisSinceLastRotation ).append( " millis" );
+        }
+        log.info( sb.append( '.' ).toString() );
     }
 }

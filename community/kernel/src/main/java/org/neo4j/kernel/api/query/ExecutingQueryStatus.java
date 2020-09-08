@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,7 +19,11 @@
  */
 package org.neo4j.kernel.api.query;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+
+import org.neo4j.kernel.impl.locking.ActiveLock;
 
 /**
  * Internal representation of the status of an executing query.
@@ -30,7 +34,11 @@ import java.util.Map;
  */
 abstract class ExecutingQueryStatus
 {
-    static final String PLANNING_STATE = "planning", RUNNING_STATE = "running", WAITING_STATE = "waiting";
+    static final String PARSING_STATE = "parsing";
+    static final String PLANNING_STATE = "planning";
+    static final String PLANNED_STATE = "planned";
+    static final String RUNNING_STATE = "running";
+    static final String WAITING_STATE = "waiting";
     /**
      * Time in nanoseconds that has been spent waiting in the current state.
      * This is the portion of wait time not included in the {@link ExecutingQuery#waitTimeNanos} field.
@@ -45,8 +53,26 @@ abstract class ExecutingQueryStatus
 
     abstract String name();
 
-    boolean isPlanning()
+    boolean isParsingOrPlanning()
     {
         return false;
+    }
+
+    /**
+     * Is query waiting on a locks
+     * @return true if waiting on locks, false otherwise
+     */
+    boolean isWaitingOnLocks()
+    {
+        return false;
+    }
+
+    /**
+     * List of locks query is waiting on. Will be empty for all of the statuses except for {@link WaitingOnLock}.
+     * @return list of locks query is waiting on, empty list if query is not waiting.
+     */
+    List<ActiveLock> waitingOnLocks()
+    {
+        return Collections.emptyList();
     }
 }

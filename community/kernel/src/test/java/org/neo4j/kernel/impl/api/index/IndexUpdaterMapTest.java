@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,75 +19,67 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.api.index.IndexUpdater;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptorFactory;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.equalTo;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.Matchers.any;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.neo4j.internal.schema.IndexPrototype.forSchema;
+import static org.neo4j.internal.schema.SchemaDescriptor.forLabel;
+import static org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer.NULL;
+import static org.neo4j.kernel.impl.api.index.TestIndexProviderDescriptor.PROVIDER_DESCRIPTOR;
 
-public class IndexUpdaterMapTest
+class IndexUpdaterMapTest
 {
     private IndexMap indexMap;
 
     private IndexProxy indexProxy1;
-    private IndexDescriptor indexDescriptor1;
+    private IndexDescriptor schemaIndexDescriptor1;
     private IndexUpdater indexUpdater1;
 
     private IndexProxy indexProxy2;
-    private IndexDescriptor indexDescriptor2;
-
-    private IndexProxy indexProxy3;
-    private IndexDescriptor indexDescriptor3;
+    private IndexDescriptor schemaIndexDescriptor;
 
     private IndexUpdaterMap updaterMap;
 
-    @Before
-    public void before() throws IOException
+    @BeforeEach
+    void before()
     {
         indexMap = new IndexMap();
 
         indexProxy1 = mock( IndexProxy.class );
-        indexDescriptor1 = IndexDescriptorFactory.forLabel( 2, 3 );
+        schemaIndexDescriptor1 = forSchema( forLabel( 2, 3 ), PROVIDER_DESCRIPTOR ).withName( "a" ).materialise( 0 );
         indexUpdater1 = mock( IndexUpdater.class );
-        when( indexProxy1.getDescriptor() ).thenReturn( indexDescriptor1 );
-        when( indexProxy1.newUpdater( any( IndexUpdateMode.class ) ) ).thenReturn( indexUpdater1 );
+        when( indexProxy1.getDescriptor() ).thenReturn( schemaIndexDescriptor1 );
+        when( indexProxy1.newUpdater( any( IndexUpdateMode.class ), any( PageCursorTracer.class ) ) ).thenReturn( indexUpdater1 );
 
         indexProxy2 = mock( IndexProxy.class );
-        indexDescriptor2 = IndexDescriptorFactory.forLabel( 5, 6 );
+        schemaIndexDescriptor = forSchema( forLabel( 5, 6 ), PROVIDER_DESCRIPTOR ).withName( "b" ).materialise( 1 );
         IndexUpdater indexUpdater2 = mock( IndexUpdater.class );
-        when( indexProxy2.getDescriptor() ).thenReturn( indexDescriptor2 );
-        when( indexProxy2.newUpdater( any( IndexUpdateMode.class ) ) ).thenReturn( indexUpdater2 );
-
-        indexProxy3 = mock( IndexProxy.class );
-        indexDescriptor3 = IndexDescriptorFactory.forLabel( 5, 7, 8 );
-        IndexUpdater indexUpdater3 = mock( IndexUpdater.class );
-        when( indexProxy3.getDescriptor() ).thenReturn( indexDescriptor3 );
-        when( indexProxy3.newUpdater( any( IndexUpdateMode.class ) ) ).thenReturn( indexUpdater3 );
+        when( indexProxy2.getDescriptor() ).thenReturn( schemaIndexDescriptor );
+        when( indexProxy2.newUpdater( any( IndexUpdateMode.class ), any( PageCursorTracer.class ) ) ).thenReturn( indexUpdater2 );
 
         updaterMap = new IndexUpdaterMap( indexMap, IndexUpdateMode.ONLINE );
     }
 
     @Test
-    public void shouldRetrieveUpdaterFromIndexMapForExistingIndex() throws Exception
+    void shouldRetrieveUpdaterFromIndexMapForExistingIndex()
     {
         // given
-        indexMap.putIndexProxy( 0, indexProxy1 );
+        indexMap.putIndexProxy( indexProxy1 );
 
         // when
-        IndexUpdater updater = updaterMap.getUpdater( indexDescriptor1.schema() );
+        IndexUpdater updater = updaterMap.getUpdater( schemaIndexDescriptor1, NULL );
 
         // then
         assertEquals( indexUpdater1, updater );
@@ -95,27 +87,27 @@ public class IndexUpdaterMapTest
     }
 
     @Test
-    public void shouldRetrieveUpdateUsingLabelAndProperty()
+    void shouldRetrieveUpdateUsingLabelAndProperty()
     {
         // given
-        indexMap.putIndexProxy( 0, indexProxy1 );
+        indexMap.putIndexProxy( indexProxy1 );
 
         // when
-        IndexUpdater updater = updaterMap.getUpdater( indexDescriptor1.schema() );
+        IndexUpdater updater = updaterMap.getUpdater( schemaIndexDescriptor1, NULL );
 
         // then
-        assertThat( updater, equalTo( indexUpdater1 ) );
+        assertThat( updater ).isEqualTo( indexUpdater1 );
     }
 
     @Test
-    public void shouldRetrieveSameUpdaterFromIndexMapForExistingIndexWhenCalledTwice() throws Exception
+    void shouldRetrieveSameUpdaterFromIndexMapForExistingIndexWhenCalledTwice()
     {
         // given
-        indexMap.putIndexProxy( 0, indexProxy1 );
+        indexMap.putIndexProxy( indexProxy1 );
 
         // when
-        IndexUpdater updater1 = updaterMap.getUpdater( indexDescriptor1.schema() );
-        IndexUpdater updater2 = updaterMap.getUpdater( indexDescriptor1.schema() );
+        IndexUpdater updater1 = updaterMap.getUpdater( schemaIndexDescriptor1, NULL );
+        IndexUpdater updater2 = updaterMap.getUpdater( schemaIndexDescriptor1, NULL );
 
         // then
         assertEquals( updater1, updater2 );
@@ -123,25 +115,25 @@ public class IndexUpdaterMapTest
     }
 
     @Test
-    public void shouldRetrieveNoUpdaterForNonExistingIndex() throws Exception
+    void shouldRetrieveNoUpdaterForNonExistingIndex()
     {
         // when
-        IndexUpdater updater = updaterMap.getUpdater( indexDescriptor1.schema() );
+        IndexUpdater updater = updaterMap.getUpdater( schemaIndexDescriptor1, NULL );
 
         // then
         assertNull( updater );
-        assertTrue( "updater map must be empty", updaterMap.isEmpty() );
+        assertTrue( updaterMap.isEmpty(), "updater map must be empty" );
     }
 
     @Test
-    public void shouldCloseAllUpdaters() throws Exception
+    void shouldCloseAllUpdaters() throws Exception
     {
         // given
-        indexMap.putIndexProxy( 0, indexProxy1 );
-        indexMap.putIndexProxy( 1, indexProxy2 );
+        indexMap.putIndexProxy( indexProxy1 );
+        indexMap.putIndexProxy( indexProxy2 );
 
-        IndexUpdater updater1 = updaterMap.getUpdater( indexDescriptor1.schema() );
-        IndexUpdater updater2 = updaterMap.getUpdater( indexDescriptor2.schema() );
+        IndexUpdater updater1 = updaterMap.getUpdater( schemaIndexDescriptor1, NULL );
+        IndexUpdater updater2 = updaterMap.getUpdater( schemaIndexDescriptor, NULL );
 
         // hen
         updaterMap.close();
@@ -150,6 +142,6 @@ public class IndexUpdaterMapTest
         verify( updater1 ).close();
         verify( updater2 ).close();
 
-        assertTrue( "updater map must be empty", updaterMap.isEmpty() );
+        assertTrue( updaterMap.isEmpty(), "updater map must be empty" );
     }
 }

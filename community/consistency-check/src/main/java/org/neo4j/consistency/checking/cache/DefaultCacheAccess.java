@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,10 +21,15 @@ package org.neo4j.consistency.checking.cache;
 
 import java.util.Collection;
 
+import org.neo4j.consistency.checking.ByteArrayBitsManipulator;
 import org.neo4j.consistency.checking.full.IdAssigningThreadLocal;
 import org.neo4j.consistency.statistics.Counts;
 import org.neo4j.consistency.statistics.Counts.Type;
+import org.neo4j.internal.batchimport.cache.ByteArray;
 import org.neo4j.kernel.impl.store.record.PropertyRecord;
+import org.neo4j.memory.MemoryTracker;
+
+import static org.neo4j.internal.batchimport.cache.NumberArrayFactory.AUTO_WITHOUT_PAGECACHE;
 
 /**
  * {@link CacheAccess} that uses {@link PackedMultiFieldCache} for cache.
@@ -33,7 +38,7 @@ public class DefaultCacheAccess implements CacheAccess
 {
     public static final int DEFAULT_QUEUE_SIZE = 1_000;
 
-    private final IdAssigningThreadLocal<Client> clients = new IdAssigningThreadLocal<Client>()
+    private final IdAssigningThreadLocal<Client> clients = new IdAssigningThreadLocal<>()
     {
         @Override
         protected Client initialValue( int id )
@@ -47,12 +52,18 @@ public class DefaultCacheAccess implements CacheAccess
     private final PackedMultiFieldCache cache;
     private long recordsPerCPU;
     private final Counts counts;
+    private long pivotId;
 
-    public DefaultCacheAccess( Counts counts, int threads )
+    public static ByteArray defaultByteArray( long highNodeId, MemoryTracker memoryTracker )
+    {
+        return AUTO_WITHOUT_PAGECACHE.newByteArray( highNodeId, new byte[ByteArrayBitsManipulator.MAX_BYTES], memoryTracker );
+    }
+
+    public DefaultCacheAccess( ByteArray array, Counts counts, int threads )
     {
         this.counts = counts;
         this.propertiesProcessed = new Collection[threads];
-        this.cache = new PackedMultiFieldCache( 1, 63 );
+        this.cache = new PackedMultiFieldCache( array, ByteArrayBitsManipulator.MAX_SLOT_BITS, 1 );
     }
 
     @Override
@@ -71,6 +82,24 @@ public class DefaultCacheAccess implements CacheAccess
     public void setCacheSlotSizes( int... slotSizes )
     {
         cache.setSlotSizes( slotSizes );
+    }
+
+    @Override
+    public void setCacheSlotSizesAndClear( int... slotSizes )
+    {
+        cache.setSlotSizes( slotSizes );
+        cache.clear();
+    }
+
+    @Override
+    public void setPivotId( long pivotId )
+    {
+        this.pivotId = pivotId;
+    }
+
+    private long translate( long id )
+    {
+        return id - pivotId;
     }
 
     @Override
@@ -104,25 +133,25 @@ public class DefaultCacheAccess implements CacheAccess
         @Override
         public long getFromCache( long id, int slot )
         {
-            return cache.get( id, slot );
+            return cache.get( translate( id ), slot );
         }
 
         @Override
         public boolean getBooleanFromCache( long id, int slot )
         {
-            return cache.get( id, slot ) != 0;
+            return cache.get( translate( id ), slot ) != 0;
         }
 
         @Override
         public void putToCache( long id, long... values )
         {
-            cache.put( id, values );
+            cache.put( translate( id ), values );
         }
 
         @Override
         public void putToCacheSingle( long id, int slot, long value )
         {
-            cache.put( id, slot, value );
+            cache.put( translate( id ), slot, value );
         }
 
         @Override
@@ -136,14 +165,9 @@ public class DefaultCacheAccess implements CacheAccess
         @Override
         public boolean withinBounds( long id )
         {
-            if ( recordsPerCPU == 0 )
-            {
-                // We haven't split the id space into segments per thread
-                return true;
-            }
-
-            return id >= threadIndex * recordsPerCPU &&
-                   id < (threadIndex + 1) * recordsPerCPU;
+            return recordsPerCPU == 0 ||  // We haven't split the id space into segments per thread
+                    id >= threadIndex * recordsPerCPU &&
+                    id < (threadIndex + 1) * recordsPerCPU;
         }
 
         @Override

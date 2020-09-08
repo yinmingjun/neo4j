@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -27,6 +27,12 @@ public interface ExpressionVisitor
 
     void load( LocalVariable variable );
 
+    void arrayLoad( Expression array, Expression index );
+
+    void arraySet( Expression array, Expression index, Expression value );
+
+    void arrayLength( Expression array );
+
     void getField( Expression target, FieldReference field );
 
     void constant( Object value );
@@ -41,7 +47,7 @@ public interface ExpressionVisitor
 
     void ternary( Expression test, Expression onTrue, Expression onFalse );
 
-    void equal( Expression lhs, Expression rhs);
+    void equal( Expression lhs, Expression rhs );
 
     void notEqual( Expression lhs, Expression rhs );
 
@@ -69,7 +75,11 @@ public interface ExpressionVisitor
 
     void cast( TypeReference type, Expression expression );
 
-    void newArray( TypeReference type, Expression... constants );
+    void instanceOf( TypeReference type, Expression expression );
+
+    void newInitializedArray( TypeReference type, Expression... constants );
+
+    void newArray( TypeReference type, int size );
 
     void longToDouble( Expression expression );
 
@@ -78,4 +88,5 @@ public interface ExpressionVisitor
     void box( Expression expression );
 
     void unbox( Expression expression );
+
 }

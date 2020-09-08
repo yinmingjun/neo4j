@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,10 +19,8 @@
  */
 package org.neo4j.kernel.impl.transaction.log.entry;
 
-import java.io.File;
 import java.io.IOException;
-
-import static org.neo4j.kernel.impl.transaction.log.entry.LogHeader.LOG_HEADER_SIZE;
+import java.nio.file.Path;
 
 /**
  * Used to signal an incomplete log header, i.e. if file is smaller than the header.
@@ -31,24 +29,25 @@ import static org.neo4j.kernel.impl.transaction.log.entry.LogHeader.LOG_HEADER_S
  */
 public class IncompleteLogHeaderException extends IOException
 {
-    public IncompleteLogHeaderException( File file, int readSize )
+    public IncompleteLogHeaderException( Path file, int readSize, int expectedSize )
     {
-        super( template( file, readSize ) );
+        super( template( file, readSize, expectedSize ) );
     }
 
-    public IncompleteLogHeaderException( int readSize )
+    public IncompleteLogHeaderException( int readSize, int expectedSize )
     {
-        super( template( null, readSize ) );
+        super( template( null, readSize, expectedSize ) );
     }
 
-    private static String template( File file, int readSize )
+    private static String template( Path file, int readSize, int expectedSize )
     {
         StringBuilder builder = new StringBuilder( "Unable to read log version and last committed tx" );
         if ( file != null )
         {
-            builder.append( " from '" + file.getAbsolutePath() + "'" );
+            builder.append( " from '" ).append( file.toAbsolutePath() ).append( '\'' );
         }
-        builder.append( ". Was only able to read " + readSize + " bytes, but was expecting " + LOG_HEADER_SIZE );
+        builder.append( ". Was only able to read " ).append( readSize ).append( " bytes, but was expecting " )
+               .append( expectedSize );
         return builder.toString();
     }
 }

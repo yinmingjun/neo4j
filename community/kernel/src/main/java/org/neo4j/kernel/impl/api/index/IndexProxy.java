@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,27 +19,28 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import java.io.File;
 import java.io.IOException;
-import java.util.concurrent.Future;
+import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
 
 import org.neo4j.graphdb.ResourceIterator;
+import org.neo4j.internal.kernel.api.InternalIndexState;
+import org.neo4j.internal.kernel.api.PopulationProgress;
+import org.neo4j.internal.kernel.api.exceptions.schema.IndexNotFoundKernelException;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.io.pagecache.IOLimiter;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.api.exceptions.index.IndexActivationFailedKernelException;
 import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
-import org.neo4j.kernel.api.exceptions.index.IndexNotFoundKernelException;
 import org.neo4j.kernel.api.exceptions.index.IndexPopulationFailedKernelException;
 import org.neo4j.kernel.api.exceptions.schema.UniquePropertyValueValidationException;
 import org.neo4j.kernel.api.index.IndexAccessor;
 import org.neo4j.kernel.api.index.IndexPopulator;
+import org.neo4j.kernel.api.index.IndexReader;
 import org.neo4j.kernel.api.index.IndexUpdater;
-import org.neo4j.kernel.api.index.InternalIndexState;
-import org.neo4j.kernel.api.index.PropertyAccessor;
-import org.neo4j.kernel.api.index.SchemaIndexProvider;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
-import org.neo4j.kernel.api.schema.LabelSchemaSupplier;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.storageengine.api.schema.IndexReader;
-import org.neo4j.storageengine.api.schema.PopulationProgress;
+import org.neo4j.kernel.api.index.MinimalIndexAccessor;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
+import org.neo4j.values.storable.Value;
 
 /**
  * Controls access to {@link IndexPopulator}, {@link IndexAccessor} during different stages
@@ -59,30 +60,18 @@ import org.neo4j.storageengine.api.schema.PopulationProgress;
  *
  * @see ContractCheckingIndexProxy
  */
-public interface IndexProxy extends LabelSchemaSupplier
+public interface IndexProxy extends MinimalIndexAccessor
 {
-    void start() throws IOException;
+    void start();
 
-    IndexUpdater newUpdater( IndexUpdateMode mode );
-
-    /**
-     * Initiates dropping this index context. The returned {@link Future} can be used to await
-     * its completion.
-     * Must close the context as well.
-     */
-    Future<Void> drop() throws IOException;
+    IndexUpdater newUpdater( IndexUpdateMode mode, PageCursorTracer cursorTracer );
 
     /**
-     * Initiates a closing of this index context. The returned {@link Future} can be used to await
-     * its completion.
+     * Close this index context.
      */
-    Future<Void> close() throws IOException;
+    void close( PageCursorTracer cursorTracer ) throws IOException;
 
     IndexDescriptor getDescriptor();
-
-    LabelSchemaDescriptor schema();
-
-    SchemaIndexProvider.Descriptor getProviderDescriptor();
 
     InternalIndexState getState();
 
@@ -93,7 +82,9 @@ public interface IndexProxy extends LabelSchemaSupplier
 
     PopulationProgress getIndexPopulationProgress();
 
-    void force() throws IOException;
+    void force( IOLimiter ioLimiter, PageCursorTracer cursorTracer ) throws IOException;
+
+    void refresh() throws IOException;
 
     /**
      * @throws IndexNotFoundKernelException if the index isn't online yet.
@@ -101,17 +92,27 @@ public interface IndexProxy extends LabelSchemaSupplier
     IndexReader newReader() throws IndexNotFoundKernelException;
 
     /**
+     * @param time time to wait maximum. A value of 0 means indefinite wait.
+     * @param unit unit of time to wait.
      * @return {@code true} if the call waited, {@code false} if the condition was already reached.
      */
-    boolean awaitStoreScanCompleted() throws IndexPopulationFailedKernelException, InterruptedException;
+    boolean awaitStoreScanCompleted( long time, TimeUnit unit ) throws IndexPopulationFailedKernelException, InterruptedException;
 
     void activate() throws IndexActivationFailedKernelException;
 
     void validate() throws IndexPopulationFailedKernelException, UniquePropertyValueValidationException;
 
-    ResourceIterator<File> snapshotFiles() throws IOException;
+    /**
+     * Validates a {@link Value} so that it's OK to later apply to the index. This method is designed to be
+     * called before committing a transaction as to prevent exception during applying that transaction.
+     *
+     * @param tuple {@link Value value tuple} to validate.
+     */
+    void validateBeforeCommit( Value[] tuple );
 
-    default void verifyDeferredConstraints( PropertyAccessor accessor )  throws IndexEntryConflictException, IOException
+    ResourceIterator<Path> snapshotFiles() throws IOException;
+
+    default void verifyDeferredConstraints( NodePropertyAccessor accessor )  throws IndexEntryConflictException, IOException
     {
         throw new IllegalStateException( this.toString() );
     }

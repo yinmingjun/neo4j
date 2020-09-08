@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,14 +22,11 @@ package org.neo4j.kernel;
 import java.net.URL;
 import java.util.concurrent.TimeUnit;
 
-import org.neo4j.graphdb.DependencyResolver;
-import org.neo4j.graphdb.Label;
-import org.neo4j.graphdb.Node;
-import org.neo4j.graphdb.Relationship;
+import org.neo4j.common.DependencyResolver;
 import org.neo4j.graphdb.security.URLAccessValidationError;
+import org.neo4j.internal.kernel.api.connectioninfo.ClientConnectionInfo;
+import org.neo4j.internal.kernel.api.security.LoginContext;
 import org.neo4j.kernel.api.KernelTransaction;
-import org.neo4j.kernel.api.dbms.DbmsOperations;
-import org.neo4j.kernel.api.security.SecurityContext;
 import org.neo4j.kernel.impl.coreapi.InternalTransaction;
 
 /*
@@ -40,36 +37,37 @@ public interface GraphDatabaseQueryService
 {
     DependencyResolver getDependencyResolver();
 
-    Node createNode();
-
-    Node createNode( Label... labels );
-
-    Node getNodeById( long id );
-
-    Relationship getRelationshipById( long id );
+    /**
+     * Begin new internal transaction with with default timeout.
+     *
+     * @param type transaction type
+     * @param loginContext transaction login context
+     * @return internal transaction
+     */
+    InternalTransaction beginTransaction( KernelTransaction.Type type, LoginContext loginContext );
 
     /**
      * Begin new internal transaction with with default timeout.
      *
      * @param type transaction type
-     * @param securityContext transaction security context
+     * @param loginContext transaction login context
+     * @param connectionInfo transaction connection info
      * @return internal transaction
      */
-    InternalTransaction beginTransaction( KernelTransaction.Type type, SecurityContext securityContext );
+    InternalTransaction beginTransaction( KernelTransaction.Type type, LoginContext loginContext, ClientConnectionInfo connectionInfo );
 
     /**
      * Begin new internal transaction with specified timeout in milliseconds.
      *
      * @param type transaction type
-     * @param securityContext transaction security context
+     * @param loginContext transaction login context
+     * @param connectionInfo transaction connection info
      * @param timeout transaction timeout
      * @param unit time unit of timeout argument
      * @return internal transaction
      */
-    InternalTransaction beginTransaction( KernelTransaction.Type type, SecurityContext securityContext, long timeout,
-            TimeUnit unit);
+    InternalTransaction beginTransaction( KernelTransaction.Type type, LoginContext loginContext, ClientConnectionInfo connectionInfo, long timeout,
+            TimeUnit unit );
 
     URL validateURLAccess( URL url ) throws URLAccessValidationError;
-
-    DbmsOperations getDbmsOperations();
 }

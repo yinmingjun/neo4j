@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -27,12 +27,13 @@ public class IntegerEvaluator implements CostEvaluator<Integer>
 {
     private String costPropertyName;
 
-    public IntegerEvaluator( String costPropertyName)
+    public IntegerEvaluator( String costPropertyName )
     {
         super();
         this.costPropertyName = costPropertyName;
     }
 
+    @Override
     public Integer getCost( Relationship relationship, Direction direction )
     {
         Object costProp = relationship.getProperty( costPropertyName );

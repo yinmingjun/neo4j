@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,8 +19,8 @@
  */
 package org.neo4j.io.pagecache;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 
 /**
  * <strong>Implementation note:</strong> These methods must NEVER swallow a thread-interrupt.
@@ -32,7 +32,7 @@ public interface PageSwapper
 {
     /**
      * Read the page with the given filePageId, from the concrete file on the
-     * file system, into the given page.
+     * file system, into the page given by the bufferAddress and default bufferSize.
      * <p>
      * Returns the number of bytes read in from the file. May be zero if the
      * requested page was beyond the end of the file. If less than the file
@@ -43,10 +43,25 @@ public interface PageSwapper
      * interrupted. If this happens, then the implementation must reopen the
      * channel and the operation must be retried.
      */
-    long read( long filePageId, Page page ) throws IOException;
+    long read( long filePageId, long bufferAddress ) throws IOException;
 
     /**
-     * Read pages from the file into the given pages, starting from the given startFilePageId.
+     * Read the page with the given filePageId, from the concrete file on the
+     * file system, into the page given by the bufferAddress and the bufferSize.
+     * <p>
+     * Returns the number of bytes read in from the file. May be zero if the
+     * requested page was beyond the end of the file. If less than the file
+     * page size, then the rest of the page will contain zeros.
+     * <p>
+     * Note: It is possible for the channel to be asynchronously closed while
+     * this operation is taking place. For instance, if the current thread is
+     * interrupted. If this happens, then the implementation must reopen the
+     * channel and the operation must be retried.
+     */
+    long read( long filePageId, long bufferAddress, int bufferLength ) throws IOException;
+
+    /**
+     * Read pages from the file into the pages given by the bufferAddresses, starting from the given startFilePageId.
      * <p>
      * Returns the number of bytes read in from the file. May be zero if the
      * requested startFilePageId was beyond the end of the file. If the file does not have enough data
@@ -61,11 +76,12 @@ public interface PageSwapper
      * interrupted. If this happens, then the implementation must reopen the
      * channel and the operation must be retried.
      */
-    long read( long startFilePageId, Page[] pages, int arrayOffset, int length ) throws IOException;
+    long read( long startFilePageId, long[] bufferAddresses, int[] bufferLengths, int length ) throws IOException;
 
     /**
-     * Write the contents of the given page, to the concrete file on the file
-     * system, at the located indicated by the given filePageId.
+     * Write the contents of the page given by the bufferAddress and default length of page buffer,
+     * to the concrete file on the file system, at the located indicated by the given
+     * filePageId.
      * <p>
      * Returns the number of bytes written to the file.
      * <p>
@@ -74,7 +90,21 @@ public interface PageSwapper
      * interrupted. If this happens, then implementation must reopen the
      * channel and the operation must be retried.
      */
-    long write( long filePageId, Page page ) throws IOException;
+    long write( long filePageId, long bufferAddress ) throws IOException;
+
+    /**
+     * Write the contents of the page given by the bufferAddress and the bufferLength,
+     * to the concrete file on the file system, at the located indicated by the given
+     * filePageId.
+     * <p>
+     * Returns the number of bytes written to the file.
+     * <p>
+     * Note: It is possible for the channel to be asynchronously closed while
+     * this operation is taking place. For instance, if the current thread is
+     * interrupted. If this happens, then implementation must reopen the
+     * channel and the operation must be retried.
+     */
+    long write( long filePageId, long bufferAddress, int bufferLength ) throws IOException;
 
     /**
      * Write the contents of the given pages, to the concrete file on the file system,
@@ -92,18 +122,18 @@ public interface PageSwapper
      * interrupted. If this happens, then implementation must reopen the
      * channel and the operation must be retried.
      */
-    long write( long startFilePageId, Page[] pages, int arrayOffset, int length ) throws IOException;
+    long write( long startFilePageId, long[] bufferAddresses, int[] bufferLengths, int length, int totalAffectedPages ) throws IOException;
 
     /**
      * Notification that a page has been evicted, used to clean up state in structures
      * outside the page table.
      */
-    void evicted( long pageId, Page page );
+    void evicted( long pageId );
 
     /**
      * Get the file that this PageSwapper represents.
      */
-    File file();
+    Path path();
 
     /**
      * Close and release all resources associated with the file underlying this PageSwapper.
@@ -120,12 +150,6 @@ public interface PageSwapper
     /**
      * Forces all writes done by this PageSwapper to the underlying storage device, such that the writes are durable
      * when this call returns.
-     * <p>
-     * This method has no effect if the {@link PageSwapperFactory#syncDevice()} method forces the writes for all
-     * non-closed PageSwappers created through the given <code>PageSwapperFactory</code>.
-     * The {@link PageCache#flushAndForce()} method will first call <code>force</code> on the PageSwappers for all
-     * mapped files, then call <code>syncDevice</code> on the PageSwapperFactory. This way, the writes are always made
-     * durable regardless of which method that does the forcing.
      */
     void force() throws IOException;
 
@@ -141,8 +165,18 @@ public interface PageSwapper
      * Truncation may occur concurrently with writes, in which case both operations will appear to be atomic, such that
      * either the write happens before the truncation and is lost, or the file is truncated and the write then extends
      * the file with any zero padding and the written data.
-     *
-     * @throws IOException
      */
     void truncate() throws IOException;
+
+    /**
+     * @return {@code true} if the given page swapper implementation supports pre-allocating files.
+     */
+    boolean canAllocate();
+
+    /**
+     * Send a hint to the file system that it may reserve the given number of bytes of capacity for this file.
+     * The hope is that this might speed up future operations and reduce fragmentation.
+     * @param newFileSize The new size of the file; following this call, the file system may anticipate to receive IOs in this range.
+     */
+    void allocate( long newFileSize ) throws IOException;
 }

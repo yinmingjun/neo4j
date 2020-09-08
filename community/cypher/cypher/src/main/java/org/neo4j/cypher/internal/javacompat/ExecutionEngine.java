@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,16 +19,35 @@
  */
 package org.neo4j.cypher.internal.javacompat;
 
-import java.util.Map;
+import java.time.Clock;
+import java.util.List;
 
-import org.neo4j.cypher.CypherException;
-import org.neo4j.cypher.internal.CompatibilityFactory;
+import org.neo4j.common.DependencyResolver;
+import org.neo4j.configuration.Config;
+import org.neo4j.cypher.internal.CacheTracer;
+import org.neo4j.cypher.internal.CompilerFactory;
+import org.neo4j.cypher.internal.CompilerLibrary;
+import org.neo4j.cypher.internal.CypherConfiguration;
+import org.neo4j.cypher.internal.ExecutionEngineQueryCacheMonitor;
+import org.neo4j.cypher.internal.FullyParsedQuery;
+import org.neo4j.cypher.internal.cache.CaffeineCacheFactory;
+import org.neo4j.cypher.internal.runtime.InputDataStream;
+import org.neo4j.cypher.internal.tracing.CompilationTracer;
+import org.neo4j.cypher.internal.tracing.TimingCompilationTracer;
+import org.neo4j.exceptions.Neo4jException;
 import org.neo4j.graphdb.Result;
 import org.neo4j.kernel.GraphDatabaseQueryService;
+import org.neo4j.kernel.impl.query.FunctionInformation;
+import org.neo4j.kernel.impl.query.QueryExecution;
 import org.neo4j.kernel.impl.query.QueryExecutionEngine;
 import org.neo4j.kernel.impl.query.QueryExecutionKernelException;
+import org.neo4j.kernel.impl.query.QueryExecutionMonitor;
+import org.neo4j.kernel.impl.query.QuerySubscriber;
 import org.neo4j.kernel.impl.query.TransactionalContext;
 import org.neo4j.logging.LogProvider;
+import org.neo4j.monitoring.Monitors;
+import org.neo4j.scheduler.JobScheduler;
+import org.neo4j.values.virtual.MapValue;
 
 /**
  * To run a Cypher query, use this class.
@@ -39,42 +58,88 @@ import org.neo4j.logging.LogProvider;
  */
 public class ExecutionEngine implements QueryExecutionEngine
 {
-    private org.neo4j.cypher.internal.ExecutionEngine inner;
+    protected org.neo4j.cypher.internal.ExecutionEngine cypherExecutionEngine;
 
     /**
-     * Creates an execution engine around the give graph database
-     * @param queryService The database to wrap
-     * @param logProvider A {@link LogProvider} for cypher-statements
+     * Creates an execution engine around the given graph database
      */
-    public ExecutionEngine( GraphDatabaseQueryService queryService, LogProvider logProvider,
-            CompatibilityFactory compatibilityFactory )
+    public ExecutionEngine( GraphDatabaseQueryService queryService, CaffeineCacheFactory cacheFactory, LogProvider logProvider,
+                            CompilerFactory compilerFactory )
     {
-        inner = new org.neo4j.cypher.internal.ExecutionEngine( queryService, logProvider, compatibilityFactory );
+        cypherExecutionEngine =
+                makeExecutionEngine( queryService, cacheFactory, logProvider, new CompilerLibrary( compilerFactory, this::getCypherExecutionEngine ) );
+    }
+
+    /**
+     * Creates an execution engine from the inner engine of a system execution engine
+     */
+    public ExecutionEngine( SystemExecutionEngine inner )
+    {
+        cypherExecutionEngine = inner.normalExecutionEngine();
+    }
+
+    protected ExecutionEngine()
+    {
+    }
+
+    public org.neo4j.cypher.internal.ExecutionEngine getCypherExecutionEngine()
+    {
+        return cypherExecutionEngine;
+    }
+
+    protected org.neo4j.cypher.internal.ExecutionEngine makeExecutionEngine( GraphDatabaseQueryService queryService, CaffeineCacheFactory cacheFactory,
+                                                                             LogProvider logProvider, CompilerLibrary compilerLibrary )
+    {
+        DependencyResolver resolver = queryService.getDependencyResolver();
+        Monitors monitors = resolver.resolveDependency( Monitors.class );
+        CacheTracer cacheTracer = new MonitoringCacheTracer( monitors.newMonitor( ExecutionEngineQueryCacheMonitor.class ) );
+        Config config = resolver.resolveDependency( Config.class );
+        CypherConfiguration cypherConfiguration = CypherConfiguration.fromConfig( config );
+        CompilationTracer tracer =
+                new TimingCompilationTracer( monitors.newMonitor( TimingCompilationTracer.EventListener.class ) );
+        return new org.neo4j.cypher.internal.ExecutionEngine( queryService,
+                monitors,
+                tracer,
+                cacheTracer,
+                cypherConfiguration,
+                compilerLibrary,
+                cacheFactory,
+                logProvider,
+                Clock.systemUTC() );
     }
 
     @Override
-    public Result executeQuery( String query, Map<String,Object> parameters, TransactionalContext context )
+    public Result executeQuery( String query, MapValue parameters, TransactionalContext context, boolean prePopulate )
             throws QueryExecutionKernelException
+    {
+            ResultSubscriber subscriber = new ResultSubscriber( context );
+            QueryExecution queryExecution = executeQuery( query, parameters, context, false, subscriber );
+            subscriber.init( queryExecution );
+            return subscriber;
+    }
+
+    @Override
+    public QueryExecution executeQuery( String query, MapValue parameters, TransactionalContext context,
+            boolean prePopulate, QuerySubscriber subscriber ) throws QueryExecutionKernelException
     {
         try
         {
-            return new ExecutionResult( inner.execute( query, parameters, context ) );
+            return cypherExecutionEngine.execute( query, parameters, context, false, prePopulate, subscriber );
         }
-        catch ( CypherException e )
+        catch ( Neo4jException e )
         {
             throw new QueryExecutionKernelException( e );
         }
     }
 
-    @Override
-    public Result profileQuery( String query, Map<String,Object> parameters, TransactionalContext context )
-            throws QueryExecutionKernelException
+    public QueryExecution executeQuery( FullyParsedQuery query, MapValue parameters, TransactionalContext context,
+            boolean prePopulate, InputDataStream input, QueryExecutionMonitor queryMonitor, QuerySubscriber subscriber ) throws QueryExecutionKernelException
     {
         try
         {
-            return new ExecutionResult( inner.profile( query, parameters, context ) );
+            return cypherExecutionEngine.execute( query, parameters, context, prePopulate, input, queryMonitor, subscriber );
         }
-        catch ( CypherException e )
+        catch ( Neo4jException e )
         {
             throw new QueryExecutionKernelException( e );
         }
@@ -83,19 +148,18 @@ public class ExecutionEngine implements QueryExecutionEngine
     @Override
     public boolean isPeriodicCommit( String query )
     {
-        return inner.isPeriodicCommit( query );
+        return cypherExecutionEngine.isPeriodicCommit( query );
     }
 
-    /**
-     * Turns a valid Cypher query and returns it with keywords in uppercase,
-     * and new-lines in the appropriate places.
-     *
-     * @param query The query to make pretty
-     * @return The same query, but prettier
-     */
     @Override
-    public String prettify( String query )
+    public long clearQueryCaches()
     {
-        return inner.prettify( query );
+        return cypherExecutionEngine.clearQueryCaches();
+    }
+
+    @Override
+    public List<FunctionInformation> getProvidedLanguageFunctions()
+    {
+        return cypherExecutionEngine.getCypherFunctions();
     }
 }

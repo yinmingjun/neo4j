@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,39 +19,26 @@
  */
 package org.neo4j.kernel.api.security;
 
-import org.neo4j.helpers.Service;
-import org.neo4j.io.fs.FileSystemAbstraction;
-import org.neo4j.kernel.api.exceptions.KernelException;
-import org.neo4j.kernel.configuration.Config;
-import org.neo4j.kernel.impl.logging.LogService;
-import org.neo4j.kernel.impl.proc.Procedures;
-import org.neo4j.kernel.impl.util.DependencySatisfier;
-import org.neo4j.kernel.impl.util.JobScheduler;
-import org.neo4j.kernel.lifecycle.LifeSupport;
+import org.neo4j.exceptions.KernelException;
+import org.neo4j.kernel.api.procedure.GlobalProcedures;
+import org.neo4j.kernel.api.security.provider.SecurityProvider;
+import org.neo4j.logging.Log;
 
-public abstract class SecurityModule extends Service
+public abstract class SecurityModule implements SecurityProvider
 {
-    public SecurityModule( String key, String... altKeys )
+    protected final void registerProcedure( GlobalProcedures globalProcedures, Log log, Class procedureClass, String warning )
     {
-        super( key, altKeys );
+        try
+        {
+            globalProcedures.registerProcedure( procedureClass, true, warning );
+        }
+        catch ( KernelException e )
+        {
+            String message = "Failed to register security procedures: " + e.getMessage();
+            log.error( message, e );
+            throw new RuntimeException( message, e );
+        }
     }
 
-    public abstract void setup( Dependencies dependencies ) throws KernelException;
-
-    public interface Dependencies
-    {
-        LogService logService();
-
-        Config config();
-
-        Procedures procedures();
-
-        JobScheduler scheduler();
-
-        FileSystemAbstraction fileSystem();
-
-        LifeSupport lifeSupport();
-
-        DependencySatisfier dependencySatisfier();
-    }
+    public abstract void setup();
 }

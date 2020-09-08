@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,22 +19,22 @@
  */
 package org.neo4j.kernel.impl.transaction;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.kernel.impl.transaction.log.LogPosition;
 import org.neo4j.kernel.impl.transaction.log.TransactionMetadataCache;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
-public class TransactionMetadataCacheTest
+class TransactionMetadataCacheTest
 {
     @Test
-    public void shouldReturnNullWhenMissingATxInTheCache()
+    void shouldReturnNullWhenMissingATxInTheCache()
     {
         // given
-        final TransactionMetadataCache cache = new TransactionMetadataCache( 2 );
+        final TransactionMetadataCache cache = new TransactionMetadataCache();
 
         // when
         final TransactionMetadataCache.TransactionMetadata metadata = cache.getTransactionMetadata( 42 );
@@ -44,65 +44,49 @@ public class TransactionMetadataCacheTest
     }
 
     @Test
-    public void shouldReturnTheTxValueTIfInTheCached()
+    void shouldReturnTheTxValueTIfInTheCached()
     {
         // given
-        final TransactionMetadataCache cache = new TransactionMetadataCache( 2 );
+        final TransactionMetadataCache cache = new TransactionMetadataCache();
         final LogPosition position = new LogPosition( 3, 4 );
         final int txId = 42;
-        final int masterId = 0;
-        final int authorId = 1;
         final int checksum = 2;
         final long timestamp = System.currentTimeMillis();
 
         // when
-        cache.cacheTransactionMetadata( txId, position, masterId, authorId, checksum, timestamp );
+        cache.cacheTransactionMetadata( txId, position, checksum, timestamp );
         final TransactionMetadataCache.TransactionMetadata metadata = cache.getTransactionMetadata( txId );
 
         // then
-        assertEquals(
-                new TransactionMetadataCache.TransactionMetadata( masterId, authorId, position, checksum, timestamp ),
-                metadata );
+        assertEquals( new TransactionMetadataCache.TransactionMetadata( position, checksum, timestamp ), metadata );
     }
 
     @Test
-    public void shouldThrowWhenCachingATxWithNegativeOffsetPosition()
+    void shouldThrowWhenCachingATxWithNegativeOffsetPosition()
     {
         // given
-        final TransactionMetadataCache cache = new TransactionMetadataCache( 2 );
+        final TransactionMetadataCache cache = new TransactionMetadataCache();
         final LogPosition position = new LogPosition( 3, -1 );
         final int txId = 42;
-        final int masterId = 0;
-        final int authorId = 1;
         final int checksum = 2;
         final long timestamp = System.currentTimeMillis();
 
-        // when
-        try
-        {
-            cache.cacheTransactionMetadata( txId, position, masterId, authorId, checksum, timestamp );
-            fail();
-        }
-        catch (RuntimeException ex)
-        {
-            assertEquals( "StartEntry.position is " + position, ex.getMessage() );
-        }
+        var e = assertThrows( RuntimeException.class, () -> cache.cacheTransactionMetadata( txId, position, checksum, timestamp ) );
+        assertEquals( "StartEntry.position is " + position, e.getMessage() );
     }
 
     @Test
-    public void shouldClearTheCache()
+    void shouldClearTheCache()
     {
         // given
-        final TransactionMetadataCache cache = new TransactionMetadataCache( 2 );
+        final TransactionMetadataCache cache = new TransactionMetadataCache();
         final LogPosition position = new LogPosition( 3, 4 );
         final int txId = 42;
-        final int masterId = 0;
-        final int authorId = 1;
         final int checksum = 2;
         final long timestamp = System.currentTimeMillis();
 
         // when
-        cache.cacheTransactionMetadata( txId, position, masterId, authorId, checksum, timestamp );
+        cache.cacheTransactionMetadata( txId, position, checksum, timestamp );
         cache.clear();
         final TransactionMetadataCache.TransactionMetadata metadata = cache.getTransactionMetadata( txId );
 

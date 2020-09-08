@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -23,10 +23,12 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 
+import org.neo4j.graphdb.DatabaseShutdownException;
 import org.neo4j.graphdb.Direction;
+import org.neo4j.graphdb.Entity;
 import org.neo4j.graphdb.Node;
+import org.neo4j.graphdb.NotInTransactionException;
 import org.neo4j.graphdb.Path;
-import org.neo4j.graphdb.PropertyContainer;
 import org.neo4j.graphdb.Relationship;
 
 /**
@@ -34,6 +36,11 @@ import org.neo4j.graphdb.Relationship;
  */
 public class Paths
 {
+
+    private Paths()
+    {
+    }
+
     /**
      * Provides hooks to help build a string representation of a {@link org.neo4j.graphdb.Path}.
      * @param <T> the type of {@link org.neo4j.graphdb.Path}.
@@ -79,14 +86,15 @@ public class Paths
         public String relationshipRepresentation( Path path,
                                                   Node from, Relationship relationship )
         {
-            String prefix = "--", suffix = "--";
+            String prefix = "-";
+            String suffix = "-";
             if ( from.equals( relationship.getEndNode() ) )
             {
-                prefix = "<--";
+                prefix = "<-";
             }
             else
             {
-                suffix = "-->";
+                suffix = "->";
             }
             return prefix + "[" + relationship.getType().name() + "," +
                     relationship.getId() + "]" + suffix;
@@ -140,7 +148,7 @@ public class Paths
      */
     public static String simplePathToString( Path path )
     {
-        return pathToString( path, new DefaultPathDescriptor<Path>()
+        return pathToString( path, new DefaultPathDescriptor<>()
         {
             @Override
             public String relationshipRepresentation( Path path, Node from,
@@ -163,7 +171,7 @@ public class Paths
      */
     public static String simplePathToString( Path path, final String nodePropertyKey )
     {
-        return pathToString( path, new DefaultPathDescriptor<Path>()
+        return pathToString( path, new DefaultPathDescriptor<>()
         {
             @Override
             public String nodeRepresentation( Path path, Node node )
@@ -192,18 +200,18 @@ public class Paths
     public static <T extends Path> PathDescriptor<T> descriptorForIdAndProperties( final boolean nodeId,
     final boolean relId, final String... propertyKeys )
     {
-        return new Paths.PathDescriptor<T>()
+        return new Paths.PathDescriptor<>()
         {
             @Override
             public String nodeRepresentation( T path, Node node )
             {
                 String representation = representation( node );
-                return "(" + (nodeId ? node.getId() : "" ) +
-                       ( nodeId && !representation.equals( "" ) ? "," : "" ) +
+                return "(" + (nodeId ? node.getId() : "") +
+                       (nodeId && !representation.equals( "" ) ? "," : "") +
                        representation + ")";
             }
 
-            private String representation( PropertyContainer entity )
+            private String representation( Entity entity )
             {
                 StringBuilder builder = new StringBuilder();
                 for ( String key : propertyKeys )
@@ -213,7 +221,7 @@ public class Paths
                     {
                         if ( builder.length() > 0 )
                         {
-                            builder.append( "," );
+                            builder.append( ',' );
                         }
                         builder.append( value );
                     }
@@ -228,20 +236,20 @@ public class Paths
                 StringBuilder builder = new StringBuilder();
                 if ( direction.equals( Direction.INCOMING ) )
                 {
-                    builder.append( "<" );
+                    builder.append( '<' );
                 }
-                builder.append( "--[" + (relId ? relationship.getId() : "") );
+                builder.append( "-[" + (relId ? relationship.getId() : "") );
                 String representation = representation( relationship );
                 if ( relId && !representation.equals( "" ) )
                 {
-                    builder.append( "," );
+                    builder.append( ',' );
                 }
                 builder.append( representation );
-                builder.append( "]--" );
+                builder.append( "]-" );
 
                 if ( direction.equals( Direction.OUTGOING ) )
                 {
-                    builder.append( ">" );
+                    builder.append( '>' );
                 }
                 return builder.toString();
             }
@@ -311,10 +319,33 @@ public class Paths
         }
 
         @Override
-        public Iterator<PropertyContainer> iterator()
+        public Iterator<Entity> iterator()
         {
-            return Arrays.<PropertyContainer>asList( node ).iterator();
+            return Arrays.<Entity>asList( node ).iterator();
         }
     }
 
+    public static String defaultPathToStringWithNotInTransactionFallback( Path path )
+    {
+        try
+        {
+            return Paths.defaultPathToString( path );
+        }
+        catch ( NotInTransactionException | DatabaseShutdownException e )
+        {
+            // We don't keep the rel-name lookup if the database is shut down. Source ID and target ID also requires
+            // database access in a transaction. However, failing on toString would be uncomfortably evil, so we fall
+            // back to noting the relationship type id.
+        }
+        StringBuilder sb = new StringBuilder();
+        for ( Relationship rel : path.relationships() )
+        {
+            if ( sb.length() == 0 )
+            {
+                sb.append( "(?)" );
+            }
+            sb.append( "-[?," ).append( rel.getId() ).append( "]-(?)" );
+        }
+        return sb.toString();
+    }
 }

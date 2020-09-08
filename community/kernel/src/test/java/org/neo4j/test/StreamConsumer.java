@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -38,21 +38,10 @@ public class StreamConsumer implements Runnable
         void handle( IOException failure );
     }
 
-    public static StreamExceptionHandler PRINT_FAILURES = new StreamExceptionHandler()
-    {
-        @Override
-        public void handle( IOException failure )
-        {
-            failure.printStackTrace();
-        }
-    };
+    public static final StreamExceptionHandler PRINT_FAILURES = Throwable::printStackTrace;
 
-    public static StreamExceptionHandler IGNORE_FAILURES = new StreamExceptionHandler()
+    public static final StreamExceptionHandler IGNORE_FAILURES = failure ->
     {
-        @Override
-        public void handle( IOException failure )
-        {
-        }
     };
 
     private final BufferedReader in;
@@ -75,9 +64,9 @@ public class StreamConsumer implements Runnable
         this.quiet = quiet;
         this.prefix = prefix;
         this.failureHandler = failureHandler;
-        this.in = new BufferedReader(new InputStreamReader( in ));
+        this.in = new BufferedReader( new InputStreamReader( in ) );
         this.out = new OutputStreamWriter( out );
-        this.stackTraceOfOrigin = new Exception("Stack trace of thread that created this StreamConsumer");
+        this.stackTraceOfOrigin = new Exception( "Stack trace of thread that created this StreamConsumer" );
     }
 
     @Override
@@ -86,7 +75,7 @@ public class StreamConsumer implements Runnable
         try
         {
             String line;
-            while ( ( line = in.readLine()) != null)
+            while ( (line = in.readLine()) != null )
             {
                 if ( !quiet )
                 {

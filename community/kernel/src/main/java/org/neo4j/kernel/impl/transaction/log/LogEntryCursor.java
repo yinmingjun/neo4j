@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -30,13 +30,12 @@ import org.neo4j.kernel.impl.transaction.log.entry.LogEntryReader;
  */
 public class LogEntryCursor implements IOCursor<LogEntry>
 {
-    private final LogEntryReader<ReadableClosablePositionAwareChannel> logEntryReader;
-    private final ReadableClosablePositionAwareChannel channel;
+    private final LogEntryReader logEntryReader;
+    private final ReadableClosablePositionAwareChecksumChannel channel;
     private final LogPositionMarker position = new LogPositionMarker();
     private LogEntry entry;
 
-    public LogEntryCursor( LogEntryReader<ReadableClosablePositionAwareChannel> logEntryReader,
-                           ReadableClosablePositionAwareChannel channel )
+    public LogEntryCursor( LogEntryReader logEntryReader, ReadableClosablePositionAwareChecksumChannel channel )
     {
         this.logEntryReader = logEntryReader;
         this.channel = channel;

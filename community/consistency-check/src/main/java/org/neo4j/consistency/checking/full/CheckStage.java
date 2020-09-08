@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -27,16 +27,20 @@ import static org.neo4j.consistency.checking.cache.CacheSlots.LABELS_SLOT_SIZE;
  */
 public enum CheckStage implements Stage
 {
-    Stage1_NS_PropsLabels( false, true, "NodeStore pass - check its properties, check labels and cache them, skip relationships", 1, LABELS_SLOT_SIZE ),
-    Stage2_RS_Labels( false, true, "ReltionshipStore pass - check label counts using cached labels, check properties, skip nodes and relationships", 1, LABELS_SLOT_SIZE ),
-    Stage3_NS_NextRel( false, true, "NodeStore pass - just cache nextRel and inUse", 1, 1, ID_SLOT_SIZE ),
-    Stage4_RS_NextRel( true, true, "RelationshipStore pass - check nodes inUse, FirstInFirst, FirstInSecond using cached info", 1, 1, ID_SLOT_SIZE ),
-    Stage5_Check_NextRel( false, true, "NodeRelationship cache pass - check nextRel", 1, 1, ID_SLOT_SIZE ),
-    Stage6_RS_Forward( true, true, "RelationshipStore pass - forward scan of source chain using the cache", 1, 1, ID_SLOT_SIZE, ID_SLOT_SIZE, 1 ),
-    Stage7_RS_Backward( true, false, "RelationshipStore pass - reverse scan of source chain using the cache", 1, 1, ID_SLOT_SIZE, ID_SLOT_SIZE, 1 ),
+    Stage1_NS_PropsLabels( false, true, "NodeStore pass - check its properties, " +
+            "check labels and cache them, skip relationships", LABELS_SLOT_SIZE, 1 ),
+    Stage2_RS_Labels( false, true, "RelationshipStore pass - check label counts using cached labels, check properties, " +
+            "skip nodes and relationships", LABELS_SLOT_SIZE, 1 ),
+    Stage3_NS_NextRel( false, true, "NodeStore pass - just cache nextRel and inUse", ID_SLOT_SIZE, 1, 1 ),
+    Stage4_RS_NextRel( true, true, "RelationshipStore pass - check nodes inUse, FirstInFirst, " +
+            "FirstInSecond using cached info", ID_SLOT_SIZE, 1, 1 ),
+    Stage5_Check_NextRel( false, true, "NodeRelationship cache pass - check nextRel", ID_SLOT_SIZE, 1, 1 ),
+    Stage6_RS_Forward( true, true, "RelationshipStore pass - forward scan of source chain using the cache", ID_SLOT_SIZE, ID_SLOT_SIZE, 1, 1, 1 ),
+    Stage7_RS_Backward( true, false, "RelationshipStore pass - reverse scan of source chain using the cache", ID_SLOT_SIZE, ID_SLOT_SIZE, 1, 1, 1 ),
     Stage8_PS_Props( true, true, "PropertyStore and Node to Index check pass" ),
-    Stage9_NS_LabelCounts( true, true, "NodeStore pass - Label counts" ),
-    Stage10_NS_PropertyRelocator( true, true, "Property store relocation" );
+    Stage9_RS_Indexes( true, true, "Relationship to Index check pass" ),
+    Stage10_NS_LabelCounts( true, true, "NodeStore pass - Label counts" ),
+    Stage11_NS_PropertyRelocator( true, true, "Property store relocation" );
 
     private final boolean parallel;
     private final boolean forward;

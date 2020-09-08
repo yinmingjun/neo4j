@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,8 +22,9 @@ package org.neo4j.kernel.impl.store;
 import java.util.Collections;
 import java.util.Set;
 
-import org.neo4j.helpers.collection.Pair;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
+import org.neo4j.exceptions.UnderlyingStorageException;
+import org.neo4j.internal.helpers.collection.Pair;
+import org.neo4j.internal.schema.IndexDescriptor;
 
 import static java.lang.String.format;
 
@@ -49,10 +50,9 @@ public class MultipleUnderlyingStorageExceptions extends UnderlyingStorageExcept
 
         for ( Pair<IndexDescriptor, UnderlyingStorageException> pair : exceptions )
         {
-            builder.append( format( " (%s) %s", pair.first().toString(), pair.other().getMessage() ) );
+            builder.append( format( " (%s) %s", pair.first(), pair.other().getMessage() ) );
         }
 
         return builder.toString();
     }
-
 }

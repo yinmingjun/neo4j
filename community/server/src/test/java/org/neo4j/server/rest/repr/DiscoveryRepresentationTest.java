@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,45 +19,67 @@
  */
 package org.neo4j.server.rest.repr;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.net.URI;
-import java.util.Map;
+import org.neo4j.configuration.Config;
+import org.neo4j.configuration.connectors.BoltConnector;
+import org.neo4j.configuration.connectors.ConnectorPortRegister;
+import org.neo4j.server.rest.discovery.DiscoverableURIs;
+import org.neo4j.server.rest.discovery.ServerVersionAndEdition;
 
-import org.neo4j.helpers.AdvertisedSocketAddress;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.Mockito.mock;
+import static org.neo4j.server.rest.repr.Serializer.joinBaseWithRelativePath;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-
-public class DiscoveryRepresentationTest
+class DiscoveryRepresentationTest
 {
     @Test
-    public void shouldCreateAMapContainingDataAndManagementURIs() throws Exception
+    void shouldCreateAMapContainingDataAndManagementURIs()
     {
-        String managementUri = "/management";
-        String dataUri = "/data";
-        AdvertisedSocketAddress boltAddress = new AdvertisedSocketAddress( "localhost", 7687 );
-        DiscoveryRepresentation dr = new DiscoveryRepresentation( managementUri, dataUri, boltAddress );
+        var baseUri = RepresentationTestBase.BASE_URI;
+        var managementUri = "/management";
+        var dataUri = "/data";
+        var config = Config.defaults( BoltConnector.enabled, true );
+        var dr = new DiscoveryRepresentation(
+                new DiscoverableURIs.Builder()
+                        .addEndpoint( "management", managementUri )
+                        .addEndpoint( "data", dataUri )
+                        .addBoltEndpoint( config, mock( ConnectorPortRegister.class ) )
+                        .build()
+                        .update( baseUri ), mock( ServerVersionAndEdition.class ) );
 
-        Map<String,Object> mapOfUris = RepresentationTestAccess.serialize( dr );
+        var mapOfUris = RepresentationTestAccess.serialize( dr );
 
-        Object mappedManagementUri = mapOfUris.get( "management" );
-        Object mappedDataUri = mapOfUris.get( "data" );
-        Object mappedBoltUri = mapOfUris.get( "bolt" );
+        var mappedManagementUri = mapOfUris.get( "management" );
+        var mappedDataUri = mapOfUris.get( "data" );
+        var mappedBoltUri = mapOfUris.get( "bolt_direct" );
 
         assertNotNull( mappedManagementUri );
         assertNotNull( mappedDataUri );
         assertNotNull( mappedBoltUri );
 
-        URI baseUri = RepresentationTestBase.BASE_URI;
-
-        assertEquals( mappedManagementUri.toString(), Serializer.joinBaseWithRelativePath( baseUri, managementUri ) );
-        assertEquals( mappedDataUri.toString(), Serializer.joinBaseWithRelativePath( baseUri, dataUri ) );
-        assertEquals( mappedBoltUri.toString(), toBoltUri( boltAddress ) );
+        assertEquals( joinBaseWithRelativePath( baseUri, managementUri ), mappedManagementUri.toString() );
+        assertEquals( joinBaseWithRelativePath( baseUri, dataUri ), mappedDataUri.toString() );
+        assertEquals( "bolt://neo4j.org:7687", mappedBoltUri.toString() );
     }
 
-    private String toBoltUri( AdvertisedSocketAddress boltAddress )
+    @Test
+    void shouldCreateAMapContainingServerVersionAndEditionInfo()
     {
-        return "bolt://" + boltAddress.getHostname() + ":" + boltAddress.getPort();
+        var serverInfo = new ServerVersionAndEdition( "myVersion", "myEdition" );
+        var dr = new DiscoveryRepresentation( mock( DiscoverableURIs.class ), serverInfo );
+
+        var mapOfUris = RepresentationTestAccess.serialize( dr );
+
+        var version = mapOfUris.get( "neo4j_version" );
+        var edition = mapOfUris.get( "neo4j_edition" );
+
+        assertNotNull( version );
+        assertNotNull( edition );
+
+        assertEquals( "myVersion", version.toString() );
+        assertEquals( "myEdition", edition.toString() );
     }
+
 }

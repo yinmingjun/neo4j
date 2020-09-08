@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,76 +19,81 @@
  */
 package org.neo4j.commandline.dbms;
 
-import java.io.IOException;
-import java.nio.file.Path;
-import java.util.function.Consumer;
+import picocli.CommandLine.Parameters;
 
-import org.neo4j.commandline.admin.AdminCommand;
-import org.neo4j.commandline.admin.CommandFailed;
-import org.neo4j.commandline.admin.IncorrectUsage;
-import org.neo4j.commandline.arguments.Arguments;
-import org.neo4j.commandline.arguments.common.MandatoryCanonicalPath;
-import org.neo4j.io.fs.DefaultFileSystemAbstraction;
+import java.io.Closeable;
+import java.nio.file.Path;
+
+import org.neo4j.cli.AbstractCommand;
+import org.neo4j.cli.CommandFailedException;
+import org.neo4j.cli.ExecutionContext;
+import org.neo4j.configuration.Config;
+import org.neo4j.io.layout.DatabaseLayout;
 import org.neo4j.io.pagecache.PageCache;
 import org.neo4j.io.pagecache.impl.muninn.StandalonePageCacheFactory;
-import org.neo4j.kernel.impl.store.MetaDataStore;
-import org.neo4j.kernel.impl.store.format.RecordFormatSelector;
-import org.neo4j.kernel.impl.store.format.RecordFormats;
-import org.neo4j.kernel.impl.storemigration.StoreVersionCheck;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.util.Validators;
-import org.neo4j.kernel.internal.Version;
+import org.neo4j.kernel.internal.locker.FileLockException;
+import org.neo4j.logging.internal.NullLogService;
+import org.neo4j.scheduler.JobScheduler;
+import org.neo4j.storageengine.api.StorageEngineFactory;
+import org.neo4j.storageengine.api.StoreVersion;
+import org.neo4j.storageengine.api.StoreVersionCheck;
 
-import static org.neo4j.kernel.impl.store.format.RecordFormatSelector.findSuccessor;
+import static java.lang.String.format;
+import static org.neo4j.kernel.impl.scheduler.JobSchedulerFactory.createInitialisedScheduler;
+import static picocli.CommandLine.Command;
 
-public class StoreInfoCommand implements AdminCommand
+@Command(
+        name = "store-info",
+        header = "Print information about a Neo4j database store.",
+        description = "Print information about a Neo4j database store, such as what version of Neo4j created it."
+)
+public class StoreInfoCommand extends AbstractCommand
 {
-    private static final Arguments arguments = new Arguments()
-            .withArgument( new MandatoryCanonicalPath( "store", "path-to-dir",
-                    "Path to database store." ) );
+    @Parameters( description = "Path to database store." )
+    private Path storePath;
 
-    private Consumer<String> out;
-
-    public StoreInfoCommand( Consumer<String> out )
+    public StoreInfoCommand( ExecutionContext ctx )
     {
-        this.out = out;
+        super( ctx );
     }
 
     @Override
-    public void execute( String[] args ) throws IncorrectUsage, CommandFailed
+    public void execute()
     {
-        final Path storeDir = arguments.parse( args ).getMandatoryPath( "store" );
+        Validators.CONTAINS_EXISTING_DATABASE.validate( storePath );
 
-        Validators.CONTAINS_EXISTING_DATABASE.validate( storeDir.toFile() );
-
-        try ( DefaultFileSystemAbstraction fileSystem = new DefaultFileSystemAbstraction();
-                PageCache pageCache = StandalonePageCacheFactory.createPageCache( fileSystem ) )
+        DatabaseLayout databaseLayout = DatabaseLayout.ofFlat( storePath );
+        var cacheTracer = PageCacheTracer.NULL;
+        try ( Closeable ignored = LockChecker.checkDatabaseLock( databaseLayout );
+              JobScheduler jobScheduler = createInitialisedScheduler();
+              PageCache pageCache = StandalonePageCacheFactory.createPageCache( ctx.fs(), jobScheduler, cacheTracer ) )
         {
-            final String storeVersion = new StoreVersionCheck( pageCache )
-                    .getVersion( storeDir.resolve( MetaDataStore.DEFAULT_NAME ).toFile() )
-                    .orElseThrow(
-                            () -> new CommandFailed( String.format( "Could not find version metadata in store '%s'",
-                                    storeDir ) ) );
+            StorageEngineFactory storageEngineFactory = StorageEngineFactory.selectStorageEngine();
+            StoreVersionCheck storeVersionCheck = storageEngineFactory.versionCheck( ctx.fs(), databaseLayout, Config.defaults(), pageCache,
+                    NullLogService.getInstance(), cacheTracer );
+            String storeVersion = storeVersionCheck.storeVersion( PageCursorTracer.NULL )
+                    .orElseThrow( () -> new CommandFailedException( format( "Could not find version metadata in store '%s'", storePath ) ) );
 
             final String fmt = "%-30s%s";
-            out.accept( String.format( fmt, "Store format version:", storeVersion ) );
+            ctx.out().println( format( fmt, "Store format version:", storeVersion ) );
 
-            RecordFormats format = RecordFormatSelector.selectForVersion( storeVersion );
-            out.accept( String.format( fmt, "Store format introduced in:", format.introductionVersion() ) );
+            StoreVersion versionInformation = storageEngineFactory.versionInformation( storeVersion );
+            ctx.out().println( format( fmt, "Store format introduced in:", versionInformation.introductionNeo4jVersion() ) );
 
-            findSuccessor( format )
-                    .map( next -> String.format( fmt, "Store format superseded in:", next.introductionVersion() ) )
-                    .ifPresent( out );
-
-            //out.accept( String.format( fmt, "Current version:", Version.getNeo4jVersion() ) );
+            versionInformation.successor()
+                    .map( next -> format( fmt, "Store format superseded in:", next.introductionNeo4jVersion() ) )
+                    .ifPresent( ctx.out()::println );
         }
-        catch ( IOException e )
+        catch ( FileLockException e )
         {
-            throw new CommandFailed( e.getMessage(), e );
+            throw new CommandFailedException( "The database is in use. Stop database '" + databaseLayout.getDatabaseName() + "' and try again.", e );
         }
-    }
-
-    public static Arguments arguments()
-    {
-        return arguments;
+        catch ( Exception e )
+        {
+            throw new RuntimeException( e );
+        }
     }
 }

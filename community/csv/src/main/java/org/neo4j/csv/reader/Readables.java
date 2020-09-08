@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,14 +19,15 @@
  */
 package org.neo4j.csv.reader;
 
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PushbackInputStream;
 import java.io.Reader;
+import java.io.StringReader;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Enumeration;
@@ -37,13 +38,12 @@ import java.util.zip.ZipFile;
 
 import org.neo4j.collection.RawIterator;
 import org.neo4j.function.IOFunction;
-import org.neo4j.function.IOFunctions;
 import org.neo4j.function.ThrowingFunction;
 
 /**
  * Means of instantiating common {@link CharReadable} instances.
  *
- * There are support for compressed files as well for those methods accepting a {@link File} argument.
+ * There are support for compressed files as well for those methods accepting a {@link Path} argument.
  * <ol>
  * <li>ZIP: is both an archive and a compression format. In many cases the order of files
  * is important and for a ZIP archive with multiple files, the order of the files are whatever the order
@@ -62,13 +62,13 @@ public class Readables
     public static final CharReadable EMPTY = new CharReadable.Adapter()
     {
         @Override
-        public SectionedCharBuffer read( SectionedCharBuffer buffer, int from ) throws IOException
+        public SectionedCharBuffer read( SectionedCharBuffer buffer, int from )
         {
             return buffer;
         }
 
         @Override
-        public void close() throws IOException
+        public void close()
         {   // Nothing to close
         }
 
@@ -79,13 +79,35 @@ public class Readables
         }
 
         @Override
-        public int read( char[] into, int offset, int length ) throws IOException
+        public int read( char[] into, int offset, int length )
         {
             return -1;
+        }
+
+        @Override
+        public long length()
+        {
+            return 0;
         }
     };
 
     public static CharReadable wrap( final InputStream stream, final String sourceName, Charset charset )
+            throws IOException
+    {
+        return wrap( stream, sourceName, charset, 0 );
+    }
+
+    /**
+     * Wraps a {@link InputStream} in a {@link CharReadable}.
+     *
+     * @param stream {@link Reader} to wrap.
+     * @param sourceName name or description of the source of the stream.
+     * @param charset {@link Charset} to use for reading.
+     * @param length total number of bytes provided by the reader.
+     * @return a {@link CharReadable} for the {@link Reader}.
+     * @throws IOException on I/O error.
+     */
+    public static CharReadable wrap( final InputStream stream, final String sourceName, Charset charset, long length )
             throws IOException
     {
         byte[] bytes = new byte[Magic.longest()];
@@ -112,65 +134,47 @@ public class Readables
             {
                 return sourceName;
             }
-        } );
+        }, length );
+    }
+
+    public static CharReadable wrap( String sourceDescription, String data )
+    {
+        return wrap( sourceDescription, new StringReader( data ), data.length() );
+    }
+
+    public static CharReadable wrap( String data )
+    {
+        return wrap( new StringReader( data ), data.length() );
     }
 
     /**
+     * Wraps a {@link Reader} in a {@link CharReadable}.
      * Remember that the {@link Reader#toString()} must provide a description of the data source.
+     * Uses {@link Reader#toString()} as the source description.
+     *
+     * @param reader {@link Reader} to wrap.
+     * @param length total number of bytes provided by the reader.
+     * @return a {@link CharReadable} for the {@link Reader}.
      */
-    public static CharReadable wrap( final Reader reader )
+    public static CharReadable wrap( Reader reader, long length )
     {
-        return new CharReadable.Adapter()
-        {
-            private long position;
-            private final String sourceDescription = reader.toString();
-
-            @Override
-            public SectionedCharBuffer read( SectionedCharBuffer buffer, int from ) throws IOException
-            {
-                buffer.compact( buffer, from );
-                buffer.readFrom( reader );
-                position += buffer.available();
-                return buffer;
-            }
-
-            @Override
-            public int read( char[] into, int offset, int length ) throws IOException
-            {
-                int totalRead = 0;
-                while ( totalRead < length )
-                {
-                    int read = reader.read( into, offset + totalRead, length - totalRead );
-                    if ( read == -1 )
-                    {
-                        break;
-                    }
-                    totalRead += read;
-                }
-                return totalRead;
-            }
-
-            @Override
-            public void close() throws IOException
-            {
-                reader.close();
-            }
-
-            @Override
-            public long position()
-            {
-                return position;
-            }
-
-            @Override
-            public String sourceDescription()
-            {
-                return sourceDescription;
-            }
-        };
+        return wrap( reader.toString(), reader, length );
     }
 
-    private static class FromFile implements IOFunction<File, Reader>
+    /**
+     * Wraps a {@link Reader} in a {@link CharReadable}.
+     * Remember that the {@link Reader#toString()} must provide a description of the data source.
+     *
+     * @param reader {@link Reader} to wrap.
+     * @param length total number of bytes provided by the reader.
+     * @return a {@link CharReadable} for the {@link Reader}.
+     */
+    public static CharReadable wrap( String sourceDescription, Reader reader, long length )
+    {
+        return new WrappedCharReadable( length, reader, sourceDescription );
+    }
+
+    private static class FromFile implements IOFunction<Path,CharReadable>
     {
         private final Charset charset;
 
@@ -180,21 +184,21 @@ public class Readables
         }
 
         @Override
-        public Reader apply( final File file ) throws IOException
+        public CharReadable apply( final Path path ) throws IOException
         {
-            Magic magic = Magic.of( file );
+            Magic magic = Magic.of( path );
             if ( magic == Magic.ZIP )
             {   // ZIP file
-                ZipFile zipFile = new ZipFile( file );
+                ZipFile zipFile = new ZipFile( path.toFile() );
                 ZipEntry entry = getSingleSuitableEntry( zipFile );
-                return new InputStreamReader( zipFile.getInputStream( entry ), charset )
+                return wrap( new InputStreamReader( zipFile.getInputStream( entry ), charset )
                 {
                     @Override
                     public String toString()
                     {
-                        return file.getPath();
+                        return path.toAbsolutePath().toString();
                     }
-                };
+                }, Files.size( path ) );
             }
             else if ( magic == Magic.GZIP )
             {   // GZIP file. GZIP isn't an archive like ZIP, so this is purely data that is compressed.
@@ -202,38 +206,42 @@ public class Readables
                 // files into one blob, which is then compressed. If that's the case then
                 // the data will look like garbage and the reader will fail for whatever it will be used for.
                 // TODO add tar support
-                GZIPInputStream zipStream = new GZIPInputStream( new FileInputStream( file ) );
-                return new InputStreamReader( zipStream, charset )
+                GZIPInputStream zipStream = new GZIPInputStream( Files.newInputStream( path ) );
+                return wrap( new InputStreamReader( zipStream, charset )
                 {
                     @Override
                     public String toString()
                     {
-                        return file.getPath();
+                        return path.toAbsolutePath().toString();
                     }
-                };
+                }, Files.size( path ) );
             }
             else
             {
-                InputStream in = new FileInputStream( file );
+                InputStream in = Files.newInputStream( path );
                 Charset usedCharset = this.charset;
                 if ( magic.impliesEncoding() )
                 {
                     // Read (and skip) the magic (BOM in this case) from the file we're returning out
-                    in.skip( magic.length() );
+                    long skip = in.skip( magic.length() );
+                    if ( skip != magic.length() )
+                    {
+                        throw new IOException( "Unable to skip " + magic.length() + " bytes, only able to skip " + skip + " bytes." );
+                    }
                     usedCharset = magic.encoding();
                 }
-                return new InputStreamReader( in, usedCharset )
+                return wrap( new InputStreamReader( in, usedCharset )
                 {
                     @Override
                     public String toString()
                     {
-                        return file.getPath();
+                        return path.toAbsolutePath().toString();
                     }
-                };
+                }, Files.size( path ) );
             }
         }
 
-        private ZipEntry getSingleSuitableEntry( ZipFile zipFile ) throws IOException
+        private static ZipEntry getSingleSuitableEntry( ZipFile zipFile ) throws IOException
         {
             List<String> unsuitableEntries = new ArrayList<>();
             Enumeration<? extends ZipEntry> enumeration = zipFile.entries();
@@ -273,36 +281,31 @@ public class Readables
                name.contains( "/." );
     }
 
-    public static CharReadable files( Charset charset, File... files ) throws IOException
+    public static RawIterator<CharReadable,IOException> individualFiles( Charset charset, Path... files )
     {
-        IOFunction<File,Reader> opener = new FromFile( charset );
+        return iterator( new FromFile( charset ), files );
+    }
+
+    public static CharReadable files( Charset charset, Path... files ) throws IOException
+    {
+        IOFunction<Path,CharReadable> opener = new FromFile( charset );
         switch ( files.length )
         {
         case 0:  return EMPTY;
-        case 1:  return wrap( opener.apply( files[0] ) );
-        default: return new MultiReadable( iterator( files, opener ) );
+        case 1:  return opener.apply( files[0] );
+        default: return new MultiReadable( iterator( opener, files ) );
         }
     }
 
-    public static CharReadable sources( Reader... sources ) throws IOException
-    {
-        return new MultiReadable( iterator( sources, IOFunctions.<Reader>identity() ) );
-    }
-
-    public static CharReadable sources( RawIterator<Reader,IOException> sources ) throws IOException
-    {
-        return new MultiReadable( sources );
-    }
-
-    private static <IN,OUT> RawIterator<OUT,IOException> iterator( final IN[] items,
-            final ThrowingFunction<IN,OUT,IOException> converter )
+    @SafeVarargs
+    public static <IN,OUT> RawIterator<OUT,IOException> iterator( ThrowingFunction<IN,OUT,IOException> converter, IN... items )
     {
         if ( items.length == 0 )
         {
             throw new IllegalStateException( "No source items specified" );
         }
 
-        return new RawIterator<OUT,IOException>()
+        return new RawIterator<>()
         {
             private int cursor;
 
@@ -328,5 +331,43 @@ public class Readables
                 throw new UnsupportedOperationException();
             }
         };
+    }
+
+    /**
+     * Extracts the first line, i.e characters until the first newline or end of stream.
+     * Reads one character at a time to be sure not to read too far ahead. The stream is left
+     * in a state of either exhausted or at the beginning of the next line of data.
+     *
+     * @param source {@link CharReadable} to read from.
+     * @return char[] containing characters until the first newline character or end of stream.
+     * @throws IOException on I/O reading error.
+     */
+    public static char[] extractFirstLineFrom( CharReadable source ) throws IOException
+    {
+        char[] result = new char[100];
+        int cursor = 0;
+        int read;
+        boolean foundEol = false;
+        do
+        {
+            // Grow on demand
+            if ( cursor >= result.length )
+            {
+                result = Arrays.copyOf( result, cursor * 2 );
+            }
+
+            // Read one character
+            read = source.read( result, cursor, 1 );
+            if ( read > 0 )
+            {
+                foundEol = BufferedCharSeeker.isEolChar( result[cursor] );
+                if ( !foundEol )
+                {
+                    cursor++;
+                }
+            }
+        }
+        while ( read > 0 && !foundEol );
+        return Arrays.copyOf( result, cursor );
     }
 }

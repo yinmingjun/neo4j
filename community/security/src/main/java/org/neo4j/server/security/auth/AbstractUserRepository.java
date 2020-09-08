@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -32,9 +32,8 @@ import java.util.stream.Collectors;
 import org.neo4j.kernel.api.exceptions.InvalidArgumentsException;
 import org.neo4j.kernel.impl.security.User;
 import org.neo4j.kernel.lifecycle.LifecycleAdapter;
-import org.neo4j.server.security.auth.exception.ConcurrentModificationException;
 
-import static org.neo4j.helpers.collection.MapUtil.trimToList;
+import static org.neo4j.internal.helpers.collection.MapUtil.trimToList;
 
 public abstract class AbstractUserRepository extends LifecycleAdapter implements UserRepository
 {
@@ -43,7 +42,7 @@ public abstract class AbstractUserRepository extends LifecycleAdapter implements
 
     /** Master list of users */
     protected volatile List<User> users = new ArrayList<>();
-    protected AtomicLong lastLoaded = new AtomicLong( 0L );
+    AtomicLong lastLoaded = new AtomicLong( 0L );
 
     // Allow all ascii from '!' to '~', apart from ',' and ':' which are used as separators in flat file
     private final Pattern usernamePattern = Pattern.compile( "^[\\x21-\\x2B\\x2D-\\x39\\x3B-\\x7E]+$" );
@@ -66,7 +65,7 @@ public abstract class AbstractUserRepository extends LifecycleAdapter implements
     {
         assertValidUsername( user.name() );
 
-        synchronized (this)
+        synchronized ( this )
         {
             // Check for existing user
             for ( User other : users )
@@ -84,14 +83,14 @@ public abstract class AbstractUserRepository extends LifecycleAdapter implements
     }
 
     @Override
-    public void setUsers( ListSnapshot<User> usersSnapshot ) throws InvalidArgumentsException, IOException
+    public void setUsers( ListSnapshot<User> usersSnapshot ) throws InvalidArgumentsException
     {
         for ( User user : usersSnapshot.values() )
         {
             assertValidUsername( user.name() );
         }
 
-        synchronized (this)
+        synchronized ( this )
         {
             users.clear();
 
@@ -105,73 +104,6 @@ public abstract class AbstractUserRepository extends LifecycleAdapter implements
                 usersByName.put( user.name(), user );
             }
         }
-    }
-
-    @Override
-    public void update( User existingUser, User updatedUser )
-            throws ConcurrentModificationException, IOException, InvalidArgumentsException
-    {
-        // Assert input is ok
-        if ( !existingUser.name().equals( updatedUser.name() ) )
-        {
-            throw new IllegalArgumentException( "The attempt to update the role from '" + existingUser.name() +
-                    "' to '" + updatedUser.name() + "' failed. Changing a roles name is not allowed." );
-        }
-
-        synchronized (this)
-        {
-            // Copy-on-write for the users list
-            List<User> newUsers = new ArrayList<>();
-            boolean foundUser = false;
-            for ( User other : users )
-            {
-                if ( other.equals( existingUser ) )
-                {
-                    foundUser = true;
-                    newUsers.add( updatedUser );
-                }
-                else
-                {
-                    newUsers.add( other );
-                }
-            }
-
-            if ( !foundUser )
-            {
-                throw new ConcurrentModificationException();
-            }
-
-            users = newUsers;
-            usersByName.put( updatedUser.name(), updatedUser );
-            persistUsers();
-        }
-    }
-
-    @Override
-    public synchronized boolean delete( User user ) throws IOException
-    {
-        boolean foundUser = false;
-        // Copy-on-write for the users list
-        List<User> newUsers = new ArrayList<>();
-        for ( User other : users )
-        {
-            if ( other.name().equals( user.name() ) )
-            {
-                foundUser = true;
-            }
-            else
-            {
-                newUsers.add( other );
-            }
-        }
-
-        if ( foundUser )
-        {
-            users = newUsers;
-            usersByName.remove( user.name() );
-            persistUsers();
-        }
-        return foundUser;
     }
 
     @Override

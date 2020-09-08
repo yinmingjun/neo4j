@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,31 +19,38 @@
  */
 package org.neo4j.kernel.impl.coreapi.schema;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import java.util.stream.Collectors;
 
 import org.neo4j.graphdb.Label;
 import org.neo4j.graphdb.RelationshipType;
 import org.neo4j.graphdb.schema.IndexDefinition;
+import org.neo4j.internal.schema.ConstraintDescriptor;
 
 import static java.util.Objects.requireNonNull;
+import static org.neo4j.internal.helpers.collection.Iterables.single;
+import static org.neo4j.kernel.impl.coreapi.schema.IndexDefinitionImpl.labelNameList;
 
 abstract class NodeConstraintDefinition extends MultiPropertyConstraintDefinition
 {
     protected final Label label;
 
-    protected NodeConstraintDefinition( InternalSchemaActions actions, Label label, String[] propertyKeys )
+    NodeConstraintDefinition( InternalSchemaActions actions, ConstraintDescriptor constraint, Label label, String[] propertyKeys )
     {
-        super( actions, propertyKeys );
+        super( actions, constraint, propertyKeys );
         this.label = requireNonNull( label );
     }
 
-    protected NodeConstraintDefinition( InternalSchemaActions actions, IndexDefinition indexDefinition )
+    NodeConstraintDefinition( InternalSchemaActions actions, ConstraintDescriptor constraint, IndexDefinition indexDefinition )
     {
-        super( actions, indexDefinition );
-        this.label = requireNonNull( indexDefinition.getLabel() );
+        super( actions, constraint, indexDefinition );
+        if ( indexDefinition.isMultiTokenIndex() )
+        {
+            throw new IllegalArgumentException( "Node constraints do not support multi-token definitions. That is, they cannot apply to more than one label, " +
+                    "but an attempt was made to create a node constraint on the following labels: " +
+                    labelNameList( indexDefinition.getLabels(), "", "." ) );
+        }
+        this.label = single( indexDefinition.getLabels() );
     }
 
     @Override
@@ -73,10 +80,9 @@ abstract class NodeConstraintDefinition extends MultiPropertyConstraintDefinitio
         }
         NodeConstraintDefinition that = (NodeConstraintDefinition) o;
         return label.name().equals( that.label.name() ) && Arrays.equals( propertyKeys, that.propertyKeys );
-
     }
 
-    protected String propertyText()
+    String propertyText()
     {
         String nodeVariable = label.name().toLowerCase();
         if ( propertyKeys.length == 1 )

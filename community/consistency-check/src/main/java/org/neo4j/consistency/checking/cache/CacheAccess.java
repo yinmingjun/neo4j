@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -65,7 +65,7 @@ public interface CacheAccess
          * @param slot which cache slot for this id.
          * @return false if slot value is 0, true otherwise.
          */
-        boolean getBooleanFromCache(long id, int slot);
+        boolean getBooleanFromCache( long id, int slot );
 
         /**
          * Caches all values for an id, i.e. fills all slots.
@@ -164,6 +164,20 @@ public interface CacheAccess
      */
     void setCacheSlotSizes( int... slotSize );
 
+    /**
+     * Sets the slot sizes of the cached values. Also clears the cache.
+     *
+     * @param slotSize defines how many and how big the slots are for cached values that are put after this call.
+     */
+    void setCacheSlotSizesAndClear( int... slotSize );
+
+    /**
+     * Sets the node id that is 0, such that all cache interactions uses this pivot node id to calculate the actual node id.
+     * This is because the node id is used as index into the cache and the cache may be used to run multiple iterations over
+     * a store, where only parts of the store is checked.
+     */
+    void setPivotId( long pivotId );
+
     void prepareForProcessingOfSingleStore( long recordsPerCPU );
 
     Client EMPTY_CLIENT = new Client()
@@ -243,6 +257,11 @@ public interface CacheAccess
         }
 
         @Override
+        public void setCacheSlotSizesAndClear( int... slotSizes )
+        {
+        }
+
+        @Override
         public boolean isForward()
         {
             return false;
@@ -255,6 +274,11 @@ public interface CacheAccess
 
         @Override
         public void prepareForProcessingOfSingleStore( long recordsPerCPU )
+        {
+        }
+
+        @Override
+        public void setPivotId( long pivotId )
         {
         }
     };

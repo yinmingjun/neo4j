@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,7 +19,7 @@
  */
 package org.neo4j.kernel.impl.transaction.log.pruning;
 
-import java.io.File;
+import java.nio.file.Path;
 
 import org.neo4j.kernel.impl.transaction.log.LogFileInformation;
 
@@ -29,7 +29,7 @@ public final class FileCountThreshold implements Threshold
 
     private long nonEmptyLogCount;
 
-    public FileCountThreshold( long maxNonEmptyLogs )
+    FileCountThreshold( long maxNonEmptyLogs )
     {
         this.maxNonEmptyLogs = maxNonEmptyLogs;
     }
@@ -41,7 +41,7 @@ public final class FileCountThreshold implements Threshold
     }
 
     @Override
-    public boolean reached( File file, long version, LogFileInformation source )
+    public boolean reached( Path file, long version, LogFileInformation source )
     {
         return ++nonEmptyLogCount >= maxNonEmptyLogs;
     }
@@ -49,6 +49,6 @@ public final class FileCountThreshold implements Threshold
     @Override
     public String toString()
     {
-        return "[max:" + maxNonEmptyLogs + "]";
+        return maxNonEmptyLogs + " files";
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,29 +19,21 @@
  */
 package org.neo4j.kernel.impl.api.index;
 
-import java.util.concurrent.Future;
-
+import org.neo4j.internal.kernel.api.PopulationProgress;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.io.pagecache.IOLimiter;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.kernel.api.index.IndexReader;
 import org.neo4j.kernel.api.index.IndexUpdater;
-import org.neo4j.kernel.api.index.SchemaIndexProvider;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.kernel.impl.api.index.updater.SwallowingIndexUpdater;
-import org.neo4j.storageengine.api.schema.IndexReader;
-import org.neo4j.storageengine.api.schema.PopulationProgress;
-
-import static org.neo4j.helpers.FutureAdapter.VOID;
 
 public abstract class AbstractSwallowingIndexProxy implements IndexProxy
 {
     private final IndexDescriptor descriptor;
-    private final SchemaIndexProvider.Descriptor providerDescriptor;
     private final IndexPopulationFailure populationFailure;
 
-    public AbstractSwallowingIndexProxy( IndexDescriptor descriptor,
-            SchemaIndexProvider.Descriptor providerDescriptor, IndexPopulationFailure populationFailure )
+    AbstractSwallowingIndexProxy( IndexDescriptor descriptor, IndexPopulationFailure populationFailure )
     {
         this.descriptor = descriptor;
-        this.providerDescriptor = providerDescriptor;
         this.populationFailure = populationFailure;
     }
 
@@ -65,13 +57,18 @@ public abstract class AbstractSwallowingIndexProxy implements IndexProxy
     }
 
     @Override
-    public IndexUpdater newUpdater( IndexUpdateMode mode )
+    public IndexUpdater newUpdater( IndexUpdateMode mode, PageCursorTracer cursorTracer )
     {
         return SwallowingIndexUpdater.INSTANCE;
     }
 
     @Override
-    public void force()
+    public void force( IOLimiter ioLimiter, PageCursorTracer cursorTracer )
+    {
+    }
+
+    @Override
+    public void refresh()
     {
     }
 
@@ -82,21 +79,8 @@ public abstract class AbstractSwallowingIndexProxy implements IndexProxy
     }
 
     @Override
-    public LabelSchemaDescriptor schema()
+    public void close( PageCursorTracer cursorTracer )
     {
-        return descriptor.schema();
-    }
-
-    @Override
-    public SchemaIndexProvider.Descriptor getProviderDescriptor()
-    {
-        return providerDescriptor;
-    }
-
-    @Override
-    public Future<Void> close()
-    {
-        return VOID;
     }
 
     @Override

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,16 +19,16 @@
  */
 package org.neo4j.consistency.statistics;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.consistency.statistics.Counts.Type;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class DefaultCountsTest
+class DefaultCountsTest
 {
     @Test
-    public void shouldCountPerThread() throws Exception
+    void shouldCountPerThread()
     {
         // GIVEN
         Counts counts = new DefaultCounts( 3 );
@@ -45,7 +45,7 @@ public class DefaultCountsTest
     }
 
     @Test
-    public void shouldResetCounts() throws Exception
+    void shouldResetCounts()
     {
         // GIVEN
         Counts counts = new DefaultCounts( 2 );

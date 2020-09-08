@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,25 +21,39 @@ package org.neo4j.consistency.report;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.neo4j.annotations.documented.DocumentedUtils;
+import org.neo4j.annotations.documented.Warning;
 import org.neo4j.consistency.RecordType;
 import org.neo4j.consistency.checking.CheckerEngine;
 import org.neo4j.consistency.checking.ComparativeRecordChecker;
 import org.neo4j.consistency.checking.RecordCheck;
+import org.neo4j.consistency.report.ConsistencyReport.CountsConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.DynamicConsistencyReport;
 import org.neo4j.consistency.report.ConsistencyReport.DynamicLabelConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.IndexConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.LabelScanConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.LabelTokenConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.NodeConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.PropertyConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.PropertyKeyTokenConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.RelationshipConsistencyReport;
 import org.neo4j.consistency.report.ConsistencyReport.RelationshipGroupConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.RelationshipTypeConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.RelationshipTypeScanConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.SchemaConsistencyReport;
 import org.neo4j.consistency.store.DirectRecordReference;
 import org.neo4j.consistency.store.RecordAccess;
 import org.neo4j.consistency.store.RecordReference;
 import org.neo4j.consistency.store.synthetic.CountsEntry;
 import org.neo4j.consistency.store.synthetic.IndexEntry;
-import org.neo4j.consistency.store.synthetic.LabelScanDocument;
-import org.neo4j.kernel.impl.annotations.Documented;
+import org.neo4j.consistency.store.synthetic.TokenScanDocument;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
 import org.neo4j.kernel.impl.store.record.LabelTokenRecord;
@@ -49,44 +63,35 @@ import org.neo4j.kernel.impl.store.record.PropertyRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipGroupRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipTypeTokenRecord;
+import org.neo4j.kernel.impl.store.record.SchemaRecord;
 
 import static java.util.Arrays.asList;
-import static org.neo4j.helpers.Exceptions.launderedException;
-import static org.neo4j.helpers.Exceptions.stringify;
-import static org.neo4j.helpers.Exceptions.withCause;
+import static org.neo4j.consistency.report.ConsistencyReporter.ProxyFactory.create;
+import static org.neo4j.internal.helpers.Exceptions.stringify;
 
 public class ConsistencyReporter implements ConsistencyReport.Reporter
 {
-    private static final ProxyFactory<ConsistencyReport.SchemaConsistencyReport> SCHEMA_REPORT =
-            ProxyFactory.create( ConsistencyReport.SchemaConsistencyReport.class );
-    private static final ProxyFactory<ConsistencyReport.NodeConsistencyReport> NODE_REPORT =
-            ProxyFactory.create( ConsistencyReport.NodeConsistencyReport.class );
-    private static final ProxyFactory<ConsistencyReport.RelationshipConsistencyReport> RELATIONSHIP_REPORT =
-            ProxyFactory.create( ConsistencyReport.RelationshipConsistencyReport.class );
-    private static final ProxyFactory<ConsistencyReport.PropertyConsistencyReport> PROPERTY_REPORT =
-            ProxyFactory.create( ConsistencyReport.PropertyConsistencyReport.class );
-    private static final ProxyFactory<ConsistencyReport.RelationshipTypeConsistencyReport> RELATIONSHIP_TYPE_REPORT =
-            ProxyFactory.create( ConsistencyReport.RelationshipTypeConsistencyReport.class );
-    private static final ProxyFactory<ConsistencyReport.LabelTokenConsistencyReport> LABEL_KEY_REPORT =
-            ProxyFactory.create( ConsistencyReport.LabelTokenConsistencyReport.class );
-    private static final ProxyFactory<ConsistencyReport.PropertyKeyTokenConsistencyReport> PROPERTY_KEY_REPORT =
-            ProxyFactory.create( ConsistencyReport.PropertyKeyTokenConsistencyReport.class );
-    private static final ProxyFactory<ConsistencyReport.DynamicConsistencyReport> DYNAMIC_REPORT =
-            ProxyFactory.create( ConsistencyReport.DynamicConsistencyReport.class );
-    private static final ProxyFactory<ConsistencyReport.DynamicLabelConsistencyReport> DYNAMIC_LABEL_REPORT =
-            ProxyFactory.create( ConsistencyReport.DynamicLabelConsistencyReport.class );
-    private static final ProxyFactory<ConsistencyReport.LabelScanConsistencyReport> LABEL_SCAN_REPORT =
-            ProxyFactory.create( ConsistencyReport.LabelScanConsistencyReport.class );
-    private static final ProxyFactory<ConsistencyReport.IndexConsistencyReport> INDEX =
-            ProxyFactory.create( ConsistencyReport.IndexConsistencyReport.class );
-    private static final ProxyFactory<ConsistencyReport.RelationshipGroupConsistencyReport> RELATIONSHIP_GROUP_REPORT =
-            ProxyFactory.create( ConsistencyReport.RelationshipGroupConsistencyReport.class );
-    private static final ProxyFactory<ConsistencyReport.CountsConsistencyReport> COUNTS_REPORT =
-            ProxyFactory.create( ConsistencyReport.CountsConsistencyReport.class );
+    private static final String CONSISTENCY_REPORT_READER_TAG = "consistencyReportReader";
+    private static final ProxyFactory<SchemaConsistencyReport> SCHEMA_REPORT = create( SchemaConsistencyReport.class );
+    private static final ProxyFactory<NodeConsistencyReport> NODE_REPORT = create( NodeConsistencyReport.class );
+    private static final ProxyFactory<RelationshipConsistencyReport> RELATIONSHIP_REPORT = create( RelationshipConsistencyReport.class );
+    private static final ProxyFactory<PropertyConsistencyReport> PROPERTY_REPORT = create( PropertyConsistencyReport.class );
+    private static final ProxyFactory<RelationshipTypeConsistencyReport> RELATIONSHIP_TYPE_REPORT = create( RelationshipTypeConsistencyReport.class );
+    private static final ProxyFactory<LabelTokenConsistencyReport> LABEL_KEY_REPORT = create( LabelTokenConsistencyReport.class );
+    private static final ProxyFactory<PropertyKeyTokenConsistencyReport> PROPERTY_KEY_REPORT = create( PropertyKeyTokenConsistencyReport.class );
+    private static final ProxyFactory<DynamicConsistencyReport> DYNAMIC_REPORT = create( DynamicConsistencyReport.class );
+    private static final ProxyFactory<DynamicLabelConsistencyReport> DYNAMIC_LABEL_REPORT = create( DynamicLabelConsistencyReport.class );
+    private static final ProxyFactory<LabelScanConsistencyReport> LABEL_SCAN_REPORT = create( LabelScanConsistencyReport.class );
+    private static final ProxyFactory<RelationshipTypeScanConsistencyReport> RELATIONSHIP_TYPE_SCAN_REPORT =
+            create( RelationshipTypeScanConsistencyReport.class );
+    private static final ProxyFactory<IndexConsistencyReport> INDEX_REPORT = create( IndexConsistencyReport.class );
+    private static final ProxyFactory<RelationshipGroupConsistencyReport> RELATIONSHIP_GROUP_REPORT = create( RelationshipGroupConsistencyReport.class );
+    private static final ProxyFactory<CountsConsistencyReport> COUNTS_REPORT = create( CountsConsistencyReport.class );
 
     private final RecordAccess records;
     private final InconsistencyReport report;
     private final Monitor monitor;
+    private final PageCacheTracer pageCacheTracer;
 
     public interface Monitor
     {
@@ -97,26 +102,26 @@ public class ConsistencyReporter implements ConsistencyReport.Reporter
     {
     };
 
-    public ConsistencyReporter( RecordAccess records, InconsistencyReport report )
+    public ConsistencyReporter( RecordAccess records, InconsistencyReport report, PageCacheTracer pageCacheTracer )
     {
-        this( records, report, NO_MONITOR );
+        this( records, report, NO_MONITOR, pageCacheTracer );
     }
 
-    public ConsistencyReporter( RecordAccess records, InconsistencyReport report, Monitor monitor )
+    public ConsistencyReporter( RecordAccess records, InconsistencyReport report, Monitor monitor, PageCacheTracer pageCacheTracer )
     {
         this.records = records;
         this.report = report;
         this.monitor = monitor;
+        this.pageCacheTracer = pageCacheTracer;
     }
 
     private <RECORD extends AbstractBaseRecord, REPORT extends ConsistencyReport>
-    void dispatch( RecordType type, ProxyFactory<REPORT> factory, RECORD record, RecordCheck<RECORD, REPORT> checker )
+    void dispatch( RecordType type, ProxyFactory<REPORT> factory, RECORD record, RecordCheck<RECORD, REPORT> checker, PageCursorTracer cursorTracer )
     {
-        ReportInvocationHandler<RECORD,REPORT> handler = new ReportHandler<>( report, factory, type, records, record,
-                monitor );
+        ReportInvocationHandler<RECORD,REPORT> handler = new ReportHandler<>( report, factory, type, records, record, monitor, pageCacheTracer );
         try
         {
-            checker.check( record, handler, records );
+            checker.check( record, handler, records, cursorTracer );
         }
         catch ( Exception e )
         {
@@ -125,15 +130,13 @@ public class ConsistencyReporter implements ConsistencyReport.Reporter
             handler.report.error( type, record, "Failed to check record: " + stringify( e ),
                     new Object[0] );
         }
-        handler.updateSummary();
     }
 
     static void dispatchReference( CheckerEngine engine, ComparativeRecordChecker checker,
-                                   AbstractBaseRecord referenced, RecordAccess records )
+                                   AbstractBaseRecord referenced, RecordAccess records, PageCursorTracer cursorTracer )
     {
         ReportInvocationHandler handler = (ReportInvocationHandler) engine;
-        handler.checkReference( engine, checker, referenced, records );
-        handler.updateSummary();
+        handler.checkReference( engine, checker, referenced, records, cursorTracer );
     }
 
     static String pendingCheckToString( CheckerEngine engine, ComparativeRecordChecker checker )
@@ -144,32 +147,70 @@ public class ConsistencyReporter implements ConsistencyReport.Reporter
 
     static void dispatchChangeReference( CheckerEngine engine, ComparativeRecordChecker checker,
                                          AbstractBaseRecord oldReferenced, AbstractBaseRecord newReferenced,
-                                         RecordAccess records )
+                                         RecordAccess records, PageCursorTracer cursorTracer )
     {
         ReportInvocationHandler handler = (ReportInvocationHandler) engine;
-        handler.checkDiffReference( engine, checker, oldReferenced, newReferenced, records );
-        handler.updateSummary();
+        handler.checkDiffReference( engine, checker, oldReferenced, newReferenced, records, cursorTracer );
     }
 
     static void dispatchSkip( CheckerEngine engine )
     {
-        ((ReportInvocationHandler) engine ).updateSummary();
     }
 
+    @Override
     public <RECORD extends AbstractBaseRecord,REPORT extends ConsistencyReport> REPORT report( RECORD record,
             Class<REPORT> cls, RecordType recordType )
     {
         ProxyFactory<REPORT> proxyFactory = ProxyFactory.get( cls );
-        ReportInvocationHandler<RECORD,REPORT> handler =
-                new ReportHandler<RECORD,REPORT>( report, proxyFactory, recordType, records, record, monitor )
+        ReportInvocationHandler<RECORD,REPORT> handler = new ReportHandler<>( report, proxyFactory, recordType, records, record, monitor, pageCacheTracer )
         {
             @Override
             protected void inconsistencyReported()
             {
-                updateSummary();
             }
         };
         return handler.report();
+    }
+
+    public static FormattingDocumentedHandler formattingHandler( InconsistencyReport report, RecordType type )
+    {
+        return new FormattingDocumentedHandler( report, type );
+    }
+
+    public static class FormattingDocumentedHandler implements InvocationHandler
+    {
+        private final InconsistencyReport report;
+        private final RecordType type;
+        private short errors;
+        private short warnings;
+
+        FormattingDocumentedHandler( InconsistencyReport report, RecordType type )
+        {
+            this.report = report;
+            this.type = type;
+        }
+
+        @Override
+        public Object invoke( Object proxy, Method method, Object[] args )
+        {
+            String message = DocumentedUtils.extractFormattedMessage( method, args );
+            if ( method.getAnnotation( Warning.class ) == null )
+            {
+                errors++;
+                report.error( message );
+            }
+            else
+            {
+                warnings++;
+                report.warning( message );
+            }
+            return null;
+        }
+
+        public void updateSummary()
+        {
+            report.updateSummary( type, errors, warnings );
+        }
     }
 
     public abstract static class ReportInvocationHandler
@@ -179,26 +220,20 @@ public class ConsistencyReporter implements ConsistencyReport.Reporter
         final InconsistencyReport report;
         private final ProxyFactory<REPORT> factory;
         final RecordType type;
-        private short errors = 0, warnings = 0, references = 1/*this*/;
+        private short references = 1/*this*/;
         private final RecordAccess records;
+        private final PageCacheTracer pageCacheTracer;
         private final Monitor monitor;
 
         private ReportInvocationHandler( InconsistencyReport report, ProxyFactory<REPORT> factory, RecordType type,
-               RecordAccess records, Monitor monitor )
+               RecordAccess records, Monitor monitor, PageCacheTracer pageCacheTracer )
         {
             this.report = report;
             this.factory = factory;
             this.type = type;
             this.records = records;
             this.monitor = monitor;
-        }
-
-        synchronized void updateSummary()
-        {
-            if ( --references == 0 )
-            {
-                report.updateSummary( type, errors, warnings );
-            }
+            this.pageCacheTracer = pageCacheTracer;
         }
 
         String pendingCheckToString( ComparativeRecordChecker checker )
@@ -209,7 +244,7 @@ public class ConsistencyReporter implements ConsistencyReport.Reporter
                 if ( checker.getClass().getMethod( "toString" ).getDeclaringClass() == Object.class )
                 {
                     checkName = checker.getClass().getSimpleName();
-                    if ( checkName.length() == 0 )
+                    if ( checkName.isEmpty() )
                     {
                         checkName = checker.getClass().getName();
                     }
@@ -248,29 +283,20 @@ public class ConsistencyReporter implements ConsistencyReport.Reporter
          * @param args array of the items referenced from this record with which it is inconsistent.
          */
         @Override
-        public Object invoke( Object proxy, Method method, Object[] args ) throws Throwable
+        public Object invoke( Object proxy, Method method, Object[] args )
         {
-            String message;
-            Documented annotation = method.getAnnotation( Documented.class );
-            if ( annotation != null && !"".equals( annotation.value() ) )
+            String message = DocumentedUtils.extractMessage( method );
+            if ( method.getAnnotation( Warning.class ) == null )
             {
-               message = annotation.value();
-            }
-            else
-            {
-                message = method.getName();
-            }
-            if ( method.getAnnotation( ConsistencyReport.Warning.class ) == null )
-            {
-                errors++;
                 args = getRealRecords( args );
                 logError( message, args );
+                report.updateSummary( type, 1, 0 );
             }
             else
             {
-                warnings++;
                 args = getRealRecords( args );
                 logWarning( message, args );
+                report.updateSummary( type, 0, 1 );
             }
             monitor.reported( factory.type(), method.getName(), message );
             inconsistencyReported();
@@ -287,39 +313,41 @@ public class ConsistencyReporter implements ConsistencyReport.Reporter
             {
                 return args;
             }
-            for ( int i = 0; i < args.length; i++ )
+            try ( var cursorTracer = pageCacheTracer.createPageCursorTracer( CONSISTENCY_REPORT_READER_TAG ) )
             {
-                // We use "created" flag here. Consistency checking code revolves around records and so
-                // even in scenarios where records are built from other sources, f.ex half-and-purpose-built from cache,
-                // this flag is used to signal that the real record needs to be read in order to be used as a general
-                // purpose record.
-                if ( args[i] instanceof AbstractBaseRecord && ((AbstractBaseRecord) args[i]).isCreated() )
-                {   // get the real record
-                    if ( args[i] instanceof NodeRecord )
-                    {
-                        args[i] = ((DirectRecordReference<NodeRecord>) records.node(
-                                ((NodeRecord) args[i]).getId() )).record();
-                    }
-                    else if ( args[i] instanceof RelationshipRecord )
-                    {
-                        args[i] = ((DirectRecordReference<RelationshipRecord>) records.relationship(
-                                ((RelationshipRecord) args[i]).getId() )).record();
+                for ( int i = 0; i < args.length; i++ )
+                {
+                    // We use "created" flag here. Consistency checking code revolves around records and so
+                    // even in scenarios where records are built from other sources, f.ex half-and-purpose-built from cache,
+                    // this flag is used to signal that the real record needs to be read in order to be used as a general
+                    // purpose record.
+                    if ( args[i] instanceof AbstractBaseRecord && ((AbstractBaseRecord) args[i]).isCreated() )
+                    {   // get the real record
+                        if ( args[i] instanceof NodeRecord )
+                        {
+                            args[i] = ((DirectRecordReference<NodeRecord>) records.node( ((NodeRecord) args[i]).getId(), cursorTracer )).record();
+                        }
+                        else if ( args[i] instanceof RelationshipRecord )
+                        {
+                            args[i] = ((DirectRecordReference<RelationshipRecord>) records.relationship(
+                                    ((RelationshipRecord) args[i]).getId(), cursorTracer )).record();
+                        }
                     }
                 }
             }
             return args;
         }
 
-        protected abstract void logError( String message, Object[] args );
+        protected abstract void logError( String message, Object... args );
 
-        protected abstract void logWarning( String message, Object[] args );
+        protected abstract void logWarning( String message, Object... args );
 
         abstract void checkReference( CheckerEngine engine, ComparativeRecordChecker checker,
-                                      AbstractBaseRecord referenced, RecordAccess records );
+                                      AbstractBaseRecord referenced, RecordAccess records, PageCursorTracer cursorTracer );
 
         abstract void checkDiffReference( CheckerEngine engine, ComparativeRecordChecker checker,
                                           AbstractBaseRecord oldReferenced, AbstractBaseRecord newReferenced,
-                                          RecordAccess records );
+                                          RecordAccess records, PageCursorTracer cursorTracer );
     }
 
     public static class ReportHandler
@@ -329,9 +357,9 @@ public class ConsistencyReporter implements ConsistencyReport.Reporter
         private final AbstractBaseRecord record;
 
         public ReportHandler( InconsistencyReport report, ProxyFactory<REPORT> factory, RecordType type,
-                RecordAccess records, AbstractBaseRecord record, Monitor monitor )
+                RecordAccess records, AbstractBaseRecord record, Monitor monitor, PageCacheTracer pageCacheTracer )
         {
-            super( report, factory, type, records, monitor );
+            super( report, factory, type, records, monitor, pageCacheTracer );
             this.record = record;
         }
 
@@ -342,140 +370,238 @@ public class ConsistencyReporter implements ConsistencyReport.Reporter
         }
 
         @Override
-        protected void logError( String message, Object[] args )
+        protected void logError( String message, Object... args )
         {
             report.error( type, record, message, args );
         }
 
         @Override
-        protected void logWarning( String message, Object[] args )
+        protected void logWarning( String message, Object... args )
         {
             report.warning( type, record, message, args );
         }
 
         @Override
-        @SuppressWarnings("unchecked")
+        @SuppressWarnings( "unchecked" )
         void checkReference( CheckerEngine engine, ComparativeRecordChecker checker, AbstractBaseRecord referenced,
-                             RecordAccess records )
+                             RecordAccess records, PageCursorTracer cursorTracer )
         {
-            checker.checkReference( record, referenced, this, records );
+            checker.checkReference( record, referenced, this, records, cursorTracer );
         }
 
         @Override
-        @SuppressWarnings("unchecked")
+        @SuppressWarnings( "unchecked" )
         void checkDiffReference( CheckerEngine engine, ComparativeRecordChecker checker,
                                  AbstractBaseRecord oldReferenced, AbstractBaseRecord newReferenced,
-                                 RecordAccess records )
+                                 RecordAccess records, PageCursorTracer cursorTracer )
         {
-            checker.checkReference( record, newReferenced, this, records );
+            checker.checkReference( record, newReferenced, this, records, cursorTracer );
         }
     }
 
     @Override
-    public void forSchema( DynamicRecord schema,
-                           RecordCheck<DynamicRecord, ConsistencyReport.SchemaConsistencyReport> checker )
+    public void forSchema( SchemaRecord schema,
+                           RecordCheck<SchemaRecord, SchemaConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        dispatch( RecordType.SCHEMA, SCHEMA_REPORT, schema, checker );
+        dispatch( RecordType.SCHEMA, SCHEMA_REPORT, schema, checker, cursorTracer );
     }
 
     @Override
     public void forNode( NodeRecord node,
-                         RecordCheck<NodeRecord, ConsistencyReport.NodeConsistencyReport> checker )
+                         RecordCheck<NodeRecord, NodeConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        dispatch( RecordType.NODE, NODE_REPORT, node, checker );
+        dispatch( RecordType.NODE, NODE_REPORT, node, checker, cursorTracer );
     }
 
     @Override
     public void forRelationship( RelationshipRecord relationship,
-                                 RecordCheck<RelationshipRecord, ConsistencyReport.RelationshipConsistencyReport> checker )
+                                 RecordCheck<RelationshipRecord, RelationshipConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        dispatch( RecordType.RELATIONSHIP, RELATIONSHIP_REPORT, relationship, checker );
+        dispatch( RecordType.RELATIONSHIP, RELATIONSHIP_REPORT, relationship, checker, cursorTracer );
     }
 
     @Override
     public void forProperty( PropertyRecord property,
-                             RecordCheck<PropertyRecord, ConsistencyReport.PropertyConsistencyReport> checker )
+                             RecordCheck<PropertyRecord, PropertyConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        dispatch( RecordType.PROPERTY, PROPERTY_REPORT, property, checker );
+        dispatch( RecordType.PROPERTY, PROPERTY_REPORT, property, checker, cursorTracer );
     }
 
     @Override
     public void forRelationshipTypeName( RelationshipTypeTokenRecord relationshipTypeTokenRecord,
                                          RecordCheck<RelationshipTypeTokenRecord,
-                                         ConsistencyReport.RelationshipTypeConsistencyReport> checker )
+                                         RelationshipTypeConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        dispatch( RecordType.RELATIONSHIP_TYPE, RELATIONSHIP_TYPE_REPORT, relationshipTypeTokenRecord, checker );
+        dispatch( RecordType.RELATIONSHIP_TYPE, RELATIONSHIP_TYPE_REPORT, relationshipTypeTokenRecord, checker, cursorTracer );
     }
 
     @Override
     public void forLabelName( LabelTokenRecord label,
-                              RecordCheck<LabelTokenRecord, ConsistencyReport.LabelTokenConsistencyReport> checker )
+                              RecordCheck<LabelTokenRecord, LabelTokenConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        dispatch( RecordType.LABEL, LABEL_KEY_REPORT, label, checker );
+        dispatch( RecordType.LABEL, LABEL_KEY_REPORT, label, checker, cursorTracer );
     }
 
     @Override
-    public void forNodeLabelScan( LabelScanDocument document,
-                                  RecordCheck<LabelScanDocument, ConsistencyReport.LabelScanConsistencyReport> checker )
+    public void forNodeLabelScan( TokenScanDocument document,
+                                  RecordCheck<TokenScanDocument, LabelScanConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        dispatch( RecordType.LABEL_SCAN_DOCUMENT, LABEL_SCAN_REPORT, document, checker );
+        dispatch( RecordType.LABEL_SCAN_DOCUMENT, LABEL_SCAN_REPORT, document, checker, cursorTracer );
+    }
+
+    @Override
+    public void forRelationshipTypeScan( TokenScanDocument document,
+            RecordCheck<TokenScanDocument,RelationshipTypeScanConsistencyReport> checker, PageCursorTracer cursorTracer )
+    {
+        dispatch( RecordType.RELATIONSHIP_TYPE_SCAN_DOCUMENT, RELATIONSHIP_TYPE_SCAN_REPORT, document, checker, cursorTracer );
     }
 
     @Override
     public void forIndexEntry( IndexEntry entry,
-                               RecordCheck<IndexEntry, ConsistencyReport.IndexConsistencyReport> checker )
+                               RecordCheck<IndexEntry, IndexConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        dispatch( RecordType.INDEX, INDEX, entry, checker );
+        dispatch( RecordType.INDEX, INDEX_REPORT, entry, checker, cursorTracer );
     }
 
     @Override
-    public void forPropertyKey( PropertyKeyTokenRecord key,
-                                RecordCheck<PropertyKeyTokenRecord, ConsistencyReport.PropertyKeyTokenConsistencyReport> checker )
+    public void forPropertyKey( PropertyKeyTokenRecord key, RecordCheck<PropertyKeyTokenRecord, PropertyKeyTokenConsistencyReport> checker,
+            PageCursorTracer cursorTracer )
     {
-        dispatch( RecordType.PROPERTY_KEY, PROPERTY_KEY_REPORT, key, checker );
+        dispatch( RecordType.PROPERTY_KEY, PROPERTY_KEY_REPORT, key, checker, cursorTracer );
     }
 
     @Override
     public void forDynamicBlock( RecordType type, DynamicRecord record,
-                                 RecordCheck<DynamicRecord, ConsistencyReport.DynamicConsistencyReport> checker )
+                                 RecordCheck<DynamicRecord, DynamicConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        dispatch( type, DYNAMIC_REPORT, record, checker );
+        dispatch( type, DYNAMIC_REPORT, record, checker, cursorTracer );
     }
 
     @Override
     public void forDynamicLabelBlock( RecordType type, DynamicRecord record,
-                                      RecordCheck<DynamicRecord, DynamicLabelConsistencyReport> checker )
+                                      RecordCheck<DynamicRecord, DynamicLabelConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        dispatch( type, DYNAMIC_LABEL_REPORT, record, checker );
+        dispatch( type, DYNAMIC_LABEL_REPORT, record, checker, cursorTracer );
     }
 
     @Override
     public void forRelationshipGroup( RelationshipGroupRecord record,
-            RecordCheck<RelationshipGroupRecord, RelationshipGroupConsistencyReport> checker )
+            RecordCheck<RelationshipGroupRecord, RelationshipGroupConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        dispatch( RecordType.RELATIONSHIP_GROUP, RELATIONSHIP_GROUP_REPORT, record, checker );
+        dispatch( RecordType.RELATIONSHIP_GROUP, RELATIONSHIP_GROUP_REPORT, record, checker, cursorTracer );
     }
 
     @Override
     public void forCounts( CountsEntry countsEntry,
-                           RecordCheck<CountsEntry,ConsistencyReport.CountsConsistencyReport> checker )
+                           RecordCheck<CountsEntry,CountsConsistencyReport> checker, PageCursorTracer cursorTracer )
     {
-        dispatch( RecordType.COUNTS, COUNTS_REPORT, countsEntry, checker );
+        dispatch( RecordType.COUNTS, COUNTS_REPORT, countsEntry, checker, cursorTracer );
+    }
+
+    // Plain and simple report instances
+
+    @Override
+    public SchemaConsistencyReport forSchema( SchemaRecord schema )
+    {
+        return report( SCHEMA_REPORT, RecordType.SCHEMA, schema );
+    }
+
+    @Override
+    public NodeConsistencyReport forNode( NodeRecord node )
+    {
+        return report( NODE_REPORT, RecordType.NODE, node );
+    }
+
+    @Override
+    public RelationshipConsistencyReport forRelationship( RelationshipRecord relationship )
+    {
+        return report( RELATIONSHIP_REPORT, RecordType.RELATIONSHIP, relationship );
+    }
+
+    @Override
+    public PropertyConsistencyReport forProperty( PropertyRecord property )
+    {
+        return report( PROPERTY_REPORT, RecordType.PROPERTY, property );
+    }
+
+    @Override
+    public RelationshipTypeConsistencyReport forRelationshipTypeName( RelationshipTypeTokenRecord relationshipType )
+    {
+        return report( RELATIONSHIP_TYPE_REPORT, RecordType.RELATIONSHIP_TYPE, relationshipType );
+    }
+
+    @Override
+    public LabelTokenConsistencyReport forLabelName( LabelTokenRecord label )
+    {
+        return report( LABEL_KEY_REPORT, RecordType.LABEL, label );
+    }
+
+    @Override
+    public PropertyKeyTokenConsistencyReport forPropertyKey( PropertyKeyTokenRecord key )
+    {
+        return report( PROPERTY_KEY_REPORT, RecordType.PROPERTY_KEY, key );
+    }
+
+    @Override
+    public DynamicConsistencyReport forDynamicBlock( RecordType type, DynamicRecord record )
+    {
+        return report( DYNAMIC_REPORT, type, record );
+    }
+
+    @Override
+    public DynamicLabelConsistencyReport forDynamicLabelBlock( RecordType type, DynamicRecord record )
+    {
+        return report( DYNAMIC_LABEL_REPORT, type, record );
+    }
+
+    @Override
+    public LabelScanConsistencyReport forNodeLabelScan( TokenScanDocument document )
+    {
+        return report( LABEL_SCAN_REPORT, RecordType.LABEL_SCAN_DOCUMENT, document );
+    }
+
+    @Override
+    public RelationshipTypeScanConsistencyReport forRelationshipTypeScan( TokenScanDocument document )
+    {
+        return report( RELATIONSHIP_TYPE_SCAN_REPORT, RecordType.RELATIONSHIP_TYPE_SCAN_DOCUMENT, document );
+    }
+
+    @Override
+    public IndexConsistencyReport forIndexEntry( IndexEntry entry )
+    {
+        return report( INDEX_REPORT, RecordType.INDEX, entry );
+    }
+
+    @Override
+    public RelationshipGroupConsistencyReport forRelationshipGroup( RelationshipGroupRecord group )
+    {
+        return report( RELATIONSHIP_GROUP_REPORT, RecordType.RELATIONSHIP_GROUP, group );
+    }
+
+    @Override
+    public CountsConsistencyReport forCounts( CountsEntry countsEntry )
+    {
+        return report( COUNTS_REPORT, RecordType.COUNTS, countsEntry );
+    }
+
+    private <RECORD extends AbstractBaseRecord,REPORT extends ConsistencyReport> REPORT report( ProxyFactory<REPORT> factory, RecordType type, RECORD record )
+    {
+        return new ReportHandler<>( report, factory, type, records, record, monitor, pageCacheTracer ).report();
     }
 
     public static class ProxyFactory<T>
     {
-        private static Map<Class<?>,ProxyFactory<?>> instances = new HashMap<>();
+        private static final Map<Class<?>,ProxyFactory<?>> INSTANCES = new HashMap<>();
         private Constructor<? extends T> constructor;
         private final Class<T> type;
 
         @SuppressWarnings( "unchecked" )
         static <T> ProxyFactory<T> get( Class<T> cls )
         {
-            return (ProxyFactory<T>) instances.get( cls );
+            return (ProxyFactory<T>) INSTANCES.get( cls );
         }
 
-        @SuppressWarnings("unchecked")
+        @SuppressWarnings( "unchecked" )
         ProxyFactory( Class<T> type ) throws LinkageError
         {
             this.type = type;
@@ -484,11 +610,11 @@ public class ConsistencyReporter implements ConsistencyReport.Reporter
                 this.constructor = (Constructor<? extends T>) Proxy
                         .getProxyClass( ConsistencyReporter.class.getClassLoader(), type )
                         .getConstructor( InvocationHandler.class );
-                instances.put( type, this );
+                INSTANCES.put( type, this );
             }
             catch ( NoSuchMethodException e )
             {
-                throw withCause( new LinkageError( "Cannot access Proxy constructor for " + type.getName() ), e );
+                throw new LinkageError( "Cannot access Proxy constructor for " + type.getName(), e );
             }
         }
 
@@ -509,13 +635,9 @@ public class ConsistencyReporter implements ConsistencyReport.Reporter
             {
                 return constructor.newInstance( handler );
             }
-            catch ( InvocationTargetException e )
-            {
-                throw launderedException( e );
-            }
             catch ( Exception e )
             {
-                throw new LinkageError( "Failed to create proxy instance" );
+                throw new LinkageError( "Failed to create proxy instance", e );
             }
         }
 

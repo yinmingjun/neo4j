@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,11 +20,11 @@
 package org.neo4j.consistency.report;
 
 import org.neo4j.consistency.RecordType;
-import org.neo4j.helpers.Strings;
+import org.neo4j.internal.helpers.Strings;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
 import org.neo4j.logging.Log;
 
-import static org.neo4j.helpers.Strings.TAB;
+import static org.neo4j.internal.helpers.Strings.TAB;
 
 public class InconsistencyMessageLogger implements InconsistencyLogger
 {
@@ -49,6 +49,12 @@ public class InconsistencyMessageLogger implements InconsistencyLogger
     }
 
     @Override
+    public void error( String message )
+    {
+        log.error( buildMessage( message ) );
+    }
+
+    @Override
     public void warning( RecordType recordType, AbstractBaseRecord record, String message, Object... args )
     {
         log.warn( buildMessage( message, record, args ) );
@@ -61,20 +67,55 @@ public class InconsistencyMessageLogger implements InconsistencyLogger
         log.warn( buildMessage( message, oldRecord, newRecord, args ) );
     }
 
-    private static String buildMessage( String message, AbstractBaseRecord record, Object[] args )
+    @Override
+    public void warning( String message )
     {
-        StringBuilder builder = joinLines( message ).append( System.lineSeparator() ).append( TAB ).append( record );
+        log.warn( buildMessage( message ) );
+    }
+
+    private static String buildMessage( String message )
+    {
+        StringBuilder builder = tabAfterLinebreak( message );
+        return builder.toString();
+    }
+
+    private static String buildMessage( String message, AbstractBaseRecord record, Object... args )
+    {
+        StringBuilder builder = joinLines( message ).append( System.lineSeparator() ).append( TAB ).append( safeToString( record ) );
         appendArgs( builder, args );
         return builder.toString();
     }
 
-    private static String buildMessage( String message, AbstractBaseRecord oldRecord, AbstractBaseRecord newRecord, Object[] args )
+    private static String safeToString( AbstractBaseRecord record )
+    {
+        try
+        {
+            return record.toString();
+        }
+        catch ( Exception e )
+        {
+            return String.format( "%s[%d,Error generating toString: %s]", record.getClass().getSimpleName(), record.getId(), e );
+        }
+    }
+
+    private static String buildMessage( String message, AbstractBaseRecord oldRecord, AbstractBaseRecord newRecord, Object... args )
     {
         StringBuilder builder = joinLines( message );
         builder.append( System.lineSeparator() ).append( TAB ).append( "- " ).append( oldRecord );
         builder.append( System.lineSeparator() ).append( TAB ).append( "+ " ).append( newRecord );
         appendArgs( builder, args );
         return builder.toString();
+    }
+
+    private static StringBuilder tabAfterLinebreak( String message )
+    {
+        String[] lines = message.split( "\n" );
+        StringBuilder builder = new StringBuilder( lines[0].trim() );
+        for ( int i = 1; i < lines.length; i++ )
+        {
+            builder.append( System.lineSeparator() ).append( TAB ).append( lines[i].trim() );
+        }
+        return builder;
     }
 
     private static StringBuilder joinLines( String message )

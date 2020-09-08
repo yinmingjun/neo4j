@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,22 +22,30 @@ package org.neo4j.consistency.checking.full;
 import java.util.Iterator;
 
 import org.neo4j.graphdb.Resource;
-import org.neo4j.helpers.collection.PrefetchingResourceIterator;
+import org.neo4j.internal.helpers.collection.PrefetchingResourceIterator;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
 
 public class CloningRecordIterator<R extends AbstractBaseRecord> extends PrefetchingResourceIterator<R>
 {
     private final Iterator<R> actualIterator;
 
-    public CloningRecordIterator( Iterator<R> actualIterator )
+    private CloningRecordIterator( Iterator<R> actualIterator )
     {
         this.actualIterator = actualIterator;
     }
 
     @Override
+    @SuppressWarnings( "unchecked" )
     protected R fetchNextOrNull()
     {
-        return actualIterator.hasNext() ? (R) actualIterator.next().clone() : null;
+        if ( actualIterator.hasNext() )
+        {
+            return (R) actualIterator.next().copy();
+        }
+        else
+        {
+            return null;
+        }
     }
 
     @Override
@@ -49,7 +57,7 @@ public class CloningRecordIterator<R extends AbstractBaseRecord> extends Prefetc
         }
     }
 
-    public static <R extends AbstractBaseRecord> Iterator<R> cloned( Iterator<R> iterator )
+    static <R extends AbstractBaseRecord> Iterator<R> cloned( Iterator<R> iterator )
     {
         return new CloningRecordIterator<>( iterator );
     }

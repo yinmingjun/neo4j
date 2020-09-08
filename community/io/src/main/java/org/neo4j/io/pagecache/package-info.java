@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -33,7 +33,7 @@
  * <p>
  * A file must first be "mapped" into the page cache, before the page cache can cache the contents of the files. When
  * you no longer have an immediate use for the contents of the file, it can be "unmapped." Mapping a file using the
- * {@link org.neo4j.io.pagecache.PageCache#map(java.io.File, int, java.nio.file.OpenOption...) map} method gives you a
+ * {@link org.neo4j.io.pagecache.PageCache#map(java.nio.file.Path, int, org.eclipse.collections.api.set.ImmutableSet)} ) map} method gives you a
  * {@link org.neo4j.io.pagecache.PagedFile} object, through which the contents of the file can be accessed. Once a file
  * has been mapped with the page cache, it should no longer be accessed directly through the file system, because the
  * page cache will keep changes in memory, thinking it is managing the only authoritative copy.
@@ -78,7 +78,8 @@
  * instantiated for the given file by the {@link org.neo4j.io.pagecache.PageSwapperFactory}.
  * <p>
  * Once a file has been mapped, and a {@code PagedFile} object made available, the
- * {@link org.neo4j.io.pagecache.PagedFile#io(long, int) io method} can be used to interact with the contents of the
+ * {@link org.neo4j.io.pagecache.PagedFile#io(long, int, org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer)
+ * io method} can be used to interact with the contents of the
  * file. It takes in an initial file page id and a bitmap of intentions, such as what locking behaviour to use, and
  * returns a {@link org.neo4j.io.pagecache.PageCursor} object. The {@code PageCursor} is the window into the data
  * managed by the page cache.

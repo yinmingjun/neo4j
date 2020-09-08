@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -25,14 +25,19 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.neo4j.consistency.checking.full.QueueDistribution.QueueDistributor;
-import org.neo4j.helpers.progress.ProgressListener;
-import org.neo4j.unsafe.impl.batchimport.cache.idmapping.string.Workers;
+import org.neo4j.internal.batchimport.cache.idmapping.string.Workers;
+import org.neo4j.internal.helpers.progress.ProgressListener;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
 
 /**
  * Takes a stream of RECORDs and distributes them, via {@link BlockingQueue} onto multiple workers.
  */
 public class RecordDistributor
 {
+    private RecordDistributor()
+    {
+    }
+
     public static <RECORD> void distributeRecords(
             int numberOfThreads,
             String workerNames,
@@ -40,7 +45,8 @@ public class RecordDistributor
             Iterator<RECORD> records,
             final ProgressListener progress,
             RecordProcessor<RECORD> processor,
-            QueueDistributor<RECORD> idDistributor )
+            QueueDistributor<RECORD> idDistributor,
+            PageCacheTracer pageCacheTracer )
     {
         if ( !records.hasNext() )
         {
@@ -54,7 +60,7 @@ public class RecordDistributor
         for ( int threadId = 0; threadId < numberOfThreads; threadId++ )
         {
             recordQ[threadId] = new ArrayBlockingQueue<>( queueSize );
-            workers.start( new RecordCheckWorker<>( threadId, idGroup, recordQ[threadId], processor ) );
+            workers.start( new RecordCheckWorker<>( threadId, idGroup, recordQ[threadId], processor, pageCacheTracer ) );
         }
 
         final int[] recsProcessed = new int[numberOfThreads];
@@ -88,7 +94,7 @@ public class RecordDistributor
                 worker.done();
             }
 
-            workers.awaitAndThrowOnError( RuntimeException.class );
+            workers.awaitAndThrowOnError();
         }
         catch ( InterruptedException e )
         {
@@ -105,7 +111,7 @@ public class RecordDistributor
         void accept( RECORD record, int qIndex ) throws InterruptedException;
     }
 
-    public static long calculateRecodsPerCpu( long highId, int numberOfThreads )
+    public static long calculateRecordsPerCpu( long highId, int numberOfThreads )
     {
         boolean hasRest = highId % numberOfThreads > 0;
         long result = highId / numberOfThreads;

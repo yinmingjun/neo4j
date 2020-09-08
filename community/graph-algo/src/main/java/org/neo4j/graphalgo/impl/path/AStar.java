@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,10 +22,12 @@ package org.neo4j.graphalgo.impl.path;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 
 import org.neo4j.graphalgo.CostEvaluator;
 import org.neo4j.graphalgo.EstimateEvaluator;
+import org.neo4j.graphalgo.EvaluationContext;
 import org.neo4j.graphalgo.PathFinder;
 import org.neo4j.graphalgo.WeightedPath;
 import org.neo4j.graphalgo.impl.util.PathImpl;
@@ -33,28 +35,29 @@ import org.neo4j.graphalgo.impl.util.PriorityMap;
 import org.neo4j.graphalgo.impl.util.PriorityMap.Entry;
 import org.neo4j.graphalgo.impl.util.WeightedPathImpl;
 import org.neo4j.graphdb.Direction;
-import org.neo4j.graphdb.GraphDatabaseService;
+import org.neo4j.graphdb.Entity;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Path;
 import org.neo4j.graphdb.PathExpander;
-import org.neo4j.graphdb.PropertyContainer;
 import org.neo4j.graphdb.Relationship;
 import org.neo4j.graphdb.traversal.BranchState;
 import org.neo4j.graphdb.traversal.TraversalMetadata;
-import org.neo4j.helpers.collection.PrefetchingIterator;
+import org.neo4j.internal.helpers.collection.PrefetchingIterator;
 
-import static org.neo4j.helpers.collection.Iterables.option;
+import static org.neo4j.internal.helpers.collection.Iterables.option;
 
 public class AStar implements PathFinder<WeightedPath>
 {
+    private final EvaluationContext context;
     private final PathExpander<?> expander;
     private final CostEvaluator<Double> lengthEvaluator;
     private final EstimateEvaluator<Double> estimateEvaluator;
     private Metadata lastMetadata;
 
-    public AStar( PathExpander<?> expander,
+    public AStar( EvaluationContext context, PathExpander<?> expander,
             CostEvaluator<Double> lengthEvaluator, EstimateEvaluator<Double> estimateEvaluator )
     {
+        this.context = context;
         this.expander = expander;
         this.lengthEvaluator = lengthEvaluator;
         this.estimateEvaluator = estimateEvaluator;
@@ -68,7 +71,6 @@ public class AStar implements PathFinder<WeightedPath>
         while ( iterator.hasNext() )
         {
             Node node = iterator.next();
-            GraphDatabaseService graphDb = node.getGraphDatabase();
             if ( node.equals( end ) )
             {
                 // Hit, return path
@@ -81,15 +83,15 @@ public class AStar implements PathFinder<WeightedPath>
                 }
                 else
                 {
-                    LinkedList<Relationship> rels = new LinkedList<Relationship>();
-                    Relationship rel = graphDb.getRelationshipById(
-                            iterator.visitData.get( node.getId() ).cameFromRelationship );
+                    LinkedList<Relationship> rels = new LinkedList<>();
+                    var transaction = context.transaction();
+                    Relationship rel = transaction.getRelationshipById( iterator.visitData.get( node.getId() ).cameFromRelationship );
                     while ( rel != null )
                     {
                         rels.addFirst( rel );
                         node = rel.getOtherNode( node );
                         long nextRelId = iterator.visitData.get( node.getId() ).cameFromRelationship;
-                        rel = nextRelId == -1 ? null : graphDb.getRelationshipById( nextRelId );
+                        rel = nextRelId == -1 ? null : transaction.getRelationshipById( nextRelId );
                     }
                     path = toPath( start, rels );
                 }
@@ -112,7 +114,7 @@ public class AStar implements PathFinder<WeightedPath>
         return lastMetadata;
     }
 
-    private Path toPath( Node start, LinkedList<Relationship> rels )
+    private Path toPath( Node start, List<Relationship> rels )
     {
         PathImpl.Builder builder = new PathImpl.Builder( start );
         for ( Relationship rel : rels )
@@ -154,8 +156,8 @@ public class AStar implements PathFinder<WeightedPath>
         private final Node end;
         private Node lastNode;
         private final PriorityMap<Node, Node, Double> nextPrioritizedNodes =
-                PriorityMap.<Node, Double>withSelfKeyNaturalOrder();
-        private final Map<Long, Visit> visitData = new HashMap<Long, Visit>();
+                PriorityMap.withSelfKeyNaturalOrder();
+        private final Map<Long, Visit> visitData = new HashMap<>();
 
         AStarIterator( Node start, Node end )
         {
@@ -284,7 +286,7 @@ public class AStar implements PathFinder<WeightedPath>
         }
 
         @Override
-        public Iterator<PropertyContainer> iterator()
+        public Iterator<Entity> iterator()
         {
             throw new UnsupportedOperationException();
         }

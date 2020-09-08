@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,7 +19,7 @@
  */
 package org.neo4j.io.fs.watcher.resource;
 
-import java.io.IOException;
+import java.nio.file.Path;
 import java.nio.file.WatchKey;
 
 /**
@@ -28,14 +28,28 @@ import java.nio.file.WatchKey;
 public class WatchedFile implements WatchedResource
 {
     private final WatchKey watchKey;
+    private final Path path;
 
-    public WatchedFile( WatchKey watchKey )
+    public WatchedFile( WatchKey watchKey, Path path )
     {
         this.watchKey = watchKey;
+        this.path = path;
     }
 
     @Override
-    public void close() throws IOException
+    public Path getWatchedFile()
+    {
+        return path;
+    }
+
+    @Override
+    public WatchKey getWatchKey()
+    {
+        return watchKey;
+    }
+
+    @Override
+    public void close()
     {
         watchKey.cancel();
     }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -27,10 +27,21 @@ public interface LogRotateEvent extends AutoCloseable
     LogRotateEvent NULL = new LogRotateEvent()
     {
         @Override
+        public void rotationCompleted( long rotationMillis )
+        {
+        }
+
+        @Override
         public void close()
         {
         }
     };
+
+    /**
+     * Notify about completion of rotation that took {@code rotationMillis} to complete
+     * @param rotationMillis transaction log rotation duration
+     */
+    void rotationCompleted( long rotationMillis );
 
     /**
      * Marks the end of the log rotation process.

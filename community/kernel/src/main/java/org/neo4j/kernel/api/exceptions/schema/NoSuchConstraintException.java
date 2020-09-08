@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,26 +19,43 @@
  */
 package org.neo4j.kernel.api.exceptions.schema;
 
-import org.neo4j.kernel.api.TokenNameLookup;
+import org.neo4j.common.TokenNameLookup;
+import org.neo4j.internal.kernel.api.exceptions.schema.SchemaKernelException;
+import org.neo4j.internal.schema.SchemaDescriptorSupplier;
 import org.neo4j.kernel.api.exceptions.Status;
-import org.neo4j.kernel.api.schema.constaints.ConstraintDescriptor;
 
 import static java.lang.String.format;
 
 public class NoSuchConstraintException extends SchemaKernelException
 {
-    private final ConstraintDescriptor constraint;
-    private static final String message = "No such constraint %s.";
+    private final SchemaDescriptorSupplier constraint;
+    private final String name;
+    private static final String MESSAGE = "No such constraint %s.";
 
-    public NoSuchConstraintException( ConstraintDescriptor constraint )
+    public NoSuchConstraintException( SchemaDescriptorSupplier constraint, TokenNameLookup lookup )
     {
-        super( Status.Schema.ConstraintNotFound, format( message, constraint ) );
+        super( Status.Schema.ConstraintNotFound, format( MESSAGE, constraint.userDescription( lookup ) ) );
         this.constraint = constraint;
+        this.name = "";
+    }
+
+    public NoSuchConstraintException( String name )
+    {
+        super( Status.Schema.ConstraintNotFound, format( MESSAGE, name ) );
+        this.constraint = null;
+        this.name = name;
     }
 
     @Override
     public String getUserMessage( TokenNameLookup tokenNameLookup )
     {
-        return format( message, constraint.userDescription( tokenNameLookup ) );
+        if ( constraint == null )
+        {
+            return format( MESSAGE, name );
+        }
+        else
+        {
+            return format( MESSAGE, constraint.userDescription( tokenNameLookup ) );
+        }
     }
 }

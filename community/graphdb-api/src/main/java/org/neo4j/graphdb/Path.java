@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,6 +21,8 @@ package org.neo4j.graphdb;
 
 import java.util.Iterator;
 
+import org.neo4j.annotations.api.PublicApi;
+
 /**
  * Represents a path in the graph. A path starts with a node followed by
  * pairs of {@link Relationship} and {@link Node} objects. The shortest path
@@ -30,7 +32,8 @@ import java.util.Iterator;
  * position of the traverser is represented by each such path. The current
  * node in such a traversal is reached via {@link Path#endNode()}.
  */
-public interface Path extends Iterable<PropertyContainer>
+@PublicApi
+public interface Path extends Iterable<Entity>
 {
     /**
      * Returns the start node of this path. It's also the first node returned
@@ -129,5 +132,6 @@ public interface Path extends Iterable<PropertyContainer>
      *
      * @see Iterable#iterator()
      */
-    Iterator<PropertyContainer> iterator();
+    @Override
+    Iterator<Entity> iterator();
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -28,12 +28,21 @@ import java.io.UncheckedIOException;
  * @see org.apache.lucene.search.IndexSearcher
  * @see org.neo4j.kernel.api.impl.index.partition.PartitionSearcher
  * @see SimpleIndexReader
- * @see org.neo4j.kernel.api.impl.labelscan.reader.SimpleLuceneLabelScanStoreReader
  */
 public class IndexReaderCloseException extends UncheckedIOException
 {
+    private IndexReaderCloseException( String message, IOException cause )
+    {
+        super( message, cause );
+    }
+
     public IndexReaderCloseException( IOException cause )
     {
         super( cause );
+    }
+
+    public IndexReaderCloseException( String message, Throwable throwable )
+    {
+        this( message, throwable instanceof IOException ? ((IOException) throwable) : new IOException( throwable ) );
     }
 }

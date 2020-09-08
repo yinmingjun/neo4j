@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -25,44 +25,37 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.ConstantScoreQuery;
 import org.apache.lucene.search.MultiTermQuery;
-import org.apache.lucene.search.NumericRangeQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TermRangeQuery;
 import org.apache.lucene.search.WildcardQuery;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
+import org.junit.jupiter.api.Test;
 
-import static junit.framework.TestCase.assertEquals;
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.Matchers.containsString;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.neo4j.kernel.api.impl.LuceneTestUtil.documentRepresentingProperties;
+import static org.neo4j.kernel.api.impl.LuceneTestUtil.newSeekQuery;
 import static org.neo4j.kernel.api.impl.schema.LuceneDocumentStructure.NODE_ID_KEY;
-import static org.neo4j.kernel.api.impl.schema.LuceneDocumentStructure.newSeekQuery;
-import static org.neo4j.kernel.api.impl.schema.ValueEncoding.Array;
-import static org.neo4j.kernel.api.impl.schema.ValueEncoding.Bool;
-import static org.neo4j.kernel.api.impl.schema.ValueEncoding.Number;
+import static org.neo4j.kernel.api.impl.schema.LuceneDocumentStructure.useFieldForUniquenessVerification;
 import static org.neo4j.kernel.api.impl.schema.ValueEncoding.String;
 
-public class LuceneDocumentStructureTest
+class LuceneDocumentStructureTest
 {
-
-    @Rule
-    public final ExpectedException expectedException = ExpectedException.none();
-
     @Test
-    public void stringWithMaximumLengthShouldBeAllowed()
+    void stringWithMaximumLengthShouldBeAllowed()
     {
         String longestString = RandomStringUtils.randomAscii( IndexWriter.MAX_TERM_LENGTH );
-        Document document = LuceneDocumentStructure.documentRepresentingProperties( (long) 123, longestString );
+        Document document = documentRepresentingProperties( 123, longestString );
         assertEquals( longestString, document.getField( String.key( 0 ) ).stringValue() );
     }
 
     @Test
-    public void shouldBuildDocumentRepresentingStringProperty() throws Exception
+    void shouldBuildDocumentRepresentingStringProperty()
     {
         // given
-        Document document = LuceneDocumentStructure.documentRepresentingProperties( (long) 123, "hello" );
+        Document document = documentRepresentingProperties( 123, "hello" );
 
         // then
         assertEquals( "123", document.get( NODE_ID_KEY ) );
@@ -70,79 +63,20 @@ public class LuceneDocumentStructureTest
     }
 
     @Test
-    public void shouldBuildDocumentRepresentingMultipleStringProperties() throws Exception
+    void shouldBuildDocumentRepresentingMultipleStringProperties()
     {
         // given
         String[] values = new String[]{"hello", "world"};
-        Document document = LuceneDocumentStructure.documentRepresentingProperties( 123, values );
+        Document document = documentRepresentingProperties( 123, values );
 
         // then
         assertEquals( "123", document.get( NODE_ID_KEY ) );
-        assertThat( document.get( String.key( 0 ) ), equalTo( values[0] ) );
-        assertThat( document.get( String.key( 1 ) ), equalTo( values[1] ) );
+        assertThat( document.get( String.key( 0 ) ) ).isEqualTo( values[0] );
+        assertThat( document.get( String.key( 1 ) ) ).isEqualTo( values[1] );
     }
 
     @Test
-    public void shouldBuildDocumentRepresentingMultiplePropertiesOfDifferentTypes() throws Exception
-    {
-        // given
-        Object[] values = new Object[]{"hello", 789};
-        Document document = LuceneDocumentStructure.documentRepresentingProperties( 123, values );
-
-        // then
-        assertEquals( "123", document.get( NODE_ID_KEY ) );
-        assertThat( document.get( String.key( 0 ) ), equalTo( "hello" ) );
-        assertThat( document.get( Number.key( 1 ) ), equalTo( "789.0" ) );
-    }
-
-    @Test
-    public void shouldBuildDocumentRepresentingBoolProperty() throws Exception
-    {
-        // given
-        Document document = LuceneDocumentStructure.documentRepresentingProperties( (long) 123, true );
-
-        // then
-        assertEquals( "123", document.get( NODE_ID_KEY ) );
-        assertEquals( "true", document.get( Bool.key( 0 ) ) );
-    }
-
-    @Test
-    public void shouldBuildDocumentRepresentingNumberProperty() throws Exception
-    {
-        // given
-        Document document = LuceneDocumentStructure.documentRepresentingProperties( (long) 123, 12 );
-
-        // then
-        assertEquals( "123", document.get( NODE_ID_KEY ) );
-        assertEquals( 12.0, document.getField( Number.key( 0 ) ).numericValue().doubleValue() );
-    }
-
-    @Test
-    public void shouldBuildDocumentRepresentingArrayProperty() throws Exception
-    {
-        // given
-        Document document = LuceneDocumentStructure
-                .documentRepresentingProperties( (long) 123, new Object[]{new Integer[]{1, 2, 3}} );
-
-        // then
-        assertEquals( "123", document.get( NODE_ID_KEY ) );
-        assertEquals( "D1.0|2.0|3.0|", document.get( Array.key( 0 ) ) );
-    }
-
-    @Test
-    public void shouldBuildQueryRepresentingBoolProperty() throws Exception
-    {
-        // given
-        BooleanQuery booleanQuery = (BooleanQuery) newSeekQuery( true );
-        ConstantScoreQuery constantScoreQuery = (ConstantScoreQuery) booleanQuery.clauses().get( 0 ).getQuery();
-        TermQuery query = (TermQuery) constantScoreQuery.getQuery();
-
-        // then
-        assertEquals( "true", query.getTerm().text() );
-    }
-
-    @Test
-    public void shouldBuildQueryRepresentingStringProperty() throws Exception
+    void shouldBuildQueryRepresentingStringProperty()
     {
         // given
         BooleanQuery booleanQuery = (BooleanQuery) newSeekQuery( "Characters" );
@@ -152,74 +86,25 @@ public class LuceneDocumentStructureTest
         assertEquals( "Characters", ((TermQuery) query.getQuery()).getTerm().text() );
     }
 
-    @SuppressWarnings( "unchecked" )
     @Test
-    public void shouldBuildQueryRepresentingNumberProperty() throws Exception
+    void shouldBuildQueryRepresentingMultipleProperties()
     {
         // given
-        BooleanQuery booleanQuery = (BooleanQuery) newSeekQuery( 12 );
-        ConstantScoreQuery constantScoreQuery = (ConstantScoreQuery) booleanQuery.clauses().get( 0 ).getQuery();
-        NumericRangeQuery<Double> query = (NumericRangeQuery<Double>) constantScoreQuery.getQuery();
+        BooleanQuery booleanQuery = (BooleanQuery) newSeekQuery( "foo", "bar" );
+
+        ConstantScoreQuery fooScoreQuery = (ConstantScoreQuery) booleanQuery.clauses().get( 0 ).getQuery();
+        TermQuery fooTermQuery = (TermQuery) fooScoreQuery.getQuery();
+
+        ConstantScoreQuery barScoreQuery = (ConstantScoreQuery) booleanQuery.clauses().get( 1 ).getQuery();
+        TermQuery barTermQuery = (TermQuery) barScoreQuery.getQuery();
 
         // then
-        assertEquals( 12.0, query.getMin() );
-        assertEquals( 12.0, query.getMax() );
+        assertEquals( "foo", fooTermQuery.getTerm().text() );
+        assertEquals( "bar", barTermQuery.getTerm().text() );
     }
 
     @Test
-    public void shouldBuildQueryRepresentingArrayProperty() throws Exception
-    {
-        // given
-        BooleanQuery booleanQuery = (BooleanQuery) newSeekQuery( new Object[]{new Integer[]{1, 2, 3}} );
-        ConstantScoreQuery constantScoreQuery = (ConstantScoreQuery) booleanQuery.clauses().get( 0 ).getQuery();
-        TermQuery query = (TermQuery) constantScoreQuery.getQuery();
-
-        // then
-        assertEquals( "D1.0|2.0|3.0|", query.getTerm().text() );
-    }
-
-    @Test
-    public void shouldBuildQueryRepresentingMultipleProperties() throws Exception
-    {
-        // given
-        BooleanQuery booleanQuery = (BooleanQuery) newSeekQuery( true, "Characters", 12, new Integer[]{1, 2, 3} );
-
-        ConstantScoreQuery boolScoreQuery = (ConstantScoreQuery) booleanQuery.clauses().get( 0 ).getQuery();
-        TermQuery boolTermQuery = (TermQuery) boolScoreQuery.getQuery();
-
-        ConstantScoreQuery stringScoreQuery = (ConstantScoreQuery) booleanQuery.clauses().get( 1 ).getQuery();
-        TermQuery stringTermQuery = (TermQuery) stringScoreQuery.getQuery();
-
-        ConstantScoreQuery numberScoreQuery = (ConstantScoreQuery) booleanQuery.clauses().get( 2 ).getQuery();
-        NumericRangeQuery<Double> numericRangeQuery = (NumericRangeQuery<Double>) numberScoreQuery.getQuery();
-
-        ConstantScoreQuery arrayScoreQuery = (ConstantScoreQuery) booleanQuery.clauses().get( 3 ).getQuery();
-        TermQuery arrayTermQuery = (TermQuery) arrayScoreQuery.getQuery();
-
-        // then
-        assertEquals( "true", boolTermQuery.getTerm().text() );
-        assertEquals( "Characters", stringTermQuery.getTerm().text() );
-        assertEquals( 12.0, numericRangeQuery.getMin() );
-        assertEquals( 12.0, numericRangeQuery.getMax() );
-        assertEquals( "D1.0|2.0|3.0|", arrayTermQuery.getTerm().text() );
-    }
-
-    @Test
-    public void shouldBuildRangeSeekByNumberQueryForStrings() throws Exception
-    {
-        // given
-        NumericRangeQuery<Double> query = LuceneDocumentStructure.newInclusiveNumericRangeSeekQuery( 12.0d, null );
-
-        // then
-        assertEquals( "number", query.getField() );
-        assertEquals( 12.0, query.getMin() );
-        assertEquals( true, query.includesMin() );
-        assertEquals( null, query.getMax() );
-        assertEquals( true, query.includesMax() );
-    }
-
-    @Test
-    public void shouldBuildRangeSeekByStringQueryForStrings() throws Exception
+    void shouldBuildRangeSeekByStringQueryForStrings()
     {
         // given
         TermRangeQuery query = (TermRangeQuery) LuceneDocumentStructure
@@ -228,13 +113,13 @@ public class LuceneDocumentStructureTest
         // then
         assertEquals( "string", query.getField() );
         assertEquals( "foo", query.getLowerTerm().utf8ToString() );
-        assertEquals( false, query.includesLower() );
-        assertEquals( null, query.getUpperTerm() );
-        assertEquals( true, query.includesUpper() );
+        assertFalse( query.includesLower() );
+        assertNull( query.getUpperTerm() );
+        assertTrue( query.includesUpper() );
     }
 
     @Test
-    public void shouldBuildWildcardQueries() throws Exception
+    void shouldBuildWildcardQueries()
     {
         // given
         WildcardQuery query = (WildcardQuery) LuceneDocumentStructure.newWildCardStringQuery( "foo" );
@@ -244,12 +129,23 @@ public class LuceneDocumentStructureTest
     }
 
     @Test
-    public void shouldBuildRangeSeekByPrefixQueryForStrings() throws Exception
+    void shouldBuildRangeSeekByPrefixQueryForStrings()
     {
         // given
         MultiTermQuery prefixQuery = (MultiTermQuery) LuceneDocumentStructure.newRangeSeekByPrefixQuery( "Prefix" );
 
         // then
-        assertThat( "Should contain term value", prefixQuery.toString(), containsString( "Prefix" ) );
+        assertThat( prefixQuery.toString() ).as( "Should contain term value" ).contains( "Prefix" );
+    }
+
+    @Test
+    void checkFieldUsageForUniquenessVerification()
+    {
+        assertFalse( useFieldForUniquenessVerification( "id" ) );
+        assertFalse( useFieldForUniquenessVerification( "1number" ) );
+        assertTrue( useFieldForUniquenessVerification( "number" ) );
+        assertFalse( useFieldForUniquenessVerification( "1string" ) );
+        assertFalse( useFieldForUniquenessVerification( "10string" ) );
+        assertTrue( useFieldForUniquenessVerification( "string" ) );
     }
 }

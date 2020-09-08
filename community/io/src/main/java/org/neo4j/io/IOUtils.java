@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,8 +20,10 @@
 package org.neo4j.io;
 
 import java.io.IOException;
-import java.lang.reflect.Constructor;
+import java.io.UncheckedIOException;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.function.BiFunction;
 
 /**
  * IO helper methods.
@@ -37,12 +39,44 @@ public final class IOUtils
      *
      * @param closeables the closeables to close
      * @param <T> the type of closeable
-     * @throws IOException
+     * @throws IOException if an exception was thrown by one of the close methods.
      * @see #closeAll(AutoCloseable[])
      */
     public static <T extends AutoCloseable> void closeAll( Collection<T> closeables ) throws IOException
     {
-        closeAll( closeables.toArray( new AutoCloseable[closeables.size()] ) );
+        close( IOException::new, closeables );
+    }
+
+    /**
+     * Close all the provided {@link AutoCloseable closeables}, chaining exceptions, if any, into a single {@link UncheckedIOException}.
+     *
+     * @param closeables to call close on.
+     * @param <T> the type of closeable.
+     * @throws UncheckedIOException if any exception is thrown from any of the {@code closeables}.
+     */
+    public static <T extends AutoCloseable> void closeAllUnchecked( Collection<T> closeables )
+    {
+        try
+        {
+            closeAll( closeables );
+        }
+        catch ( IOException e )
+        {
+            throw new UncheckedIOException( e );
+        }
+    }
+
+    /**
+     * Close all the provided {@link AutoCloseable closeables}, chaining exceptions, if any, into a single {@link UncheckedIOException}.
+     *
+     * @param closeables to call close on.
+     * @param <T> the type of closeable.
+     * @throws UncheckedIOException if any exception is thrown from any of the {@code closeables}.
+     */
+    @SafeVarargs
+    public static <T extends AutoCloseable> void closeAllUnchecked( T... closeables )
+    {
+        closeAllUnchecked( Arrays.asList( closeables ) );
     }
 
     /**
@@ -54,13 +88,7 @@ public final class IOUtils
      */
     public static <T extends AutoCloseable> void closeAllSilently( Collection<T> closeables )
     {
-        try
-        {
-            closeAll( closeables );
-        }
-        catch ( IOException ignored )
-        {
-        }
+        close( ( msg, cause ) -> null, closeables );
     }
 
     /**
@@ -71,12 +99,12 @@ public final class IOUtils
      *
      * @param closeables the closeables to close
      * @param <T> the type of closeable
-     * @throws IOException
+     * @throws IOException if an exception was thrown by one of the close methods.
      */
     @SafeVarargs
     public static <T extends AutoCloseable> void closeAll( T... closeables ) throws IOException
     {
-        closeAll( IOException.class, closeables );
+        close( IOException::new, closeables );
     }
 
     /**
@@ -88,71 +116,66 @@ public final class IOUtils
     @SafeVarargs
     public static <T extends AutoCloseable> void closeAllSilently( T... closeables )
     {
-        try
-        {
-            closeAll( closeables );
-        }
-        catch ( IOException ignored )
-        {
-        }
+        close( ( msg, cause ) -> null, closeables );
     }
 
     /**
-     * Close all given closeables and if something goes wrong throw exception of the given type.
-     * Exception class should have a public constructor that accepts {@link String} and {@link Throwable} like
-     * {@link RuntimeException#RuntimeException(String, Throwable)}
+     * Close all of the given closeables, and if something goes wrong, use the given constructor to create a {@link Throwable} instance with the specific cause
+     * attached. The remaining closeables will still be closed, in that case, and if they in turn throw any exceptions then these will be attached as
+     * suppressed exceptions.
      *
-     * @param throwableClass exception type to throw in case of failure
-     * @param closeables the closeables to close
-     * @param <T> the type of closeable
-     * @param <E> the type of exception
+     * @param constructor The function used to construct the parent throwable that will have the first thrown exception attached as a cause, and any
+     * remaining exceptions attached as suppressed exceptions. If this function returns {@code null}, then the exception is ignored.
+     * @param closeables an iterator of all the things to close, in order.
+     * @param <T> the type of things to close.
+     * @param <E> the type of the parent exception.
      * @throws E when any {@link AutoCloseable#close()} throws exception
      */
-    @SafeVarargs
-    public static <T extends AutoCloseable, E extends Throwable> void closeAll( Class<E> throwableClass,
-            T... closeables ) throws E
+    public static <T extends AutoCloseable, E extends Throwable> void close( BiFunction<String,Throwable,E> constructor, Collection<T> closeables ) throws E
     {
-        Throwable closeThrowable = null;
+        E closeThrowable = null;
         for ( T closeable : closeables )
         {
-            if ( closeable != null )
+            try
             {
-                try
+                if ( closeable != null )
                 {
                     closeable.close();
                 }
-                catch ( Throwable t )
+            }
+            catch ( Exception e )
+            {
+                if ( closeThrowable == null )
                 {
-                    if ( closeThrowable == null )
-                    {
-                        closeThrowable = t;
-                    }
-                    else
-                    {
-                        closeThrowable.addSuppressed( t );
-                    }
+                    closeThrowable = constructor.apply( "Exception closing multiple resources.", e );
+                }
+                else
+                {
+                    closeThrowable.addSuppressed( e );
                 }
             }
         }
         if ( closeThrowable != null )
         {
-            throw newThrowable( throwableClass, "Exception closing multiple resources", closeThrowable );
+            throw closeThrowable;
         }
     }
 
-    private static <E extends Throwable> E newThrowable( Class<E> throwableClass, String message, Throwable cause )
+    /**
+     * Close all of the given closeables, and if something goes wrong, use the given constructor to create a {@link Throwable} instance with the specific cause
+     * attached. The remaining closeables will still be closed, in that case, and if they in turn throw any exceptions then these will be attached as
+     * suppressed exceptions.
+     *
+     * @param constructor The function used to construct the parent throwable that will have the first thrown exception attached as a cause, and any
+     * remaining exceptions attached as suppressed exceptions. If this function returns {@code null}, then the exception is ignored.
+     * @param closeables all the things to close, in order.
+     * @param <T> the type of things to close.
+     * @param <E> the type of the parent exception.
+     * @throws E when any {@link AutoCloseable#close()} throws exception
+     */
+    @SafeVarargs
+    public static <T extends AutoCloseable, E extends Throwable> void close( BiFunction<String,Throwable,E> constructor, T... closeables ) throws E
     {
-        try
-        {
-            Constructor<E> constructor = throwableClass.getConstructor( String.class, Throwable.class );
-            return constructor.newInstance( message, cause );
-        }
-        catch ( Throwable t )
-        {
-            RuntimeException runtimeException = new RuntimeException(
-                    "Unable to create exception to throw. Original message: " + message, t );
-            runtimeException.addSuppressed( cause );
-            throw runtimeException;
-        }
+        close( constructor, Arrays.asList( closeables ) );
     }
 }

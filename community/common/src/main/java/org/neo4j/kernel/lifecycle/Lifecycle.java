@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -30,55 +30,19 @@ package org.neo4j.kernel.lifecycle;
  *
  * Implementations can throw any exception. Caller must handle this properly.
  *
- * The primary purpose of init in a component is to set up structure: instantiate dependent objects, register handlers/listeners, etc.
- * Only in start should the component actually do anything with this structure. Stop reverses whatever was done in start, and shutdown finally
- * clears any set-up structure, if necessary.
+ * The primary purpose of init in a component is to set up structure: instantiate dependent objects,
+ * register handlers/listeners, etc.
+ * Only in start should the component actually do anything with this structure.
+ * Stop reverses whatever was done in start, and shutdown finally clears any set-up structure, if necessary.
  */
 public interface Lifecycle
 {
-    void init()
-        throws Throwable;
+    void init() throws Exception;
 
-    void start()
-        throws Throwable;
+    void start() throws Exception;
 
-    void stop()
-        throws Throwable;
+    void stop() throws Exception;
 
-    void shutdown()
-        throws Throwable;
+    void shutdown() throws Exception;
 
-    class Delegate implements Lifecycle
-    {
-        private final Lifecycle delegate;
-
-        public Delegate( Lifecycle delegate )
-        {
-            this.delegate = delegate;
-        }
-
-        @Override
-        public void init() throws Throwable
-        {
-            delegate.init();
-        }
-
-        @Override
-        public void start() throws Throwable
-        {
-            delegate.start();
-        }
-
-        @Override
-        public void stop() throws Throwable
-        {
-            delegate.stop();
-        }
-
-        @Override
-        public void shutdown() throws Throwable
-        {
-            delegate.shutdown();
-        }
-    }
 }

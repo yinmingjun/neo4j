@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -32,7 +32,7 @@ import javax.servlet.http.HttpServletResponse;
 public class StaticContentFilter implements Filter
 {
     @Override
-    public void init( FilterConfig filterConfig ) throws ServletException
+    public void init( FilterConfig filterConfig )
     {
     }
 
@@ -42,12 +42,14 @@ public class StaticContentFilter implements Filter
     {
         HttpServletRequest request = (HttpServletRequest) servletRequest;
         HttpServletResponse response = (HttpServletResponse) servletResponse;
-        if ( request.getServletPath() != null && request.getServletPath().endsWith( ".html" ))
+        if ( request.getServletPath() != null && request.getServletPath().endsWith( ".html" ) )
         {
             response.addHeader( "Cache-Control", "private, no-cache, no-store, proxy-revalidate, no-transform" );
             response.addHeader( "Pragma", "no-cache" );
             response.addHeader( "Content-Security-Policy", "frame-ancestors 'none'" );
             response.addHeader( "X-Frame-Options", "DENY" );
+            response.addHeader( "X-Content-Type-Options", "nosniff" );
+            response.addHeader( "X-XSS-Protection", "1; mode=block" );
         }
         filterChain.doFilter( servletRequest, servletResponse);
     }

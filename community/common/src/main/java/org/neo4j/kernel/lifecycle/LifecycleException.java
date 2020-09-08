@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -27,42 +27,73 @@ public class LifecycleException
     extends RuntimeException
 {
 
-    private static String humanReadableMessage( Object instance, LifecycleStatus from, LifecycleStatus to )
+    public LifecycleException( Object instance, LifecycleStatus from, LifecycleStatus to, Throwable cause )
     {
+        super( humanReadableMessage( instance, from, to, cause ), cause );
+    }
+
+    public LifecycleException( String message, Throwable cause )
+    {
+        super( message, cause );
+    }
+
+    private static String humanReadableMessage( Object instance, LifecycleStatus from,
+            LifecycleStatus to, Throwable cause )
+    {
+        String instanceStr = String.valueOf( instance );
+        StringBuilder message = new StringBuilder();
         switch ( to )
         {
             case STOPPED:
                 if ( from == LifecycleStatus.NONE )
                 {
-                    return String.format( "Component '%s' failed to initialize. Please see attached cause exception" +
-                            ".", instance.toString() );
+                    message.append( "Component '" ).append( instanceStr ).append( "' failed to initialize" );
                 }
-                if ( from == LifecycleStatus.STARTED )
+                else if ( from == LifecycleStatus.STARTED )
                 {
-                    return String.format( "Component '%s' failed to stop. Please see attached cause exception.",
-                            instance.toString()  );
+                    message.append( "Component '" ).append( instanceStr ).append( "' failed to stop" );
                 }
                 break;
             case STARTED:
                 if ( from == LifecycleStatus.STOPPED )
                 {
-                    return String.format( "Component '%s' was successfully initialized, but failed to start. Please " +
-                            "see attached cause exception.", instance.toString() );
+                    message.append( "Component '" ).append( instanceStr )
+                           .append( "' was successfully initialized, but failed to start" );
                 }
                 break;
             case SHUTDOWN:
-                return String.format( "Component '%s' failed to shut down. Please " +
-                        "see attached cause exception.", instance.toString() );
+                message.append( "Component '" ).append( instanceStr ).append( "' failed to shut down" );
+                break;
             default:
                 break;
         }
+        if ( message.length() == 0 )
+        {
+            message.append( "Component '" ).append( instanceStr ).append( "' failed to transition from " )
+                   .append( from.name().toLowerCase() ).append( " to " ).append( to.name().toLowerCase() );
+        }
+        message.append( '.' );
+        if ( cause != null )
+        {
+            Throwable root = rootCause( cause );
+            message.append( " Please see the attached cause exception \"" ).append( root.getMessage() ).append( '"' );
+            if ( root.getCause() != null )
+            {
+                message.append( " (root cause cycle detected)" );
+            }
+            message.append( '.' );
+        }
 
-        return String.format( "Failed to transition component '%s' from %s to %s. Please see attached cause exception",
-                instance.toString(), from.name(), to.name() );
+        return message.toString();
     }
 
-    public LifecycleException( Object instance, LifecycleStatus from, LifecycleStatus to, Throwable cause )
+    private static Throwable rootCause( Throwable cause )
     {
-        super( humanReadableMessage( instance, from, to ), cause);
+        int i = 0; // Guard against infinite self-cause exception-loops.
+        while ( cause.getCause() != null && i++ < 100 )
+        {
+            cause = cause.getCause();
+        }
+        return cause;
     }
 }

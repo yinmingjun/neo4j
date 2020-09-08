@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,36 +19,60 @@
  */
 package org.neo4j.kernel.api.exceptions.schema;
 
-import org.neo4j.kernel.api.TokenNameLookup;
-import org.neo4j.kernel.api.exceptions.KernelException;
+import org.neo4j.common.TokenNameLookup;
+import org.neo4j.exceptions.KernelException;
+import org.neo4j.internal.kernel.api.exceptions.schema.SchemaKernelException;
+import org.neo4j.internal.schema.SchemaDescriptorSupplier;
 import org.neo4j.kernel.api.exceptions.Status;
-import org.neo4j.kernel.api.schema.constaints.ConstraintDescriptor;
 
 public class DropConstraintFailureException extends SchemaKernelException
 {
-    private final ConstraintDescriptor constraint;
+    private final Object constraint;
 
-    public DropConstraintFailureException( ConstraintDescriptor constraint, Throwable cause )
+    public DropConstraintFailureException( SchemaDescriptorSupplier constraint, Throwable cause )
     {
-        super( Status.Schema.ConstraintDropFailed, cause, "Unable to drop constraint %s: %s", constraint, cause.getMessage() );
+        super( Status.Schema.ConstraintDropFailed, cause, "Unable to drop constraint: " + cause.getMessage() );
         this.constraint = constraint;
     }
 
-    public ConstraintDescriptor constraint()
+    public DropConstraintFailureException( String nameOrSchema, Throwable cause )
     {
-        return constraint;
+        // nameOrSchema is just 'name' or 'on schema'
+        super( Status.Schema.ConstraintDropFailed, cause, "Unable to drop constraint `" + nameOrSchema + "`: " + cause.getMessage() );
+        this.constraint = nameOrSchema;
     }
 
     @Override
     public String getUserMessage( TokenNameLookup tokenNameLookup )
     {
-        String message = "Unable to drop " + constraint.userDescription( tokenNameLookup );
-        if ( getCause() instanceof KernelException )
+        String message;
+        if ( constraint instanceof SchemaDescriptorSupplier )
         {
-            KernelException cause = (KernelException) getCause();
+            SchemaDescriptorSupplier schemaish = (SchemaDescriptorSupplier) constraint;
+            message = "Unable to drop constraint on " + schemaish.userDescription( tokenNameLookup ) + ": ";
 
-            return String.format( "%s:%n%s", message, cause.getUserMessage( tokenNameLookup ) );
         }
+        else if ( constraint instanceof String )
+        {
+            String name = (String) constraint;
+            message = "Unable to drop constraint `" + name + "`: ";
+        }
+        else
+        {
+            return getMessage();
+        }
+
+        Throwable cause = getCause();
+        if ( cause instanceof KernelException )
+        {
+            KernelException exception = (KernelException) cause;
+            message += exception.getUserMessage( tokenNameLookup );
+        }
+        else
+        {
+            message += cause.getMessage();
+        }
+
         return message;
     }
 }

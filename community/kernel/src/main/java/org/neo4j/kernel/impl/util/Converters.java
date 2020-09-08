@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,23 +21,18 @@ package org.neo4j.kernel.impl.util;
 
 import java.io.File;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
 
-import org.neo4j.helpers.HostnamePort;
+import org.neo4j.internal.helpers.collection.NumberAwareStringComparator;
 
 public class Converters
 {
-    public static <T> Function<String,T> mandatory()
+    private Converters()
     {
-        return key ->
-        {
-            throw new IllegalArgumentException( "Missing argument '" + key + "'" );
-        };
     }
 
     public static <T> Function<String,T> optional()
@@ -45,88 +40,45 @@ public class Converters
         return from -> null;
     }
 
-    public static <T> Function<String,T> withDefault( final T defaultValue )
-    {
-        return from -> defaultValue;
-    }
+    private static final Comparator<Path> BY_FILE_NAME = Comparator.comparing( Path::getFileName );
 
-    public static Function<String,File> toFile()
-    {
-        return File::new;
-    }
+    private static final Comparator<Path> BY_FILE_NAME_WITH_CLEVER_NUMBERS =
+            ( o1, o2 ) -> NumberAwareStringComparator.INSTANCE.compare( o1.toAbsolutePath().toString(), o2.toAbsolutePath().toString() );
 
-    public static Function<String, Path> toPath()
-    {
-        return Paths::get;
-    }
-
-    public static Function<String, String> identity()
-    {
-        return s -> s;
-    }
-
-    public static final Comparator<File> BY_FILE_NAME = Comparator.comparing( File::getName );
-
-    public static final Comparator<File> BY_FILE_NAME_WITH_CLEVER_NUMBERS =
-            ( o1, o2 ) -> NumberAwareStringComparator.INSTANCE.compare( o1.getAbsolutePath(), o2.getAbsolutePath() );
-
-    public static Function<String,File[]> regexFiles( final boolean cleverNumberRegexSort )
+    public static Function<String,Path[]> regexFiles( final boolean cleverNumberRegexSort )
     {
         return name ->
         {
-            Comparator<File> sorting = cleverNumberRegexSort ? BY_FILE_NAME_WITH_CLEVER_NUMBERS : BY_FILE_NAME;
-            List<File> files = Validators.matchingFiles( new File( name ) );
-            Collections.sort( files, sorting );
-            return files.toArray( new File[files.size()] );
+            Comparator<Path> sorting = cleverNumberRegexSort ? BY_FILE_NAME_WITH_CLEVER_NUMBERS : BY_FILE_NAME;
+
+            File file = new File( name ); // Path can't handle regex in the name
+            File parent = file.getParentFile();
+            if ( parent == null )
+            {
+                throw new IllegalArgumentException( "Directory of " + name + " doesn't exist" );
+            }
+            List<Path> files = Validators.matchingFiles( parent.toPath(), file.getName() );
+            files.sort( sorting );
+            return files.toArray( new Path[0] );
         };
     }
 
-    public static Function<String,File[]> toFiles( final String delimiter,
-            final Function<String,File[]> eachFileConverter )
+    public static Function<String,Path[]> toFiles( final String delimiter, final Function<String,Path[]> eachFileConverter )
     {
         return from ->
         {
             if ( from == null )
             {
-                return new File[0];
+                return new Path[0];
             }
 
             String[] names = from.split( delimiter );
-            List<File> files = new ArrayList<>();
+            List<Path> files = new ArrayList<>();
             for ( String name : names )
             {
-                for ( File file : eachFileConverter.apply( name ) )
-                {
-                    files.add( file );
-                }
+                files.addAll( Arrays.asList( eachFileConverter.apply( name ) ) );
             }
-            return files.toArray( new File[files.size()] );
-        };
-    }
-
-    public static Function<String,Integer> toInt()
-    {
-        return Integer::new;
-    }
-
-    public static Function<String, HostnamePort> toHostnamePort( HostnamePort defaultAddress )
-    {
-        return from ->
-        {
-            if ( !from.contains( ":" ) )
-            {
-                from = from + ":" + defaultAddress.getPort();
-            }
-            if ( from.endsWith( ":" ) )
-            {
-                from = from + defaultAddress.getPort();
-            }
-            if ( from.startsWith( ":" ) )
-            {
-                from = defaultAddress.getHost() + from;
-            }
-            String[] parts = from.split( ":" );
-            return new HostnamePort( parts[0], Integer.parseInt( parts[1] ) );
+            return files.toArray( new Path[0] );
         };
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -33,6 +33,10 @@ public class RepresentationTestAccess
 {
     private static final URI BASE_URI = URI.create( "http://neo4j.org/" );
 
+    private RepresentationTestAccess()
+    {
+    }
+
     public static Object serialize( Representation repr )
     {
         if ( repr instanceof ValueRepresentation )
@@ -60,7 +64,7 @@ public class RepresentationTestAccess
 
     public static String serialize( URI baseUri, ValueRepresentation repr )
     {
-        return repr.serialize( new StringFormat(), baseUri, null );
+        return repr.serialize( new StringFormat(), baseUri );
     }
 
     public static Map<String, Object> serialize( MappingRepresentation repr )
@@ -70,8 +74,8 @@ public class RepresentationTestAccess
 
     public static Map<String, Object> serialize( URI baseUri, MappingRepresentation repr )
     {
-        Map<String, Object> result = new HashMap<String, Object>();
-        repr.serialize( new MappingSerializer( new MapWrappingWriter( result ), baseUri, null ) );
+        Map<String, Object> result = new HashMap<>();
+        repr.serialize( new MappingSerializer( new MapWrappingWriter( result ), baseUri ) );
         return result;
     }
 
@@ -82,8 +86,8 @@ public class RepresentationTestAccess
 
     public static List<Object> serialize( URI baseUri, ListRepresentation repr )
     {
-        List<Object> result = new ArrayList<Object>();
-        repr.serialize( new ListSerializer( new ListWrappingWriter( result ), baseUri, null ) );
+        List<Object> result = new ArrayList<>();
+        repr.serialize( new ListSerializer( new ListWrappingWriter( result ), baseUri ) );
         return result;
     }
 

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,37 +19,62 @@
  */
 package org.neo4j.kernel.internal;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.MatcherAssert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.neo4j.kernel.internal.Version.CUSTOM_VERSION_SETTING;
 
-public class VersionTest
+class VersionTest
 {
     @Test
-    public void shouldExposeCleanAndDetailedVersions() throws Throwable
+    void shouldExposeCleanAndDetailedVersions()
     {
-        assertThat( version( "1.2.3-M01,abcdef012345" ).getReleaseVersion(), equalTo( "1.2.3-M01" ));
-        assertThat( version( "1.2.3-M01,abcdef012345" ).getVersion(),        equalTo( "1.2.3-M01,abcdef012345" ));
-        assertThat( version( "1.2.3-M01,abcdef012345-dirty" ).getVersion(),  equalTo( "1.2.3-M01,abcdef012345-dirty" ));
+        assertThat( version( "1.2.3-M01,abcdef012345" ).getReleaseVersion() ).isEqualTo( "1.2.3-M01" );
+        assertThat( version( "1.2.3-M01,abcdef012345" ).getVersion() ).isEqualTo( "1.2.3-M01,abcdef012345" );
+        assertThat( version( "1.2.3-M01,abcdef012345-dirty" ).getVersion() ).isEqualTo( "1.2.3-M01,abcdef012345-dirty" );
 
-        assertThat( version( "1.2.3,abcdef012345" ).getReleaseVersion(),     equalTo( "1.2.3" ));
-        assertThat( version( "1.2.3,abcdef012345" ).getVersion(),            equalTo( "1.2.3,abcdef012345" ));
-        assertThat( version( "1.2.3,abcdef012345-dirty" ).getVersion(),      equalTo( "1.2.3,abcdef012345-dirty" ));
+        assertThat( version( "1.2.3,abcdef012345" ).getReleaseVersion() ).isEqualTo( "1.2.3" );
+        assertThat( version( "1.2.3,abcdef012345" ).getVersion() ).isEqualTo( "1.2.3,abcdef012345" );
+        assertThat( version( "1.2.3,abcdef012345-dirty" ).getVersion() ).isEqualTo( "1.2.3,abcdef012345-dirty" );
 
-        assertThat( version( "1.2.3-GA,abcdef012345" ).getReleaseVersion(),  equalTo( "1.2.3-GA" ));
-        assertThat( version( "1.2.3-GA,abcdef012345" ).getVersion(),         equalTo( "1.2.3-GA,abcdef012345" ));
-        assertThat( version( "1.2.3-GA,abcdef012345-dirty" ).getVersion(),   equalTo( "1.2.3-GA,abcdef012345-dirty" ));
+        assertThat( version( "1.2.3-GA,abcdef012345" ).getReleaseVersion() ).isEqualTo( "1.2.3-GA" );
+        assertThat( version( "1.2.3-GA,abcdef012345" ).getVersion() ).isEqualTo( "1.2.3-GA,abcdef012345" );
+        assertThat( version( "1.2.3-GA,abcdef012345-dirty" ).getVersion() ).isEqualTo( "1.2.3-GA,abcdef012345-dirty" );
 
-        assertThat( version( "1.2.3M01,abcdef012345" ).getReleaseVersion(),  equalTo( "1.2.3M01" ));
-        assertThat( version( "1.2.3M01,abcdef012345" ).getVersion(),         equalTo( "1.2.3M01,abcdef012345" ));
-        assertThat( version( "1.2.3M01,abcdef012345-dirty" ).getVersion(),   equalTo( "1.2.3M01,abcdef012345-dirty" ));
+        assertThat( version( "1.2.3M01,abcdef012345" ).getReleaseVersion() ).isEqualTo( "1.2.3M01" );
+        assertThat( version( "1.2.3M01,abcdef012345" ).getVersion() ).isEqualTo( "1.2.3M01,abcdef012345" );
+        assertThat( version( "1.2.3M01,abcdef012345-dirty" ).getVersion() ).isEqualTo( "1.2.3M01,abcdef012345-dirty" );
 
-        assertThat( version( "1.2" ).getReleaseVersion(),  equalTo( "1.2" ));
-        assertThat( version( "1.2" ).getVersion(),         equalTo( "1.2" ));
+        assertThat( version( "1.2" ).getReleaseVersion() ).isEqualTo( "1.2" );
+        assertThat( version( "1.2" ).getVersion() ).isEqualTo( "1.2" );
 
-        assertThat( version( "0" ).getReleaseVersion(),    equalTo( "0" ));
-        assertThat( version( "0" ).getVersion(),           equalTo( "0" ));
+        assertThat( version( "0" ).getReleaseVersion() ).isEqualTo( "0" );
+        assertThat( version( "0" ).getVersion() ).isEqualTo( "0" );
+    }
+
+    @Test
+    void versionWithCustomString()
+    {
+        var planetExpress = "planetExpress";
+        var planetExpressVersion = version( planetExpress );
+        assertThat( planetExpressVersion.getVersion() ).isEqualTo( planetExpress );
+        assertThat( planetExpressVersion.getReleaseVersion() ).isEqualTo( planetExpress );
+    }
+
+    @Test
+    void versionStringSelection()
+    {
+        var planetExpress = "planetExpress";
+        try
+        {
+            System.setProperty( CUSTOM_VERSION_SETTING, planetExpress );
+            assertEquals( planetExpress, Version.selectVersion() );
+        }
+        finally
+        {
+            System.clearProperty( CUSTOM_VERSION_SETTING );
+        }
     }
 
     private Version version( String version )

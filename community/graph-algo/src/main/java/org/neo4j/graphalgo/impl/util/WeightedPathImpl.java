@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -24,9 +24,9 @@ import java.util.Iterator;
 import org.neo4j.graphalgo.CostEvaluator;
 import org.neo4j.graphalgo.WeightedPath;
 import org.neo4j.graphdb.Direction;
+import org.neo4j.graphdb.Entity;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Path;
-import org.neo4j.graphdb.PropertyContainer;
 import org.neo4j.graphdb.Relationship;
 
 public class WeightedPathImpl implements WeightedPath
@@ -51,31 +51,37 @@ public class WeightedPathImpl implements WeightedPath
         this.weight = weight;
     }
 
+    @Override
     public double weight()
     {
         return weight;
     }
 
+    @Override
     public Node startNode()
     {
         return path.startNode();
     }
 
+    @Override
     public Node endNode()
     {
         return path.endNode();
     }
 
+    @Override
     public Relationship lastRelationship()
     {
         return path.lastRelationship();
     }
 
+    @Override
     public int length()
     {
         return path.length();
     }
 
+    @Override
     public Iterable<Node> nodes()
     {
         return path.nodes();
@@ -87,6 +93,7 @@ public class WeightedPathImpl implements WeightedPath
         return path.reverseNodes();
     }
 
+    @Override
     public Iterable<Relationship> relationships()
     {
         return path.relationships();
@@ -101,11 +108,13 @@ public class WeightedPathImpl implements WeightedPath
     @Override
     public String toString()
     {
-        return path.toString() + " weight:" + this.weight;
+        return path + " weight:" + this.weight;
     }
 
-    public Iterator<PropertyContainer> iterator()
+    @Override
+    public Iterator<Entity> iterator()
     {
         return path.iterator();
     }
+
 }

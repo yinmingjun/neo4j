@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,26 +22,28 @@ package org.neo4j.kernel.api.impl.index.partition;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.ReferenceManager;
 
-import java.io.Closeable;
 import java.io.IOException;
+
+import org.neo4j.kernel.api.impl.index.SearcherReference;
 
 /**
  * Container for {@link IndexSearcher} of the particular {@link AbstractIndexPartition partition}.
  * Manages lifecycle of the underlying {@link IndexSearcher searcher}.
  */
-public class PartitionSearcher implements Closeable
+public class PartitionSearcher implements SearcherReference
 {
-    private IndexSearcher indexSearcher;
+    private Neo4jIndexSearcher indexSearcher;
     private ReferenceManager<IndexSearcher> referenceManager;
 
     public PartitionSearcher( ReferenceManager<IndexSearcher> referenceManager ) throws IOException
     {
         this.referenceManager = referenceManager;
-        this.indexSearcher = referenceManager.acquire();
+        this.indexSearcher = (Neo4jIndexSearcher) referenceManager.acquire();
         this.indexSearcher.setQueryCache( null );
     }
 
-    public IndexSearcher getIndexSearcher()
+    @Override
+    public Neo4jIndexSearcher getIndexSearcher()
     {
         return indexSearcher;
     }

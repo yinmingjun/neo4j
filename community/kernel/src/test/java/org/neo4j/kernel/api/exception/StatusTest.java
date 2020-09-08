@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,20 +19,20 @@
  */
 package org.neo4j.kernel.api.exception;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
 import java.util.Set;
 
 import org.neo4j.kernel.api.exceptions.Status;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
-public class StatusTest
+class StatusTest
 {
     @Test
-    public void eachStatusCodeHasAUniqueCode() throws Exception
+    void eachStatusCodeHasAUniqueCode()
     {
         // given
         Set<Object> codes = new HashSet<>();

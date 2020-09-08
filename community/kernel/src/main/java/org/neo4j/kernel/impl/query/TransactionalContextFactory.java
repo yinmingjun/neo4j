@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,16 +19,13 @@
  */
 package org.neo4j.kernel.impl.query;
 
-import java.util.Map;
-
+import org.neo4j.kernel.api.query.ExecutingQuery;
 import org.neo4j.kernel.impl.coreapi.InternalTransaction;
-import org.neo4j.kernel.impl.query.clientconnection.ClientConnectionInfo;
+import org.neo4j.values.virtual.MapValue;
 
 public interface TransactionalContextFactory
 {
-    TransactionalContext newContext( ClientConnectionInfo descriptor,
-                  InternalTransaction tx,
-                  String queryText,
-                  Map<String,Object> queryParameters
-    );
+    TransactionalContext newContext( InternalTransaction tx, String queryText, MapValue queryParameters );
+
+    TransactionalContext newContextForQuery( InternalTransaction tx, ExecutingQuery executingQuery );
 }

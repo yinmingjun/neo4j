@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,9 +19,12 @@
  */
 package org.neo4j.graphdb.config;
 
+import org.neo4j.annotations.api.PublicApi;
+
 /**
  * Provide the basic operation that one could perform on a set of configurations.
  */
+@PublicApi
 public interface Configuration
 {
     /**
@@ -33,4 +36,17 @@ public interface Configuration
      * of the given property.
      */
     <T> T get( Setting<T> setting );
+
+    /**
+     * Empty configuration without any settings.
+     */
+    Configuration EMPTY = new Configuration()
+    {
+        @Override
+        public <T> T get( Setting<T> setting )
+        {
+            return null;
+        }
+    };
+
 }

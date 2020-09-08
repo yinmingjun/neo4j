@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -39,7 +39,7 @@ public interface ThrowingSupplier<T, E extends Exception>
 
     static <TYPE> ThrowingSupplier<TYPE,RuntimeException> throwingSupplier( Supplier<TYPE> supplier )
     {
-        return new ThrowingSupplier<TYPE,RuntimeException>()
+        return new ThrowingSupplier<>()
         {
             @Override
             public TYPE get()

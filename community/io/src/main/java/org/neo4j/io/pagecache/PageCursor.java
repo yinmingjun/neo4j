@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,11 +19,12 @@
  */
 package org.neo4j.io.pagecache;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.file.Path;
 
 /**
- * A PageCursor is returned from {@link org.neo4j.io.pagecache.PagedFile#io(long, int)},
+ * A PageCursor is returned from {@link PagedFile#io(long, int, org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer)},
  * and is used to scan through pages and process them in a consistent and safe fashion.
  * <p>
  * A page must be processed in the following manner:
@@ -61,8 +62,7 @@ import java.io.IOException;
  * consistent state.
  * </li>
  * </ul>
- * You can alternatively use the {@link #next(long)} method, to navigate the
- * pages you need in a non-linear fashion.
+ * You can alternatively use the {@link #next(long)} method, to navigate the pages you need in an arbitrary order.
  */
 public abstract class PageCursor implements AutoCloseable
 {
@@ -160,6 +160,11 @@ public abstract class PageCursor implements AutoCloseable
     public abstract void putBytes( byte[] data, int arrayOffset, int length );
 
     /**
+     * Set the given number of bytes to the given value, beginning at current offset into the page.
+     */
+    public abstract void putBytes( int bytes, byte value );
+
+    /**
      * Get the signed short at the current page offset, and then increment the offset by one.
      */
     public abstract short getShort();
@@ -194,6 +199,16 @@ public abstract class PageCursor implements AutoCloseable
     public abstract int getOffset();
 
     /**
+     * Mark the current offset. Only one offset can be marked at any time.
+     */
+    public abstract void mark();
+
+    /**
+     * Set the offset to the marked offset. This does not modify the value of the mark.
+     */
+    public abstract void setOffsetToMark();
+
+    /**
      * Get the file page id that the cursor is currently positioned at, or
      * UNBOUND_PAGE_ID if next() has not yet been called on this cursor, or returned false.
      * A call to rewind() will make the current page id unbound as well, until
@@ -213,7 +228,7 @@ public abstract class PageCursor implements AutoCloseable
      * cursor, or returned false.
      * A call to rewind() will make the cursor unbound as well, until next() is called.
      */
-    public abstract File getCurrentFile();
+    public abstract Path getCurrentFile();
 
     /**
      * Rewinds the cursor to its initial condition, as if freshly returned from
@@ -302,6 +317,31 @@ public abstract class PageCursor implements AutoCloseable
     public abstract int copyTo( int sourceOffset, PageCursor targetCursor, int targetOffset, int lengthInBytes );
 
     /**
+     * Copy bytes from the specified offset in this page, into the given buffer, until either the limit of the buffer
+     * is reached, or the end of the page is reached. The actual number of bytes copied is returned.
+     *
+     * @param sourceOffset The offset into this page to copy from.
+     * @param targetBuffer The buffer the data will be copied to.
+     * @return The number of bytes actually copied.
+     */
+    public abstract int copyTo( int sourceOffset, ByteBuffer targetBuffer );
+
+    /**
+     * Shift the specified number of bytes starting from given offset the specified number of bytes to the left or
+     * right. The area
+     * left behind after the shift is not padded and thus is left with garbage.
+     * <p>
+     * Out of bounds flag is raised if either start or end of either source range or target range fall outside end of
+     * this cursor
+     * or if length is negative.
+     *
+     * @param sourceOffset The offset into this page to start moving from.
+     * @param length The number of bytes to move.
+     * @param shift How many steps, in terms of number of bytes, to shift. Can be both positive and negative.
+     */
+    public abstract void shiftBytes( int sourceOffset, int length, int shift );
+
+    /**
      * Discern whether an out-of-bounds access has occurred since the last call to {@link #next()} or
      * {@link #next(long)}, or since the last call to {@link #shouldRetry()} that returned {@code true}, or since the
      * last call to this method.
@@ -342,7 +382,8 @@ public abstract class PageCursor implements AutoCloseable
     public abstract void clearCursorException();
 
     /**
-     * Open a new page cursor with the same pf_flags as this cursor, as if calling the {@link PagedFile#io(long, int)}
+     * Open a new page cursor with the same pf_flags as this cursor,
+     * as if calling the {@link PagedFile#io(long, int, org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer)}
      * on the relevant paged file. This cursor will then also delegate to the linked cursor when checking
      * {@link #shouldRetry()} and {@link #checkAndClearBoundsFlag()}.
      * <p>
@@ -352,7 +393,7 @@ public abstract class PageCursor implements AutoCloseable
      * @param pageId The page id that the linked cursor will be placed at after its first call to {@link #next()}.
      * @return A cursor that is linked with this cursor.
      */
-    public abstract PageCursor openLinkedCursor( long pageId );
+    public abstract PageCursor openLinkedCursor( long pageId ) throws IOException;
 
     /**
      * Sets all bytes in this page to zero, as if this page was newly allocated at the end of the file.

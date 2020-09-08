@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,16 +21,50 @@ package org.neo4j.kernel.impl.query;
 
 import org.neo4j.kernel.api.query.ExecutingQuery;
 
-/**
- * The current (December 2014) usage of this interface expects the {@code end*} methods to be idempotent.
- * That is, once either of them have been invoked with a particular session as parameter, invoking either
- * of them with the same session parameter should do nothing.
- */
 public interface QueryExecutionMonitor
 {
-    void startQueryExecution( ExecutingQuery query );
+    void startProcessing( ExecutingQuery query );
 
-    void endFailure( ExecutingQuery query , Throwable failure );
+    void startExecution( ExecutingQuery query );
 
-    void endSuccess( ExecutingQuery query  );
+    void endFailure( ExecutingQuery query, Throwable failure );
+
+    void endFailure( ExecutingQuery query, String reason );
+
+    void endSuccess( ExecutingQuery query );
+
+    default void beforeEnd( ExecutingQuery query, boolean success ) {}
+
+    QueryExecutionMonitor NO_OP = new QueryExecutionMonitor()
+    {
+        @Override
+        public void startProcessing( ExecutingQuery query )
+        {
+        }
+
+        @Override
+        public void startExecution( ExecutingQuery query )
+        {
+        }
+
+        @Override
+        public void endFailure( ExecutingQuery query, Throwable failure )
+        {
+        }
+
+        @Override
+        public void endFailure( ExecutingQuery query, String reason )
+        {
+        }
+
+        @Override
+        public void endSuccess( ExecutingQuery query )
+        {
+        }
+
+        @Override
+        public void beforeEnd( ExecutingQuery query, boolean success )
+        {
+        }
+    };
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -24,6 +24,8 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
+import org.neo4j.annotations.api.PublicApi;
+
 import static java.util.Spliterators.spliteratorUnknownSize;
 
 /**
@@ -37,6 +39,7 @@ import static java.util.Spliterators.spliteratorUnknownSize;
  *
  * @see ResourceIterable
  */
+@PublicApi
 public interface ResourceIterator<T> extends Iterator<T>, Resource
 {
     /**
@@ -59,7 +62,7 @@ public interface ResourceIterator<T> extends Iterator<T>, Resource
 
     default <R> ResourceIterator<R> map( Function<T,R> map )
     {
-        return new ResourceIterator<R>()
+        return new ResourceIterator<>()
         {
             @Override
             public void close()

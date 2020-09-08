@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,13 +21,11 @@ package org.neo4j.kernel.impl.transaction.log;
 
 import java.io.IOException;
 
-import org.neo4j.cursor.IOCursor;
 import org.neo4j.kernel.impl.transaction.CommittedTransactionRepresentation;
-import org.neo4j.kernel.impl.transaction.log.TransactionMetadataCache.TransactionMetadata;
-import org.neo4j.kernel.impl.transaction.log.entry.CheckPoint;
+import org.neo4j.kernel.impl.transaction.log.files.checkpoint.CheckpointInfo;
 
 /**
- * Accessor of meta data information about transactions.
+ * Accessor of transactions and meta data information about transactions.
  */
 public interface LogicalTransactionStore
 {
@@ -43,13 +41,12 @@ public interface LogicalTransactionStore
      * or if the transaction has been committed, but information about it is no longer available for some reason.
      * @throws IOException if there was an I/O related error looking for the start transaction.
      */
-    TransactionCursor getTransactions( long transactionIdToStartFrom )
-            throws NoSuchTransactionException, IOException;
+    TransactionCursor getTransactions( long transactionIdToStartFrom ) throws IOException;
 
     /**
      * Acquires a {@link TransactionCursor cursor} which will provide {@link CommittedTransactionRepresentation}
      * instances for committed transactions, starting from the specified {@link LogPosition}.
-     * This is useful for placing a cursor at a position referred to by a {@link CheckPoint}.
+     * This is useful for placing a cursor at a position referred to by a {@link CheckpointInfo}.
      * Transactions will be returned from the cursor in transaction-id-sequential order.
      *
      * @param position {@link LogPosition} of the first transaction that the cursor will return.
@@ -59,18 +56,19 @@ public interface LogicalTransactionStore
      * or if the transaction has been committed, but information about it is no longer available for some reason.
      * @throws IOException if there was an I/O related error looking for the start transaction.
      */
-    TransactionCursor getTransactions( LogPosition position )
-            throws NoSuchTransactionException, IOException;
+    TransactionCursor getTransactions( LogPosition position ) throws IOException;
 
     /**
-     * Looks up meta data about a committed transaction.
+     * Acquires a {@link TransactionCursor cursor} which will provide {@link CommittedTransactionRepresentation}
+     * instances for committed transactions, starting from the end of the whole transaction stream
+     * back to (and including) the transaction at {@link LogPosition}.
+     * Transactions will be returned in reverse order from the end of the transaction stream and backwards in
+     * descending order of transaction id.
      *
-     * @param transactionId id of the transaction to look up meta data for.
-     * @return {@link TransactionMetadata} containing meta data about the specified transaction.
-     * @throws NoSuchTransactionException if the requested transaction hasn't been committed,
-     * or if the transaction has been committed, but information about it is no longer available for some reason.
-     * @throws IOException if there was an I/O related error during reading the meta data.
+     * @param backToPosition {@link LogPosition} of the lowest (last to be returned) transaction.
+     * @return an {@link TransactionCursor} capable of returning {@link CommittedTransactionRepresentation} instances
+     * for committed transactions in the given range in reverse order.
+     * @throws IOException if there was an I/O related error looking for the start transaction.
      */
-    TransactionMetadataCache.TransactionMetadata getMetadataFor( long transactionId )
-            throws NoSuchTransactionException, IOException;
+    TransactionCursor getTransactionsInReverseOrder( LogPosition backToPosition ) throws IOException;
 }

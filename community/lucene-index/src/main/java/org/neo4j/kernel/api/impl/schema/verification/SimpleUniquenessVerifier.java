@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,13 +19,13 @@
  */
 package org.neo4j.kernel.api.impl.schema.verification;
 
-import org.apache.lucene.index.Fields;
+import org.apache.lucene.index.FieldInfo;
+import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.search.SimpleCollector;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.util.BytesRef;
 
@@ -33,9 +33,11 @@ import java.io.IOException;
 import java.util.List;
 
 import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
+import org.neo4j.kernel.api.impl.index.SearcherReference;
 import org.neo4j.kernel.api.impl.index.partition.PartitionSearcher;
 import org.neo4j.kernel.api.impl.schema.LuceneDocumentStructure;
-import org.neo4j.kernel.api.index.PropertyAccessor;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
+import org.neo4j.values.storable.Value;
 
 /**
  * A {@link UniquenessVerifier} that is able to verify value uniqueness inside a single index partition using
@@ -49,15 +51,15 @@ import org.neo4j.kernel.api.index.PropertyAccessor;
  */
 public class SimpleUniquenessVerifier implements UniquenessVerifier
 {
-    private final PartitionSearcher partitionSearcher;
+    private final SearcherReference searcherReference;
 
-    public SimpleUniquenessVerifier( PartitionSearcher partitionSearcher )
+    public SimpleUniquenessVerifier( SearcherReference searcherReference )
     {
-        this.partitionSearcher = partitionSearcher;
+        this.searcherReference = searcherReference;
     }
 
     @Override
-    public void verify( PropertyAccessor accessor, int[] propKeyIds ) throws IndexEntryConflictException, IOException
+    public void verify( NodePropertyAccessor accessor, int[] propKeyIds ) throws IndexEntryConflictException, IOException
     {
         try
         {
@@ -65,22 +67,21 @@ public class SimpleUniquenessVerifier implements UniquenessVerifier
             IndexSearcher searcher = indexSearcher();
             for ( LeafReaderContext leafReaderContext : searcher.getIndexReader().leaves() )
             {
-                Fields fields = leafReaderContext.reader().fields();
-                for ( String field : fields )
+                LeafReader leafReader = leafReaderContext.reader();
+                for ( FieldInfo fieldInfo : leafReader.getFieldInfos() )
                 {
-                    if ( LuceneDocumentStructure.NODE_ID_KEY.equals( field ) )
+                    String field = fieldInfo.name;
+                    if ( LuceneDocumentStructure.useFieldForUniquenessVerification( field ) )
                     {
-                        continue;
-                    }
-
-                    TermsEnum terms = LuceneDocumentStructure.originalTerms( fields.terms( field ), field );
-                    BytesRef termsRef;
-                    while ( (termsRef = terms.next()) != null )
-                    {
-                        if ( terms.docFreq() > 1 )
+                        TermsEnum terms = leafReader.terms( field ).iterator();
+                        BytesRef termsRef;
+                        while ( (termsRef = terms.next()) != null )
                         {
-                            collector.reset();
-                            searcher.search( new TermQuery( new Term( field, termsRef ) ), collector );
+                            if ( terms.docFreq() > 1 )
+                            {
+                                collector.init( terms.docFreq() );
+                                searcher.search( new TermQuery( new Term( field, termsRef ) ), collector );
+                            }
                         }
                     }
                 }
@@ -98,16 +99,16 @@ public class SimpleUniquenessVerifier implements UniquenessVerifier
     }
 
     @Override
-    public void verify( PropertyAccessor accessor, int[] propKeyIds, List<Object> updatedPropertyValues )
+    public void verify( NodePropertyAccessor accessor, int[] propKeyIds, List<Value[]> updatedValueTuples )
             throws IndexEntryConflictException, IOException
     {
         try
         {
             DuplicateCheckingCollector collector = DuplicateCheckingCollector.forProperties( accessor, propKeyIds );
-            for ( Object propertyValue : updatedPropertyValues )
+            for ( Value[] valueTuple : updatedValueTuples )
             {
-                collector.reset();
-                Query query = LuceneDocumentStructure.newSeekQuery( propertyValue );
+                collector.init();
+                Query query = LuceneDocumentStructure.newSeekQuery( valueTuple );
                 indexSearcher().search( query, collector );
             }
         }
@@ -125,11 +126,11 @@ public class SimpleUniquenessVerifier implements UniquenessVerifier
     @Override
     public void close() throws IOException
     {
-        partitionSearcher.close();
+        searcherReference.close();
     }
 
     private IndexSearcher indexSearcher()
     {
-        return partitionSearcher.getIndexSearcher();
+        return searcherReference.getIndexSearcher();
     }
 }

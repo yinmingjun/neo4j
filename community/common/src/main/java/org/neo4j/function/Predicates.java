@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,48 +21,50 @@ package org.neo4j.function;
 
 import java.time.Clock;
 import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntPredicate;
+import java.util.function.LongPredicate;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.annotation.Nonnull;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.neo4j.function.ThrowingPredicate.throwingPredicate;
 import static org.neo4j.function.ThrowingSupplier.throwingSupplier;
 
 /**
  * Constructors for basic {@link Predicate} types
  */
-public class Predicates
+public final class Predicates
 {
-    private static final Predicate TRUE = item -> true;
+    public static final IntPredicate ALWAYS_TRUE_INT = v -> true;
+    public static final IntPredicate ALWAYS_FALSE_INT = v -> false;
+    public static final LongPredicate ALWAYS_FALSE_LONG = v -> false;
 
-    private static final Predicate FALSE = item -> false;
-
-    private static final Predicate NOT_NULL = item -> item != null;
     private static final int DEFAULT_POLL_INTERVAL = 20;
+    private static final int DEFAULT_TIMEOUT_MS = 20_000;
 
-    @SuppressWarnings( "unchecked" )
+    private Predicates()
+    {
+    }
+
     public static <T> Predicate<T> alwaysTrue()
     {
-        return TRUE;
+        return x -> true;
     }
 
-    @SuppressWarnings( "unchecked" )
     public static <T> Predicate<T> alwaysFalse()
     {
-        return FALSE;
+        return x -> false;
     }
 
-    @SuppressWarnings( "unchecked" )
     public static <T> Predicate<T> notNull()
     {
-        return NOT_NULL;
+        return Objects::nonNull;
     }
 
     @SafeVarargs
@@ -107,18 +109,18 @@ public class Predicates
         };
     }
 
-    public static <T> Predicate<T> instanceOf( @Nonnull final Class clazz )
+    public static <T> Predicate<T> instanceOf( @Nonnull final Class<?> clazz )
     {
-        return item -> item != null && clazz.isInstance( item );
+        return clazz::isInstance;
     }
 
-    public static <T> Predicate<T> instanceOfAny( final Class... classes )
+    public static <T> Predicate<T> instanceOfAny( final Class<?>... classes )
     {
         return item ->
         {
             if ( item != null )
             {
-                for ( Class clazz : classes )
+                for ( Class<?> clazz : classes )
                 {
                     if ( clazz.isInstance( item ) )
                     {
@@ -127,20 +129,6 @@ public class Predicates
                 }
             }
             return false;
-        };
-    }
-
-    public static <T> Predicate<T> noDuplicates()
-    {
-        return new Predicate<T>()
-        {
-            private final Set<T> visitedItems = new HashSet<>();
-
-            @Override
-            public boolean test( T item )
-            {
-                return visitedItems.add( item );
-            }
         };
     }
 
@@ -174,21 +162,26 @@ public class Predicates
         return composed.lastInput();
     }
 
-    public static void await( Supplier<Boolean> condition, long timeout, TimeUnit unit ) throws TimeoutException
+    public static void await( BooleanSupplier condition ) throws TimeoutException
     {
-        awaitEx( condition::get, timeout, unit );
+        awaitEx( condition::getAsBoolean, DEFAULT_TIMEOUT_MS, MILLISECONDS );
+    }
+
+    public static void await( BooleanSupplier condition, long timeout, TimeUnit unit ) throws TimeoutException
+    {
+        awaitEx( condition::getAsBoolean, timeout, unit );
     }
 
     public static <EXCEPTION extends Exception> void awaitEx( ThrowingSupplier<Boolean,EXCEPTION> condition,
             long timeout, TimeUnit unit ) throws TimeoutException, EXCEPTION
     {
-        awaitEx( condition, timeout, unit, DEFAULT_POLL_INTERVAL, TimeUnit.MILLISECONDS );
+        awaitEx( condition, timeout, unit, DEFAULT_POLL_INTERVAL, MILLISECONDS );
     }
 
-    public static void await( Supplier<Boolean> condition, long timeout, TimeUnit timeoutUnit, long pollInterval,
+    public static void await( BooleanSupplier condition, long timeout, TimeUnit timeoutUnit, long pollInterval,
             TimeUnit pollUnit ) throws TimeoutException
     {
-        awaitEx( condition::get, timeout, timeoutUnit, pollInterval, pollUnit );
+        awaitEx( condition::getAsBoolean, timeout, timeoutUnit, pollInterval, pollUnit );
     }
 
     public static <EXCEPTION extends Exception> void awaitEx( ThrowingSupplier<Boolean,EXCEPTION> condition,
@@ -245,11 +238,6 @@ public class Predicates
         return in( Arrays.asList( allowed ) );
     }
 
-    public static <T> Predicate<T> not( Predicate<T> predicate )
-    {
-        return (t) -> !predicate.test( t );
-    }
-
     public static <T> Predicate<T> in( final Iterable<T> allowed )
     {
         return item ->
@@ -264,8 +252,6 @@ public class Predicates
             return false;
         };
     }
-
-    public static IntPredicate ALWAYS_TRUE_INT = v -> true;
 
     public static IntPredicate any( int[] values )
     {

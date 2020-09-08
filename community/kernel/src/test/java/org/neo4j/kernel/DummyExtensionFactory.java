@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,23 +19,21 @@
  */
 package org.neo4j.kernel;
 
-import java.util.function.Supplier;
-
-import org.neo4j.kernel.configuration.Config;
-import org.neo4j.kernel.extension.KernelExtensionFactory;
-import org.neo4j.kernel.impl.spi.KernelContext;
-import org.neo4j.kernel.internal.KernelData;
+import org.neo4j.annotations.service.ServiceProvider;
+import org.neo4j.configuration.Config;
+import org.neo4j.dbms.database.DatabaseManager;
+import org.neo4j.kernel.extension.ExtensionFactory;
+import org.neo4j.kernel.extension.context.ExtensionContext;
 import org.neo4j.kernel.lifecycle.Lifecycle;
 
-public class DummyExtensionFactory extends KernelExtensionFactory<DummyExtensionFactory.Dependencies>
+@ServiceProvider
+public class DummyExtensionFactory extends ExtensionFactory<DummyExtensionFactory.Dependencies>
 {
     public interface Dependencies
     {
         Config getConfig();
 
-        KernelData getKernel();
-
-        Supplier<NeoStoreDataSource> getNeoStoreDataSource();
+        DatabaseManager<?> getDatabaseManager();
     }
 
     static final String EXTENSION_ID = "dummy";
@@ -46,7 +44,7 @@ public class DummyExtensionFactory extends KernelExtensionFactory<DummyExtension
     }
 
     @Override
-    public Lifecycle newInstance( KernelContext context, Dependencies dependencies ) throws Throwable
+    public Lifecycle newInstance( ExtensionContext context, Dependencies dependencies )
     {
         return new DummyExtension( dependencies );
     }

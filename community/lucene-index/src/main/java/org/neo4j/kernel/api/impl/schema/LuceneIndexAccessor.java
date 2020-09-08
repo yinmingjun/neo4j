@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,191 +19,123 @@
  */
 package org.neo4j.kernel.api.impl.schema;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 
-import org.neo4j.collection.primitive.PrimitiveLongSet;
-import org.neo4j.graphdb.ResourceIterator;
-import org.neo4j.helpers.collection.BoundedIterable;
+import org.neo4j.internal.helpers.collection.BoundedIterable;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
-import org.neo4j.kernel.api.impl.schema.reader.LuceneAllEntriesIndexAccessorReader;
-import org.neo4j.kernel.api.impl.schema.writer.LuceneIndexWriter;
-import org.neo4j.kernel.api.index.IndexAccessor;
-import org.neo4j.kernel.api.index.IndexEntryUpdate;
+import org.neo4j.kernel.api.impl.index.AbstractLuceneIndexAccessor;
+import org.neo4j.kernel.api.index.IndexReader;
 import org.neo4j.kernel.api.index.IndexUpdater;
-import org.neo4j.kernel.api.index.PropertyAccessor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
+import org.neo4j.kernel.impl.api.LuceneIndexValueValidator;
 import org.neo4j.kernel.impl.api.index.IndexUpdateMode;
-import org.neo4j.storageengine.api.schema.IndexReader;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
+import org.neo4j.values.storable.Value;
 
-public class LuceneIndexAccessor implements IndexAccessor
+public class LuceneIndexAccessor extends AbstractLuceneIndexAccessor<IndexReader,SchemaIndex>
 {
-    private final LuceneIndexWriter writer;
-    private final SchemaIndex luceneIndex;
-    private final IndexDescriptor descriptor;
+    private final LuceneIndexValueValidator valueValidator;
 
-    public LuceneIndexAccessor( SchemaIndex luceneIndex, IndexDescriptor descriptor ) throws IOException
+    public LuceneIndexAccessor( SchemaIndex luceneIndex, IndexDescriptor descriptor )
     {
-        this.luceneIndex = luceneIndex;
-        this.descriptor = descriptor;
-        this.writer = luceneIndex.isReadOnly() ? null : luceneIndex.getIndexWriter();
+        super( luceneIndex, descriptor );
+        this.valueValidator = new LuceneIndexValueValidator( descriptor );
     }
 
     @Override
-    public IndexUpdater newUpdater( IndexUpdateMode mode )
+    protected IndexUpdater getIndexUpdater( IndexUpdateMode mode )
     {
-        if ( luceneIndex.isReadOnly() )
-        {
-            throw new UnsupportedOperationException( "Can't create updated for read only index." );
-        }
-        switch ( mode )
-        {
-        case ONLINE:
-            return new LuceneIndexUpdater( writer, false );
-
-        case RECOVERY:
-            return new LuceneIndexUpdater( writer, true );
-
-        default:
-            throw new IllegalArgumentException( "Unsupported update mode: " + mode );
-        }
+        return new LuceneSchemaIndexUpdater( mode.requiresIdempotency(), mode.requiresRefresh() );
     }
 
     @Override
-    public void drop() throws IOException
+    public BoundedIterable<Long> newAllEntriesReader( long fromIdInclusive, long toIdExclusive, PageCursorTracer cursorTracer )
     {
-        luceneIndex.drop();
+        return super.newAllEntriesReader( LuceneDocumentStructure::getNodeId, fromIdInclusive, toIdExclusive );
     }
 
     @Override
-    public void force() throws IOException
-    {
-        luceneIndex.markAsOnline();
-        luceneIndex.maybeRefreshBlocking();
-    }
-
-    @Override
-    public void flush() throws IOException
-    {
-        luceneIndex.maybeRefreshBlocking();
-    }
-
-    @Override
-    public void close() throws IOException
-    {
-        luceneIndex.close();
-    }
-
-    @Override
-    public IndexReader newReader()
+    public void verifyDeferredConstraints( NodePropertyAccessor nodePropertyAccessor )
+            throws IndexEntryConflictException
     {
         try
         {
-            return luceneIndex.getIndexReader();
+            luceneIndex.verifyUniqueness( nodePropertyAccessor, descriptor.schema().getPropertyIds() );
         }
         catch ( IOException e )
         {
-            throw new LuceneIndexReaderAcquisitionException( "Can't acquire index reader", e );
+            throw new UncheckedIOException( e );
         }
     }
 
     @Override
-    public BoundedIterable<Long> newAllEntriesReader()
+    public void validateBeforeCommit( Value[] tuple )
     {
-        return new LuceneAllEntriesIndexAccessorReader( luceneIndex.allDocumentsReader() );
+        valueValidator.validate( tuple );
     }
 
-    @Override
-    public ResourceIterator<File> snapshotFiles() throws IOException
+    private class LuceneSchemaIndexUpdater extends AbstractLuceneIndexUpdater
     {
-        return luceneIndex.snapshot();
-    }
 
-    @Override
-    public void verifyDeferredConstraints( PropertyAccessor propertyAccessor )
-            throws IndexEntryConflictException, IOException
-    {
-        luceneIndex.verifyUniqueness( propertyAccessor, descriptor.schema().getPropertyIds() );
-    }
-
-    private class LuceneIndexUpdater implements IndexUpdater
-    {
-        private final boolean isRecovery;
-        private final LuceneIndexWriter writer;
-
-        private LuceneIndexUpdater( LuceneIndexWriter indexWriter, boolean isRecovery )
+        LuceneSchemaIndexUpdater( boolean idempotent, boolean refresh )
         {
-            this.isRecovery = isRecovery;
-            this.writer = indexWriter;
+            super( idempotent, refresh );
         }
 
         @Override
-        public void process( IndexEntryUpdate update ) throws IOException
+        protected void addIdempotent( long nodeId, Value[] values )
         {
-            // we do not support adding partial entries
-            assert update.indexKey().schema().equals( descriptor.schema() );
-
-            switch ( update.updateMode() )
+            try
             {
-            case ADDED:
-                if ( isRecovery )
-                {
-                    addRecovered( update.getEntityId(), update.values() );
-                }
-                else
-                {
-                    add( update.getEntityId(), update.values() );
-                }
-                break;
-            case CHANGED:
-                change( update.getEntityId(), update.values() );
-                break;
-            case REMOVED:
-                remove( update.getEntityId() );
-                break;
-            default:
-                throw new UnsupportedOperationException();
+                writer.updateDocument( LuceneDocumentStructure.newTermForChangeOrRemove( nodeId ),
+                        LuceneDocumentStructure.documentRepresentingProperties( nodeId, values ) );
+            }
+            catch ( IOException e )
+            {
+                throw new UncheckedIOException( e );
             }
         }
 
         @Override
-        public void close() throws IOException, IndexEntryConflictException
+        protected void add( long nodeId, Value[] values )
         {
-            luceneIndex.maybeRefreshBlocking();
+            try
+            {
+                writer.addDocument( LuceneDocumentStructure.documentRepresentingProperties( nodeId, values ) );
+            }
+            catch ( IOException e )
+            {
+                throw new UncheckedIOException( e );
+            }
         }
 
         @Override
-        public void remove( PrimitiveLongSet nodeIds ) throws IOException
+        protected void change( long nodeId, Value[] values )
         {
-            nodeIds.visitKeys( nodeId ->
+            try
             {
-                remove( nodeId );
-                return false;
-            } );
+                writer.updateDocument( LuceneDocumentStructure.newTermForChangeOrRemove( nodeId ),
+                        LuceneDocumentStructure.documentRepresentingProperties( nodeId, values ) );
+            }
+            catch ( IOException e )
+            {
+                throw new UncheckedIOException( e );
+            }
         }
 
-        private void addRecovered( long nodeId, Object[] values ) throws IOException
+        @Override
+        protected void remove( long nodeId )
         {
-
-            writer.updateDocument( LuceneDocumentStructure.newTermForChangeOrRemove( nodeId ),
-                    LuceneDocumentStructure.documentRepresentingProperties( nodeId, values ) );
-        }
-
-        private void add( long nodeId, Object[] values ) throws IOException
-        {
-            writer.addDocument( LuceneDocumentStructure.documentRepresentingProperties( nodeId, values ) );
-        }
-
-        private void change( long nodeId, Object[] values ) throws IOException
-        {
-            writer.updateDocument( LuceneDocumentStructure.newTermForChangeOrRemove( nodeId ),
-                    LuceneDocumentStructure.documentRepresentingProperties( nodeId, values ) );
-        }
-
-        protected void remove( long nodeId ) throws IOException
-        {
-            writer.deleteDocuments( LuceneDocumentStructure.newTermForChangeOrRemove( nodeId ) );
+            try
+            {
+                writer.deleteDocuments( LuceneDocumentStructure.newTermForChangeOrRemove( nodeId ) );
+            }
+            catch ( IOException e )
+            {
+                throw new UncheckedIOException( e );
+            }
         }
     }
 }
-

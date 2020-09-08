@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,15 +19,14 @@
  */
 package org.neo4j.server.rest.repr;
 
-import static org.junit.Assert.assertEquals;
+import org.junit.jupiter.api.Test;
 
 import java.net.URI;
-
 import javax.ws.rs.core.Response;
 
-import org.junit.Test;
-
 import org.neo4j.server.rest.repr.formats.JsonFormat;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class OutputFormatTest
 {
@@ -36,11 +35,11 @@ public class OutputFormatTest
     {
         URI relativeURI = new URI( "/test/path" );
 
-        OutputFormat outputFormat = new OutputFormat( new JsonFormat(), new URI( "http://base.local:8765/" ), null );
+        OutputFormat outputFormat = new OutputFormat( new JsonFormat(), new URI( "http://base.local:8765/" ) );
 
         Response response = outputFormat.seeOther( relativeURI );
 
         assertEquals( 303, response.getStatus() );
-        assertEquals( new URI("http://base.local:8765/test/path"), response.getMetadata().getFirst( "Location" ) );
+        assertEquals( new URI( "http://base.local:8765/test/path" ), response.getMetadata().getFirst( "Location" ) );
     }
 }

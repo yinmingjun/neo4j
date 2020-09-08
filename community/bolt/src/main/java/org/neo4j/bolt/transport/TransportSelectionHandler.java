@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,47 +20,55 @@
 package org.neo4j.bolt.transport;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpServerCodec;
+import io.netty.handler.codec.http.websocketx.WebSocketFrameAggregator;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslHandler;
 
 import java.util.List;
-import java.util.Map;
-import java.util.function.BiFunction;
 
+import org.neo4j.bolt.BoltChannel;
+import org.neo4j.bolt.transport.pipeline.ProtocolHandshaker;
+import org.neo4j.bolt.transport.pipeline.WebSocketFrameTranslator;
+import org.neo4j.internal.helpers.Exceptions;
+import org.neo4j.logging.Log;
 import org.neo4j.logging.LogProvider;
 
-import static org.neo4j.bolt.transport.ProtocolChooser.BOLT_MAGIC_PREAMBLE;
+import static org.neo4j.bolt.transport.pipeline.ProtocolHandshaker.BOLT_MAGIC_PREAMBLE;
 
 public class TransportSelectionHandler extends ByteToMessageDecoder
 {
     private static final String WEBSOCKET_MAGIC = "GET ";
     private static final int MAX_WEBSOCKET_HANDSHAKE_SIZE = 65536;
+    private static final int MAX_WEBSOCKET_FRAME_SIZE = 65536;
 
+    private final BoltChannel boltChannel;
     private final SslContext sslCtx;
     private final boolean encryptionRequired;
     private final boolean isEncrypted;
     private final LogProvider logging;
-    private final Map<Long, BiFunction<Channel, Boolean, BoltProtocol>> protocolVersions;
+    private final BoltProtocolFactory boltProtocolFactory;
+    private final Log log;
 
-    TransportSelectionHandler( SslContext sslCtx, boolean encryptionRequired, boolean isEncrypted, LogProvider logging,
-                               Map<Long, BiFunction<Channel, Boolean, BoltProtocol>> protocolVersions )
+    TransportSelectionHandler( BoltChannel boltChannel, SslContext sslCtx, boolean encryptionRequired, boolean isEncrypted, LogProvider logging,
+            BoltProtocolFactory boltProtocolFactory )
     {
+        this.boltChannel = boltChannel;
         this.sslCtx = sslCtx;
         this.encryptionRequired = encryptionRequired;
         this.isEncrypted = isEncrypted;
         this.logging = logging;
-        this.protocolVersions = protocolVersions;
+        this.boltProtocolFactory = boltProtocolFactory;
+        this.log = logging.getLog( TransportSelectionHandler.class );
     }
 
     @Override
-    protected void decode( ChannelHandlerContext ctx, ByteBuf in, List<Object> out ) throws Exception
+    protected void decode( ChannelHandlerContext ctx, ByteBuf in, List<Object> out )
     {
         // Will use the first five bytes to detect a protocol.
         if ( in.readableBytes() < 5 )
@@ -70,6 +78,7 @@ public class TransportSelectionHandler extends ByteToMessageDecoder
 
         if ( detectSsl( in ) )
         {
+            assertSslNotAlreadyConfigured( ctx );
             enableSsl( ctx );
         }
         else if ( isHttp( in ) )
@@ -88,7 +97,42 @@ public class TransportSelectionHandler extends ByteToMessageDecoder
         }
     }
 
-    private boolean isBoltPreamble( ByteBuf in )
+    private void assertSslNotAlreadyConfigured( ChannelHandlerContext ctx )
+    {
+        ChannelPipeline p = ctx.pipeline();
+        if ( p.get( SslHandler.class ) != null )
+        {
+            log.error( "Fatal error: multiple levels of SSL encryption detected." +
+                       " Terminating connection: %s", ctx.channel() );
+            ctx.close();
+        }
+    }
+
+    @Override
+    public void exceptionCaught( ChannelHandlerContext ctx, Throwable cause ) throws Exception
+    {
+        try
+        {
+            // Netty throws a NativeIoException on connection reset - directly importing that class
+            // caused a host of linking errors, because it depends on JNI to work. Hence, we just
+            // test on the message we know we'll get.
+            if ( Exceptions.contains( cause, e -> e.getMessage().contains( "Connection reset by peer" ) ) )
+            {
+                log.warn( "Fatal error occurred when initialising pipeline, " +
+                        "remote peer unexpectedly closed connection: %s", ctx.channel() );
+            }
+            else
+            {
+                log.error( "Fatal error occurred when initialising pipeline: " + ctx.channel(), cause );
+            }
+        }
+        finally
+        {
+            ctx.close();
+        }
+    }
+
+    private static boolean isBoltPreamble( ByteBuf in )
     {
         return in.getInt( 0 ) == BOLT_MAGIC_PREAMBLE;
     }
@@ -98,7 +142,7 @@ public class TransportSelectionHandler extends ByteToMessageDecoder
         return sslCtx != null && SslHandler.isEncrypted( buf );
     }
 
-    private boolean isHttp( ByteBuf buf )
+    private static boolean isHttp( ByteBuf buf )
     {
         for ( int i = 0; i < WEBSOCKET_MAGIC.length(); ++i )
         {
@@ -114,15 +158,14 @@ public class TransportSelectionHandler extends ByteToMessageDecoder
     {
         ChannelPipeline p = ctx.pipeline();
         p.addLast( sslCtx.newHandler( ctx.alloc() ) );
-        p.addLast( new TransportSelectionHandler( null, encryptionRequired, true, logging, protocolVersions ) );
+        p.addLast( new TransportSelectionHandler( boltChannel, null, encryptionRequired, true, logging, boltProtocolFactory ) );
         p.remove( this );
     }
 
     private void switchToSocket( ChannelHandlerContext ctx )
     {
         ChannelPipeline p = ctx.pipeline();
-        p.addLast( new SocketTransportHandler(
-                new ProtocolChooser( protocolVersions, encryptionRequired, isEncrypted ), logging ) );
+        p.addLast( newHandshaker() );
         p.remove( this );
     }
 
@@ -132,10 +175,15 @@ public class TransportSelectionHandler extends ByteToMessageDecoder
         p.addLast(
                 new HttpServerCodec(),
                 new HttpObjectAggregator( MAX_WEBSOCKET_HANDSHAKE_SIZE ),
-                new WebSocketServerProtocolHandler( "/" ),
+                new WebSocketServerProtocolHandler( "/", null, false, MAX_WEBSOCKET_FRAME_SIZE ),
+                new WebSocketFrameAggregator( MAX_WEBSOCKET_FRAME_SIZE ),
                 new WebSocketFrameTranslator(),
-                new SocketTransportHandler(
-                        new ProtocolChooser( protocolVersions, encryptionRequired, isEncrypted ), logging ) );
+                newHandshaker() );
         p.remove( this );
+    }
+
+    private ProtocolHandshaker newHandshaker()
+    {
+        return new ProtocolHandshaker( boltProtocolFactory, boltChannel, logging, encryptionRequired, isEncrypted );
     }
 }

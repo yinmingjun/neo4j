@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,38 +19,38 @@
  */
 package org.neo4j.consistency.report;
 
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.consistency.RecordType;
 import org.neo4j.consistency.checking.ComparativeRecordChecker;
+import org.neo4j.consistency.report.ConsistencyReporter.ReportHandler;
 import org.neo4j.consistency.store.RecordAccess;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
 import org.neo4j.kernel.impl.store.record.PropertyRecord;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
-
 import static org.neo4j.consistency.report.ConsistencyReporter.NO_MONITOR;
+import static org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer.NULL;
 
-public class PendingReferenceCheckTest
+class PendingReferenceCheckTest
 {
-    // given
+    private PendingReferenceCheck<PropertyRecord> referenceCheck;
+
+    @SuppressWarnings( "unchecked" )
+    @BeforeEach
+    void setUp()
     {
         RecordAccess records = mock( RecordAccess.class );
-        @SuppressWarnings("unchecked")
-        ConsistencyReporter.ReportHandler handler =
-                new ConsistencyReporter.ReportHandler(
-                        mock( InconsistencyReport.class ),
-                        mock( ConsistencyReporter.ProxyFactory.class ),
-                        RecordType.PROPERTY,
-                        records, new PropertyRecord( 0 ), NO_MONITOR );
+        ReportHandler handler = new ReportHandler( mock( InconsistencyReport.class ), mock( ConsistencyReporter.ProxyFactory.class ), RecordType.PROPERTY,
+                records, new PropertyRecord( 0 ), NO_MONITOR, PageCacheTracer.NULL );
         this.referenceCheck = new PendingReferenceCheck<>( handler, mock( ComparativeRecordChecker.class ) );
     }
 
-    private final PendingReferenceCheck<PropertyRecord> referenceCheck;
-
     @Test
-    public void shouldAllowSkipAfterSkip() throws Exception
+    void shouldAllowSkipAfterSkip()
     {
         // given
         referenceCheck.skip();
@@ -59,134 +59,91 @@ public class PendingReferenceCheckTest
     }
 
     @Test
-    public void shouldAllowSkipAfterCheckReference() throws Exception
+    void shouldAllowSkipAfterCheckReference()
     {
         // given
-        referenceCheck.checkReference( new PropertyRecord( 0 ), null );
+        referenceCheck.checkReference( new PropertyRecord( 0 ), null, NULL );
         // when
         referenceCheck.skip();
     }
 
     @Test
-    public void shouldAllowSkipAfterCheckDiffReference() throws Exception
+    void shouldAllowSkipAfterCheckDiffReference()
     {
         // given
-        referenceCheck.checkDiffReference( new PropertyRecord( 0 ), new PropertyRecord( 0 ), null );
+        referenceCheck.checkDiffReference( new PropertyRecord( 0 ), new PropertyRecord( 0 ), null, NULL );
         // when
         referenceCheck.skip();
     }
 
     @Test
-    public void shouldNotAllowCheckReferenceAfterSkip() throws Exception
+    void shouldNotAllowCheckReferenceAfterSkip()
     {
         // given
         referenceCheck.skip();
 
         // when
-        try
-        {
-            referenceCheck.checkReference( new PropertyRecord( 0 ), null );
-            fail( "expected exception" );
-        }
-        // then
-        catch ( IllegalStateException expected )
-        {
-            assertEquals( "Reference has already been checked.", expected.getMessage() );
-        }
+        var exception =
+                assertThrows( IllegalStateException.class, () -> referenceCheck.checkReference( new PropertyRecord( 0 ), null, NULL ) );
+        assertEquals( "Reference has already been checked.", exception.getMessage() );
     }
 
     @Test
-    public void shouldNotAllowCheckDiffReferenceAfterSkip() throws Exception
+    void shouldNotAllowCheckDiffReferenceAfterSkip()
     {
         // given
         referenceCheck.skip();
 
         // when
-        try
-        {
-            referenceCheck.checkDiffReference( new PropertyRecord( 0 ), new PropertyRecord( 0 ), null );
-            fail( "expected exception" );
-        }
-        // then
-        catch ( IllegalStateException expected )
-        {
-            assertEquals( "Reference has already been checked.", expected.getMessage() );
-        }
+        var exception = assertThrows( IllegalStateException.class,
+                () -> referenceCheck.checkDiffReference( new PropertyRecord( 0 ), new PropertyRecord( 0 ), null, NULL ) );
+        assertEquals( "Reference has already been checked.", exception.getMessage() );
     }
 
     @Test
-    public void shouldNotAllowCheckReferenceAfterCheckReference() throws Exception
+    void shouldNotAllowCheckReferenceAfterCheckReference()
     {
         // given
-        referenceCheck.checkReference( new PropertyRecord( 0 ), null );
+        referenceCheck.checkReference( new PropertyRecord( 0 ), null, NULL );
 
         // when
-        try
-        {
-            referenceCheck.checkReference( new PropertyRecord( 0 ), null );
-            fail( "expected exception" );
-        }
-        // then
-        catch ( IllegalStateException expected )
-        {
-            assertEquals( "Reference has already been checked.", expected.getMessage() );
-        }
+        var exception = assertThrows( IllegalStateException.class, () -> referenceCheck.checkReference( new PropertyRecord( 0 ), null, NULL ) );
+        assertEquals( "Reference has already been checked.", exception.getMessage() );
     }
 
     @Test
-    public void shouldNotAllowCheckDiffReferenceAfterCheckReference() throws Exception
+    void shouldNotAllowCheckDiffReferenceAfterCheckReference()
     {
         // given
-        referenceCheck.checkReference( new PropertyRecord( 0 ), null );
+        referenceCheck.checkReference( new PropertyRecord( 0 ), null, NULL );
 
         // when
-        try
-        {
-            referenceCheck.checkDiffReference( new PropertyRecord( 0 ), new PropertyRecord( 0 ), null );
-            fail( "expected exception" );
-        }
-        // then
-        catch ( IllegalStateException expected )
-        {
-            assertEquals( "Reference has already been checked.", expected.getMessage() );
-        }
+        var exception = assertThrows( IllegalStateException.class,
+                () -> referenceCheck.checkDiffReference( new PropertyRecord( 0 ), new PropertyRecord( 0 ), null, NULL ) );
+        assertEquals( "Reference has already been checked.", exception.getMessage() );
     }
 
     @Test
-    public void shouldNotAllowCheckReferenceAfterCheckDiffReference() throws Exception
+    void shouldNotAllowCheckReferenceAfterCheckDiffReference()
     {
         // given
-        referenceCheck.checkDiffReference( new PropertyRecord( 0 ), new PropertyRecord( 0 ), null );
+        referenceCheck.checkDiffReference( new PropertyRecord( 0 ), new PropertyRecord( 0 ), null, NULL );
 
         // when
-        try
-        {
-            referenceCheck.checkReference( new PropertyRecord( 0 ), null );
-            fail( "expected exception" );
-        }
-        // then
-        catch ( IllegalStateException expected )
-        {
-            assertEquals( "Reference has already been checked.", expected.getMessage() );
-        }
+        IllegalStateException exception =
+                assertThrows( IllegalStateException.class, () -> referenceCheck.checkReference( new PropertyRecord( 0 ), null, NULL ) );
+        assertEquals( "Reference has already been checked.", exception.getMessage() );
     }
 
     @Test
-    public void shouldNotAllowCheckDiffReferenceAfterCheckDiffReference() throws Exception
+    void shouldNotAllowCheckDiffReferenceAfterCheckDiffReference()
     {
         // given
-        referenceCheck.checkDiffReference( new PropertyRecord( 0 ), new PropertyRecord( 0 ), null );
+        referenceCheck.checkDiffReference( new PropertyRecord( 0 ), new PropertyRecord( 0 ), null, NULL );
 
         // when
-        try
-        {
-            referenceCheck.checkDiffReference( new PropertyRecord( 0 ), new PropertyRecord( 0 ), null );
-            fail( "expected exception" );
-        }
-        // then
-        catch ( IllegalStateException expected )
-        {
-            assertEquals( "Reference has already been checked.", expected.getMessage() );
-        }
+        IllegalStateException exception = assertThrows( IllegalStateException.class,
+                () -> referenceCheck.checkDiffReference( new PropertyRecord( 0 ), new PropertyRecord( 0 ), null, NULL ) );
+        assertEquals( "Reference has already been checked.", exception.getMessage() );
     }
 }

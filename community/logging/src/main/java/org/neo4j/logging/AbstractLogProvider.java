@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,8 +19,9 @@
  */
 package org.neo4j.logging;
 
-import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Supplier;
 
 /**
@@ -28,10 +29,12 @@ import java.util.function.Supplier;
  */
 public abstract class AbstractLogProvider<T extends Log> implements LogProvider
 {
-    private final ConcurrentHashMap<String, T> logCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, LogWithContext> logCache = new ConcurrentHashMap<>();
+    // read-lock: getting log instances, write-lock: changing log level settings
+    private final ReadWriteLock settingsChangeLock = new ReentrantReadWriteLock();
 
     @Override
-    public T getLog( final Class loggingClass )
+    public T getLog( final Class<?> loggingClass )
     {
         return getLog( loggingClass.getName(), () -> buildLog( loggingClass ) );
     }
@@ -44,36 +47,50 @@ public abstract class AbstractLogProvider<T extends Log> implements LogProvider
 
     private T getLog( String name, Supplier<T> logSupplier )
     {
-        T log = logCache.get( name );
+        // First an optimistic map get
+        LogWithContext log = logCache.get( name );
         if ( log == null )
         {
-            T newLog = logSupplier.get();
-            log = logCache.putIfAbsent( name, newLog );
-            if ( log == null )
+            // Do this locking here around computeIfAbsent because we want both the construction of the log
+            // and the placement of it in the map to be under the lock
+            settingsChangeLock.readLock().lock();
+            try
             {
-                log = newLog;
+                log = logCache.computeIfAbsent( name, c -> new LogWithContext( logSupplier.get(), c ) );
+            }
+            finally
+            {
+                settingsChangeLock.readLock().unlock();
             }
         }
-        return log;
-    }
-
-    /**
-     * @return a {@link Collection} of the {@link Log} mappings that are currently held in the cache
-     */
-    protected Collection<T> cachedLogs()
-    {
-        return logCache.values();
+        return log.log;
     }
 
     /**
      * @param loggingClass the context for the returned {@link Log}
      * @return a {@link Log} that logs messages with the {@code loggingClass} as the context
      */
-    protected abstract T buildLog( Class loggingClass );
+    protected abstract T buildLog( Class<?> loggingClass );
 
     /**
      * @param name the context for the returned {@link Log}
      * @return a {@link Log} that logs messages with the specified name as the context
      */
     protected abstract T buildLog( String name );
+
+    /**
+     * A log accompanied its original context, since logs may be instantiated with a modified version of the context
+     * and determining things like log level must be done on the original context.
+     */
+    private class LogWithContext
+    {
+        private final T log;
+        private final String fullContext;
+
+        LogWithContext( T log, String fullContext )
+        {
+            this.log = log;
+            this.fullContext = fullContext;
+        }
+    }
 }

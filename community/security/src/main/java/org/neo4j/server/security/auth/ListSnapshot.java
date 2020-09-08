@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -25,13 +25,11 @@ public class ListSnapshot<T>
 {
     private final long timestamp;
     private final List<T> values;
-    private final boolean fromPersisted;
 
-    public ListSnapshot( long timestamp, List<T> values, boolean fromPersisted )
+    public ListSnapshot( long timestamp, List<T> values )
     {
         this.timestamp = timestamp;
         this.values = values;
-        this.fromPersisted = fromPersisted;
     }
 
     public long timestamp()
@@ -43,12 +41,4 @@ public class ListSnapshot<T>
     {
         return values;
     }
-
-    public boolean fromPersisted()
-    {
-        return fromPersisted;
-    }
-
-    public static final boolean FROM_PERSISTED = true;
-    public static final boolean FROM_MEMORY = false;
 }

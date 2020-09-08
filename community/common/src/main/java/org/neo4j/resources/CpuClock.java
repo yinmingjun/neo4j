@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -25,9 +25,9 @@ import java.lang.management.ThreadMXBean;
 /**
  * Measures CPU time by thread.
  */
-public abstract class CpuClock
+public interface CpuClock
 {
-    public static final CpuClock CPU_CLOCK = new CpuClock()
+    CpuClock CPU_CLOCK = new CpuClock()
     {
         private final ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
 
@@ -45,18 +45,7 @@ public abstract class CpuClock
             return threadMXBean.getThreadCpuTime( threadId );
         }
     };
-
-    /**
-     * Returns the current CPU time used by the thread, in nanoseconds.
-     *
-     * @param thread
-     *         the thread to get the used CPU time for.
-     * @return the current CPU time used by the thread, in nanoseconds.
-     */
-    public final long cpuTimeNanos( Thread thread )
-    {
-        return cpuTimeNanos( thread.getId() );
-    }
+    CpuClock NOT_AVAILABLE = threadId -> -1;
 
     /**
      * Returns the current CPU time used by the thread, in nanoseconds.
@@ -66,5 +55,5 @@ public abstract class CpuClock
      * @return the current CPU time used by the thread, in nanoseconds, or {@code -1} if getting the CPU time is not
      * supported.
      */
-    public abstract long cpuTimeNanos( long threadId );
+    long cpuTimeNanos( long threadId );
 }

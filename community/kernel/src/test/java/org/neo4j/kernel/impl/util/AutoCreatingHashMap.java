@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,6 +19,7 @@
  */
 package org.neo4j.kernel.impl.util;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -87,8 +88,6 @@ import org.neo4j.function.Factory;
  *
  * An enormous improvement in readability. The only reflection used is in the {@link #values()} {@link Factory},
  * however that's just a convenience as well. Any {@link Factory} can be supplied instead.
- *
- * @author Mattias Persson
  */
 public class AutoCreatingHashMap<K,V> extends HashMap<K,V>
 {
@@ -118,19 +117,15 @@ public class AutoCreatingHashMap<K,V> extends HashMap<K,V>
      */
     public static <V> Factory<V> values( final Class<V> valueType )
     {
-        return new Factory<V>()
+        return () ->
         {
-            @Override
-            public V newInstance()
+            try
             {
-                try
-                {
-                    return valueType.newInstance();
-                }
-                catch ( InstantiationException | IllegalAccessException e )
-                {
-                    throw new RuntimeException( e );
-                }
+                return valueType.getDeclaredConstructor().newInstance();
+            }
+            catch ( InstantiationException | IllegalAccessException | NoSuchMethodException | InvocationTargetException e )
+            {
+                throw new RuntimeException( e );
             }
         };
     }
@@ -139,39 +134,18 @@ public class AutoCreatingHashMap<K,V> extends HashMap<K,V>
      * @return a {@link Factory} that creates {@link AutoCreatingHashMap} instances as values, and where the
      * created maps have the supplied {@code nested} {@link Factory} as value factory.
      */
-    public static <K,V> Factory<Map<K,V>> nested( Class<K> keyClass, final Factory<V> nested )
+    public static <K,V> Factory<Map<K,V>> nested( final Factory<V> nested )
     {
-        return new Factory<Map<K,V>>()
-        {
-            @Override
-            public Map<K,V> newInstance()
-            {
-                return new AutoCreatingHashMap<>( nested );
-            }
-        };
+        return () -> new AutoCreatingHashMap<>( nested );
     }
 
     public static <V> Factory<V> dontCreate()
     {
-        return new Factory<V>()
-        {
-            @Override
-            public V newInstance()
-            {
-                return null;
-            }
-        };
+        return () -> null;
     }
 
     public static <V> Factory<Set<V>> valuesOfTypeHashSet()
     {
-        return new Factory<Set<V>>()
-        {
-            @Override
-            public Set<V> newInstance()
-            {
-                return new HashSet<>();
-            }
-        };
+        return HashSet::new;
     }
 }

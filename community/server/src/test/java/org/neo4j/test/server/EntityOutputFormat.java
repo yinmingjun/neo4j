@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.Map;
 import javax.ws.rs.core.Response;
 
-import org.neo4j.server.rest.repr.ExtensionInjector;
 import org.neo4j.server.rest.repr.OutputFormat;
 import org.neo4j.server.rest.repr.Representation;
 import org.neo4j.server.rest.repr.RepresentationFormat;
@@ -35,9 +34,9 @@ public class EntityOutputFormat extends OutputFormat
 {
     private Representation representation;
 
-    public EntityOutputFormat( RepresentationFormat format, URI baseUri, ExtensionInjector extensions )
+    public EntityOutputFormat( RepresentationFormat format, URI baseUri )
     {
-        super( format, baseUri, extensions );
+        super( format, baseUri );
     }
 
     @Override

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,84 +19,43 @@
  */
 package org.neo4j.commandline;
 
-import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.Properties;
-import javax.annotation.Nonnull;
 
-import org.neo4j.commandline.admin.CommandFailed;
-import org.neo4j.io.fs.DefaultFileSystemAbstraction;
-import org.neo4j.io.fs.FileSystemAbstraction;
-import org.neo4j.kernel.StoreLockException;
-import org.neo4j.kernel.internal.StoreLocker;
+import org.neo4j.cli.CommandFailedException;
+import org.neo4j.configuration.Config;
+import org.neo4j.configuration.GraphDatabaseSettings;
+import org.neo4j.logging.log4j.Log4jLogProvider;
+import org.neo4j.logging.log4j.LogConfig;
+import org.neo4j.logging.log4j.Neo4jLoggerContext;
 
 import static java.lang.String.format;
+import static org.neo4j.io.fs.FileUtils.getCanonicalFile;
 
-public class Util
+public final class Util
 {
-    public static Path canonicalPath( Path path ) throws IllegalArgumentException
+    private Util()
     {
-        return canonicalPath( path.toFile() );
     }
 
-    public static Path canonicalPath( String path ) throws IllegalArgumentException
+    public static boolean isSameOrChildFile( Path parent, Path candidate )
     {
-        return canonicalPath( new File( path ) );
+        Path canonicalCandidate = getCanonicalFile( candidate );
+        Path canonicalParentPath = getCanonicalFile( parent );
+        return canonicalCandidate.startsWith( canonicalParentPath );
     }
 
-    public static Path canonicalPath( File file ) throws IllegalArgumentException
+    public static void wrapIOException( IOException e ) throws CommandFailedException
     {
-        try
-        {
-            return Paths.get( file.getCanonicalPath() );
-        }
-        catch ( IOException e )
-        {
-            throw new IllegalArgumentException( "Unable to parse path: " + file, e );
-        }
+        throw new CommandFailedException(
+                format( "Unable to load database: %s: %s", e.getClass().getSimpleName(), e.getMessage() ), e );
     }
 
-    public static void checkLock( Path databaseDirectory ) throws CommandFailed
+    public static Log4jLogProvider configuredLogProvider( Config config, OutputStream out )
     {
-        try ( FileSystemAbstraction fileSystem = new DefaultFileSystemAbstraction();
-              StoreLocker storeLocker = new StoreLocker( fileSystem ) )
-        {
-            storeLocker.checkLock( databaseDirectory.toFile() );
-        }
-        catch ( StoreLockException e )
-        {
-            throw new CommandFailed( "the database is in use -- stop Neo4j and try again", e );
-        }
-        catch ( IOException e )
-        {
-            wrapIOException( e );
-        }
-    }
-
-    public static void wrapIOException( IOException e ) throws CommandFailed
-    {
-        throw new CommandFailed(
-                format( "unable to load database: %s: %s", e.getClass().getSimpleName(), e.getMessage() ), e );
-    }
-
-    /**
-     * @return the version of Neo4j as defined during the build
-     */
-    @Nonnull
-    public static String neo4jVersion()
-    {
-        Properties props = new Properties();
-        try
-        {
-            props.load( Util.class.getResourceAsStream( "/org/neo4j/commandline/build.properties" ) );
-            return props.getProperty( "neo4jVersion" );
-        }
-        catch ( IOException e )
-        {
-            // This should never happen
-            throw new RuntimeException( e );
-        }
+        Neo4jLoggerContext context = LogConfig.createBuilder( out, config.get( GraphDatabaseSettings.store_internal_log_level ) )
+                .withTimezone( config.get( GraphDatabaseSettings.db_timezone ) ).build();
+        return new Log4jLogProvider( context );
     }
 }

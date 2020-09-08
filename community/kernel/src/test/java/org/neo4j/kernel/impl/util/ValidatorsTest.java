@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,24 +19,26 @@
  */
 package org.neo4j.kernel.impl.util;
 
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
+import org.neo4j.test.extension.Inject;
+import org.neo4j.test.extension.testdirectory.TestDirectoryExtension;
 import org.neo4j.test.rule.TestDirectory;
 
-import static org.hamcrest.Matchers.containsString;
-import static org.junit.Assert.assertThat;
-import static org.junit.Assert.fail;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
-public class ValidatorsTest
+@TestDirectoryExtension
+class ValidatorsTest
 {
-    @Rule
-    public final TestDirectory directory = TestDirectory.testDirectory();
+    @Inject
+    private TestDirectory directory;
 
     @Test
-    public void shouldFindFilesByRegex() throws Exception
+    void shouldFindFilesByRegex() throws Exception
     {
         // GIVEN
         existenceOfFile( "abc" );
@@ -51,39 +53,9 @@ public class ValidatorsTest
         assertNotValid( ".*de.*" );
     }
 
-    @Test
-    public void shouldValidateInList() throws Exception
-    {
-        try
-        {
-            Validators.inList(new String[] { "foo", "bar", "baz" }).validate( "qux" );
-            fail( "Should have failed to find item in list." );
-        }
-        catch ( IllegalArgumentException e )
-        {
-            assertThat( e.getMessage(), containsString( "'qux' found but must be one of: [foo, bar, baz]." ) );
-        }
-
-        try
-        {
-            Validators.inList(new String[] { "foo", "bar", "baz" }).validate( "bar" );
-        }
-        catch ( IllegalArgumentException e )
-        {
-            fail( "Should have found item in list." );
-        }
-    }
-
     private void assertNotValid( String string )
     {
-        try
-        {
-            validate( string );
-            fail( "Should have failed" );
-        }
-        catch ( IllegalArgumentException e )
-        {   // Good
-        }
+        assertThrows( IllegalArgumentException.class, () -> validate( string ) );
     }
 
     private void assertValid( String fileByName )
@@ -93,11 +65,12 @@ public class ValidatorsTest
 
     private void validate( String fileByName )
     {
-        Validators.REGEX_FILE_EXISTS.validate( directory.file( fileByName ) );
+        Path home = directory.homePath();
+        Validators.REGEX_FILE_EXISTS.validate( home + home.getFileSystem().getSeparator() + fileByName );
     }
 
     private void existenceOfFile( String name ) throws IOException
     {
-        directory.file( name ).createNewFile();
+        Files.createFile( directory.filePath( name ) );
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,12 +22,11 @@ package org.neo4j.server.rest.repr;
 import java.util.Iterator;
 import java.util.Map;
 
-import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Relationship;
-import org.neo4j.helpers.collection.FirstItemIterable;
-import org.neo4j.helpers.collection.IterableWrapper;
-import org.neo4j.helpers.collection.IteratorWrapper;
+import org.neo4j.internal.helpers.collection.FirstItemIterable;
+import org.neo4j.internal.helpers.collection.IterableWrapper;
+import org.neo4j.internal.helpers.collection.IteratorWrapper;
 
 public class ObjectToRepresentationConverter
 {
@@ -44,37 +43,40 @@ public class ObjectToRepresentationConverter
         }
         if ( data instanceof Map )
         {
-
             return getMapRepresentation( (Map) data );
         }
         return getSingleRepresentation( data );
     }
 
+    private ObjectToRepresentationConverter()
+    {
+    }
+
     public static MappingRepresentation getMapRepresentation( Map data )
     {
-
         return new MapRepresentation( data );
     }
 
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings( "unchecked" )
     static Representation getIteratorRepresentation( Iterator data )
     {
-        final FirstItemIterable<Representation> results = new FirstItemIterable<>(new IteratorWrapper<Representation, Object>(data)
-        {
-            @Override
-            protected Representation underlyingObjectToObject( Object value )
-            {
-                if ( value instanceof Iterable )
+        final FirstItemIterable<Representation> results =
+                new FirstItemIterable<>( new IteratorWrapper<Representation,Object>( data )
                 {
-                    FirstItemIterable<Representation> nested = convertValuesToRepresentations( (Iterable) value );
-                    return new ListRepresentation( getType( nested ), nested );
-                }
-                else
-                {
-                    return getSingleRepresentation( value );
-                }
-            }
-        });
+                    @Override
+                    protected Representation underlyingObjectToObject( Object value )
+                    {
+                        if ( value instanceof Iterable )
+                        {
+                            FirstItemIterable<Representation> nested = convertValuesToRepresentations( (Iterable) value );
+                            return new ListRepresentation( getType( nested ), nested );
+                        }
+                        else
+                        {
+                            return getSingleRepresentation( value );
+                        }
+                    }
+                } );
         return new ListRepresentation( getType( results ), results );
     }
 
@@ -84,17 +86,17 @@ public class ObjectToRepresentationConverter
         return new ServerListRepresentation( getType( results ), results );
     }
 
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings( "unchecked" )
     static FirstItemIterable<Representation> convertValuesToRepresentations( Iterable data )
     {
-        return new FirstItemIterable<>(new IterableWrapper<Representation,Object>( data )
+        return new FirstItemIterable<>( new IterableWrapper<Representation,Object>( data )
         {
             @Override
             protected Representation underlyingObjectToObject( Object value )
             {
                 return convert( value );
             }
-        });
+        } );
     }
 
     static RepresentationType getType( FirstItemIterable<Representation> representations )
@@ -112,10 +114,6 @@ public class ObjectToRepresentationConverter
         if ( result == null )
         {
             return ValueRepresentation.ofNull();
-        }
-        else if ( result instanceof GraphDatabaseService )
-        {
-            return new DatabaseRepresentation();
         }
         else if ( result instanceof Node )
         {

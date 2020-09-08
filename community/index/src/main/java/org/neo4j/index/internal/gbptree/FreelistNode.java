@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -84,9 +84,15 @@ class FreelistNode
 
     long read( PageCursor cursor, long stableGeneration, int pos )
     {
+        return read( cursor, stableGeneration, pos, GBPTreeGenerationTarget.NO_GENERATION_TARGET );
+    }
+
+    long read( PageCursor cursor, long stableGeneration, int pos, GBPTreeGenerationTarget target )
+    {
         assertPos( pos );
         cursor.setOffset( entryOffset( pos ) );
         long generation = getUnsignedInt( cursor );
+        target.accept( generation );
         return generation <= stableGeneration ? get6BLong( cursor ) : NO_PAGE_ID;
     }
 

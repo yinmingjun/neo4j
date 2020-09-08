@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,22 +19,21 @@
  */
 package org.neo4j.io.fs;
 
+import org.junit.jupiter.api.Test;
+
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 
-import org.junit.Test;
+import static org.assertj.core.api.Assertions.assertThat;
 
-import static org.hamcrest.Matchers.is;
-import static org.junit.Assert.assertThat;
-
-public class JustContinueTest
+class JustContinueTest
 {
     @Test
-    public void shouldJustContinue() throws IOException
+    void shouldJustContinue() throws IOException
     {
-        assertThat( FileVisitors.justContinue().preVisitDirectory( null, null ), is( FileVisitResult.CONTINUE ) );
-        assertThat( FileVisitors.justContinue().visitFile( null, null ), is( FileVisitResult.CONTINUE ) );
-        assertThat( FileVisitors.justContinue().visitFileFailed( null, null ), is( FileVisitResult.CONTINUE ) );
-        assertThat( FileVisitors.justContinue().postVisitDirectory( null, null ), is( FileVisitResult.CONTINUE ) );
+        assertThat( FileVisitors.justContinue().preVisitDirectory( null, null ) ).isEqualTo( FileVisitResult.CONTINUE );
+        assertThat( FileVisitors.justContinue().visitFile( null, null ) ).isEqualTo( FileVisitResult.CONTINUE );
+        assertThat( FileVisitors.justContinue().visitFileFailed( null, null ) ).isEqualTo( FileVisitResult.CONTINUE );
+        assertThat( FileVisitors.justContinue().postVisitDirectory( null, null ) ).isEqualTo( FileVisitResult.CONTINUE );
     }
 }

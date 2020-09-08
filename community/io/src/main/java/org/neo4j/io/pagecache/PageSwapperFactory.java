@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,12 +19,10 @@
  */
 package org.neo4j.io.pagecache;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.NoSuchFileException;
-import java.util.stream.Stream;
+import java.nio.file.Path;
 
-import org.neo4j.io.fs.FileSystemAbstraction;
+import org.neo4j.annotations.service.Service;
 
 /**
  * Creates PageSwappers for the given files.
@@ -33,47 +31,17 @@ import org.neo4j.io.fs.FileSystemAbstraction;
  * <p>
  * The PageSwapperFactory presumably knows about what file system to use.
  * <p>
+ * To be able to create PageSwapper factory need to be configured first using appropriate configure call.
  * Note that this API is <em>only</em> intended to be used by a {@link PageCache} implementation.
  * It should never be used directly by user code.
  */
+@Service
 public interface PageSwapperFactory
 {
     /**
-     * Configure the FileSystemAbstraction to use.
-     * <p>
-     * This must be called before the first PageSwapper is created.
-     */
-    void setFileSystemAbstraction( FileSystemAbstraction fs );
-
-    /**
-     * Get the name of this PageSwapperFactory implementation, for configuration purpose.
-     */
-    String implementationName();
-
-    /**
-     * Get the most optimal cache page size (in bytes) for these PageSwapper implementations.
-     */
-    int getCachePageSizeHint();
-
-    /**
-     * Gives <code>true</code> if the {@link #getCachePageSizeHint()} is the only cache page size that is supported for
-     * these PageSwapper implementations, otherwise <code>false</code>.
-     */
-    boolean isCachePageSizeHintStrict();
-
-    /**
-     * Get the unit of alignment that the swappers require of the memory buffers. For instance, if page alignment is
-     * required for doing direct IO, then {@link org.neo4j.unsafe.impl.internal.dragons.UnsafeUtil#pageSize()} can be
-     * returned.
-     *
-     * @return The required buffer alignment byte multiple.
-     */
-    long getRequiredBufferAlignment();
-
-    /**
      * Create a PageSwapper for the given file.
      *
-     * @param file The file that the PageSwapper will move file pages in and
+     * @param path The file that the PageSwapper will move file pages in and
      * out of.
      * @param filePageSize The size of the pages in the file. Presumably a
      * multiple of some record size.
@@ -81,54 +49,19 @@ public interface PageSwapperFactory
      * the responsibility of informing the PagedFile via this callback.
      * @param createIfNotExist When true, creates the given file if it does not exist, instead of throwing an
      * exception.
+     * @param useDirectIO When true, direct io open open will gonna be used for underlying channel.
+     * Option supported only on Linux with certain limitations.
      * @return A working PageSwapper instance for the given file.
      * @throws IOException If the PageSwapper could not be created, for
      * instance if the underlying file could not be opened, or the given file does not exist and createIfNotExist is
      * false.
      */
     PageSwapper createPageSwapper(
-            File file,
+            Path path,
             int filePageSize,
             PageEvictionCallback onEviction,
-            boolean createIfNotExist ) throws IOException;
-
-    /**
-     * Forces all prior writes made through all non-closed PageSwappers that this factory has created, to all the
-     * relevant devices, such that the writes are durable when this call returns.
-     * <p>
-     * This method has no effect if the {@link PageSwapper#force()} method forces the writes for the individual file.
-     * The {@link PageCache#flushAndForce()} method will first call <code>force</code> on the PageSwappers for all
-     * mapped files, then call <code>syncDevice</code> on the PageSwapperFactory. This way, the writes are always made
-     * durable regardless of which method that does the forcing.
-     */
-    void syncDevice() throws IOException;
-
-    /**
-     * Return a stream of {@link FileHandle file handles} for every file in the given directory, and its
-     * sub-directories.
-     * <p>
-     * Alternatively, if the {@link File} given as an argument refers to a file instead of a directory, then a stream
-     * will be returned with a file handle for just that file.
-     * <p>
-     * The stream is based on a snapshot of the file tree, so changes made to the tree using the returned file handles
-     * will not be reflected in the stream.
-     * <p>
-     * No directories will be returned. Only files. If a file handle ends up leaving a directory empty through a
-     * rename or a delete, then the empty directory will automatically be deleted as well.
-     * Likewise, if a file is moved to a path where not all of the directories in the path exists, then those missing
-     * directories will be created prior to the file rename.
-     * <p>
-     * This method form the basis of the implementation of the {@link PageCache#streamFilesRecursive(File)} method.
-     * The key difference is that the stream and file handles are oblivious about which files are mapped or not.
-     * Thus, the returned {@link FileHandle file handles} will never throw any
-     * {@link org.neo4j.io.pagecache.impl.FileIsMappedException}s.
-     *
-     * @param directory The base directory to start streaming files from, or the specific individual file to stream.
-     * @return A stream of all files in the tree.
-     * @throws NoSuchFileException If the given base directory or file does not exists.
-     * @throws IOException If an I/O error occurs, possibly with the canonicalisation of the paths.
-     */
-    Stream<FileHandle> streamFilesRecursive( File directory ) throws IOException;
+            boolean createIfNotExist,
+            boolean useDirectIO ) throws IOException;
 
     /**
      * Close and release any resources associated with this PageSwapperFactory, that it may have opened or acquired

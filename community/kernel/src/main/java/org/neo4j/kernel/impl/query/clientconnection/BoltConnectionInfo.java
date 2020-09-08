@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,26 +19,29 @@
  */
 package org.neo4j.kernel.impl.query.clientconnection;
 
-import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+
+import org.neo4j.internal.kernel.api.connectioninfo.ClientConnectionInfo;
+
+import static org.neo4j.configuration.helpers.SocketAddress.format;
 
 /**
  * @see ClientConnectionInfo Parent class for documentation and tests.
  */
 public class BoltConnectionInfo extends ClientConnectionInfo
 {
-    private final String principalName;
+    private final String connectionId;
     private final String clientName;
     private final SocketAddress clientAddress;
     private final SocketAddress serverAddress;
 
     public BoltConnectionInfo(
-            String principalName,
+            String connectionId,
             String clientName,
             SocketAddress clientAddress,
             SocketAddress serverAddress )
     {
-        this.principalName = principalName;
+        this.connectionId = connectionId;
         this.clientName = clientName;
         this.clientAddress = clientAddress;
         this.serverAddress = serverAddress;
@@ -48,8 +51,7 @@ public class BoltConnectionInfo extends ClientConnectionInfo
     public String asConnectionDetails()
     {
         return String.format(
-                "bolt-session\tbolt\t%s\t%s\t\tclient%s\tserver%s>",
-                principalName,
+                "bolt-session\tbolt\t%s\t\tclient%s\tserver%s>",
                 clientName,
                 clientAddress,
                 serverAddress );
@@ -62,24 +64,20 @@ public class BoltConnectionInfo extends ClientConnectionInfo
     }
 
     @Override
+    public String connectionId()
+    {
+        return connectionId;
+    }
+
+    @Override
     public String clientAddress()
     {
-        return addressString( clientAddress );
+        return format( clientAddress );
     }
 
     @Override
     public String requestURI()
     {
-        return addressString( serverAddress );
-    }
-
-    private String addressString( SocketAddress address )
-    {
-        if ( address instanceof InetSocketAddress )
-        {
-            InetSocketAddress inet = (InetSocketAddress) address;
-            return String.format( "%s:%s", inet.getHostString(), inet.getPort() );
-        }
-        return address.toString();
+        return format( serverAddress );
     }
 }

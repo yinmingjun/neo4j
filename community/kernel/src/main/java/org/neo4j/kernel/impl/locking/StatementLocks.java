@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,6 +22,8 @@ package org.neo4j.kernel.impl.locking;
 import java.util.stream.Stream;
 
 import org.neo4j.kernel.impl.api.KernelStatement;
+import org.neo4j.kernel.impl.api.LeaseClient;
+import org.neo4j.lock.LockTracer;
 
 /**
  * Component used by {@link KernelStatement} to acquire {@link #pessimistic() pessimistic} and
@@ -29,6 +31,13 @@ import org.neo4j.kernel.impl.api.KernelStatement;
  */
 public interface StatementLocks extends AutoCloseable
 {
+    /**
+     * Initializes this locks instance with a {@link LeaseClient}. Must be called before the first call to {@link #pessimistic()} or {@link #optimistic()}.
+     * @param leaseClient {@link LeaseClient} of the transaction owning this locks instance.
+     * @param transactionId owning transaction id
+     */
+    void initialize( LeaseClient leaseClient, long transactionId );
+
     /**
      * Get {@link Locks.Client} responsible for pessimistic locks. Such locks will be grabbed right away.
      *
@@ -46,9 +55,11 @@ public interface StatementLocks extends AutoCloseable
 
     /**
      * Prepare the underlying {@link Locks.Client client}(s) for commit. This will grab all locks that have
-     * previously been taken {@link #optimistic() optimistically}.
+     * previously been taken {@link #optimistic() optimistically}, and tell the underlying lock client to enter the
+     * <em>prepare</em> state.
+     * @param lockTracer lock tracer
      */
-    void prepareForCommit();
+    void prepareForCommit( LockTracer lockTracer );
 
     /**
      * Stop the underlying {@link Locks.Client client}(s).
@@ -68,7 +79,7 @@ public interface StatementLocks extends AutoCloseable
      *
      * @return the locks held by this transaction.
      */
-    Stream<? extends ActiveLock> activeLocks();
+    Stream<ActiveLock> activeLocks();
 
     /**
      * Get the current number of active locks.

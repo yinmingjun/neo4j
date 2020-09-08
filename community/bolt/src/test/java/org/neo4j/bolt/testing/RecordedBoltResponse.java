@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,23 +19,22 @@
  */
 package org.neo4j.bolt.testing;
 
-import org.neo4j.bolt.v1.messaging.BoltResponseMessage;
-import org.neo4j.bolt.v1.runtime.spi.Record;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.lessThan;
+import org.neo4j.bolt.messaging.BoltResponseMessage;
+import org.neo4j.values.AnyValue;
+
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertArrayEquals;
 
 public class RecordedBoltResponse
 {
-    private List<Record> records;
+    private List<AnyValue[]> records;
     private BoltResponseMessage response;
-    private Map<String, Object> metadata;
+    private Map<String,AnyValue> metadata;
 
     public RecordedBoltResponse()
     {
@@ -44,12 +43,12 @@ public class RecordedBoltResponse
         metadata = new HashMap<>();
     }
 
-    public void addRecord( Record record )
+    public void addFields( AnyValue[] fields )
     {
-        records.add( record );
+        records.add( fields );
     }
 
-    public void addMetadata( String key, Object value )
+    public void addMetadata( String key, AnyValue value )
     {
         metadata.put( key, value );
     }
@@ -69,20 +68,34 @@ public class RecordedBoltResponse
         return metadata.containsKey( key );
     }
 
-    public Object metadata( String key )
+    public AnyValue metadata( String key )
     {
         return metadata.get( key );
     }
 
-    public void assertRecord( int index, Object... values )
+    public void assertRecord( int index, AnyValue... values )
     {
-        assertThat( index, lessThan( records.size() ) );
-        assertArrayEquals( records.get( index ).fields(), values );
+        assertThat( index ).isLessThan( records.size() );
+        assertArrayEquals( records.get( index ), values );
     }
 
-    public Record[] records()
+    public List<AnyValue[]> records()
     {
-        Record[] recordArray = new Record[records.size()];
-        return records.toArray( recordArray );
+        return new ArrayList<>( records );
+    }
+
+    public AnyValue singleValueRecord()
+    {
+        var records = records();
+        assertThat( records.size() ).isEqualTo( 1 );
+        var values = records.get( 0 );
+        assertThat( values.length ).isEqualTo( 1 );
+        return values[0];
+    }
+
+    @Override
+    public String toString()
+    {
+        return "RecordedBoltResponse{" + "records=" + records + ", response=" + response + ", metadata=" + metadata + '}';
     }
 }

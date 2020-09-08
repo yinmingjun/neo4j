@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,32 +19,37 @@
  */
 package org.neo4j.kernel.impl.api;
 
-import java.util.Optional;
-import java.util.function.Function;
+import org.apache.commons.lang3.StringUtils;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Deque;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+
+import org.neo4j.configuration.Config;
 import org.neo4j.graphdb.NotInTransactionException;
 import org.neo4j.graphdb.TransactionTerminatedException;
 import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
-import org.neo4j.kernel.api.DataWriteOperations;
-import org.neo4j.kernel.api.ExecutionStatisticsOperations;
-import org.neo4j.kernel.api.ProcedureCallOperations;
-import org.neo4j.kernel.api.QueryRegistryOperations;
-import org.neo4j.kernel.api.ReadOperations;
-import org.neo4j.kernel.api.SchemaWriteOperations;
+import org.neo4j.io.pagecache.tracing.cursor.context.VersionContext;
+import org.neo4j.io.pagecache.tracing.cursor.context.VersionContextSupplier;
+import org.neo4j.kernel.api.AssertOpen;
+import org.neo4j.kernel.api.QueryRegistry;
 import org.neo4j.kernel.api.Statement;
-import org.neo4j.kernel.api.TokenWriteOperations;
-import org.neo4j.kernel.api.exceptions.InvalidTransactionTypeKernelException;
 import org.neo4j.kernel.api.exceptions.Status;
 import org.neo4j.kernel.api.query.ExecutingQuery;
-import org.neo4j.kernel.api.security.AccessMode;
-import org.neo4j.kernel.api.txstate.LegacyIndexTransactionState;
-import org.neo4j.kernel.api.txstate.TransactionState;
-import org.neo4j.kernel.api.txstate.TxStateHolder;
-import org.neo4j.kernel.impl.factory.AccessCapability;
-import org.neo4j.kernel.impl.locking.LockTracer;
+import org.neo4j.kernel.database.NamedDatabaseId;
 import org.neo4j.kernel.impl.locking.StatementLocks;
-import org.neo4j.kernel.impl.proc.Procedures;
-import org.neo4j.storageengine.api.StorageStatement;
+import org.neo4j.lock.LockTracer;
+import org.neo4j.resources.CpuClock;
+
+import static java.lang.Math.subtractExact;
+import static java.lang.String.format;
+import static org.neo4j.util.FeatureToggles.flag;
+import static org.neo4j.util.FeatureToggles.toggle;
 
 /**
  * A resource efficient implementation of {@link Statement}. Designed to be reused within a
@@ -54,117 +59,60 @@ import org.neo4j.storageengine.api.StorageStatement;
  * <ol>
  * <li>Construct {@link KernelStatement} when {@link KernelTransactionImplementation} is constructed</li>
  * <li>For every transaction...</li>
- * <li>Call {@link #initialize(StatementLocks, StatementOperationParts, PageCursorTracer)} which makes this instance
+ * <li>Call {@link #initialize(StatementLocks, PageCursorTracer, long)} which makes this instance
  * full available and ready to use. Call when the {@link KernelTransactionImplementation} is initialized.</li>
  * <li>Alternate {@link #acquire()} / {@link #close()} when acquiring / closing a statement for the transaction...
  * Temporarily asymmetric number of calls to {@link #acquire()} / {@link #close()} is supported, although in
  * the end an equal number of calls must have been issued.</li>
  * <li>To be safe call {@link #forceClose()} at the end of a transaction to force a close of the statement,
  * even if there are more than one current call to {@link #acquire()}. This instance is now again ready
- * to be {@link #initialize(StatementLocks, StatementOperationParts, PageCursorTracer)}  initialized} and used for the transaction
+ * to be {@link #initialize(StatementLocks, PageCursorTracer, long)}  initialized} and used for the transaction
  * instance again, when it's initialized.</li>
  * </ol>
  */
-public class KernelStatement implements TxStateHolder, Statement
+public class KernelStatement extends CloseableResourceManager implements Statement, AssertOpen
 {
-    private final TxStateHolder txStateHolder;
-    private final StorageStatement storeStatement;
-    private final AccessCapability accessCapability;
+    private static final int EMPTY_COUNTER = 0;
+    private static final boolean TRACK_STATEMENTS = flag( KernelStatement.class, "trackStatements", false );
+    private static final boolean RECORD_STATEMENTS_TRACES = flag( KernelStatement.class, "recordStatementsTraces", false );
+    private static final int STATEMENT_TRACK_HISTORY_MAX_SIZE = 100;
+    private static final Deque<StackTraceElement[]> EMPTY_STATEMENT_HISTORY = new ArrayDeque<>( 0 );
+
+    private final QueryRegistry queryRegistry;
     private final KernelTransactionImplementation transaction;
-    private final OperationsFacade facade;
+    private final NamedDatabaseId namedDatabaseId;
     private StatementLocks statementLocks;
     private PageCursorTracer pageCursorTracer = PageCursorTracer.NULL;
     private int referenceCount;
-    private volatile ExecutingQueryList executingQueryList;
+    private volatile ExecutingQuery executingQuery;
     private final LockTracer systemLockTracer;
+    private final Deque<StackTraceElement[]> statementOpenCloseCalls;
+    private final ClockContext clockContext;
+    private final VersionContextSupplier versionContextSupplier;
+    private long initialStatementHits;
+    private long initialStatementFaults;
 
-    public KernelStatement( KernelTransactionImplementation transaction,
-                            TxStateHolder txStateHolder,
-                            StorageStatement storeStatement,
-                            Procedures procedures,
-                            AccessCapability accessCapability,
-                            LockTracer systemLockTracer )
+    public KernelStatement( KernelTransactionImplementation transaction, LockTracer systemLockTracer, ClockContext clockContext,
+                            VersionContextSupplier versionContextSupplier, AtomicReference<CpuClock> cpuClockRef, NamedDatabaseId namedDatabaseId,
+                            Config config )
     {
         this.transaction = transaction;
-        this.txStateHolder = txStateHolder;
-        this.storeStatement = storeStatement;
-        this.accessCapability = accessCapability;
-        this.facade = new OperationsFacade( transaction, this, procedures );
-        this.executingQueryList = ExecutingQueryList.EMPTY;
+        this.queryRegistry = new StatementQueryRegistry( this, clockContext.systemClock(), cpuClockRef, config );
         this.systemLockTracer = systemLockTracer;
+        this.statementOpenCloseCalls = RECORD_STATEMENTS_TRACES ? new ArrayDeque<>() : EMPTY_STATEMENT_HISTORY;
+        this.clockContext = clockContext;
+        this.versionContextSupplier = versionContextSupplier;
+        this.namedDatabaseId = namedDatabaseId;
     }
 
-    @Override
-    public ReadOperations readOperations()
+    public QueryRegistry queryRegistration()
     {
-        assertAllows( AccessMode::allowsReads, "Read" );
-        return facade;
+        return queryRegistry;
     }
 
-    @Override
-    public ProcedureCallOperations procedureCallOperations()
+    public NamedDatabaseId namedDatabaseId()
     {
-        return facade;
-    }
-
-    @Override
-    public ExecutionStatisticsOperations executionStatisticsOperations()
-    {
-        return facade;
-    }
-
-    @Override
-    public TokenWriteOperations tokenWriteOperations()
-    {
-        accessCapability.assertCanWrite();
-
-        return facade;
-    }
-
-    @Override
-    public DataWriteOperations dataWriteOperations()
-            throws InvalidTransactionTypeKernelException
-    {
-        accessCapability.assertCanWrite();
-
-        assertAllows( AccessMode::allowsWrites, "Write" );
-        transaction.upgradeToDataWrites();
-        return facade;
-    }
-
-    @Override
-    public SchemaWriteOperations schemaWriteOperations()
-            throws InvalidTransactionTypeKernelException
-    {
-        accessCapability.assertCanWrite();
-
-        assertAllows( AccessMode::allowsSchemaWrites, "Schema" );
-        transaction.upgradeToSchemaWrites();
-        return facade;
-    }
-
-    @Override
-    public QueryRegistryOperations queryRegistration()
-    {
-        return facade;
-    }
-
-    @Override
-    public TransactionState txState()
-    {
-        return txStateHolder.txState();
-    }
-
-    @Override
-    public LegacyIndexTransactionState legacyIndexTxState()
-    {
-        return txStateHolder.legacyIndexTxState();
-    }
-
-    @Override
-    public boolean hasTxStateWithChanges()
-    {
-        return txStateHolder.hasTxStateWithChanges();
+        return namedDatabaseId;
     }
 
     @Override
@@ -176,9 +124,11 @@ public class KernelStatement implements TxStateHolder, Statement
         {
             cleanupResources();
         }
+        recordOpenCloseMethods();
     }
 
-    void assertOpen()
+    @Override
+    public void assertOpen()
     {
         if ( referenceCount == 0 )
         {
@@ -186,18 +136,17 @@ public class KernelStatement implements TxStateHolder, Statement
         }
 
         Optional<Status> terminationReason = transaction.getReasonIfTerminated();
-        if ( terminationReason.isPresent() )
+        terminationReason.ifPresent( status ->
         {
-            throw new TransactionTerminatedException( terminationReason.get() );
-        }
+            throw new TransactionTerminatedException( status );
+        } );
     }
 
-    public void initialize( StatementLocks statementLocks, StatementOperationParts operationParts,
-            PageCursorTracer pageCursorCounters )
+    public void initialize( StatementLocks statementLocks, PageCursorTracer pageCursorCounters, long startTimeMillis )
     {
         this.statementLocks = statementLocks;
         this.pageCursorTracer = pageCursorCounters;
-        facade.initialize( operationParts );
+        this.clockContext.initializeTransaction( startTimeMillis );
     }
 
     public StatementLocks locks()
@@ -207,21 +156,29 @@ public class KernelStatement implements TxStateHolder, Statement
 
     public LockTracer lockTracer()
     {
-        LockTracer tracer = executingQueryList.top( ExecutingQuery::lockTracer );
+        LockTracer tracer = executingQuery != null ? executingQuery.lockTracer() : null;
         return tracer == null ? systemLockTracer : systemLockTracer.combine( tracer );
     }
 
-    public PageCursorTracer getPageCursorTracer()
+    public long getHits()
     {
-        return pageCursorTracer;
+        return isAcquired() ? subtractExact( pageCursorTracer.hits(), initialStatementHits ) : EMPTY_COUNTER;
+    }
+
+    public long getFaults()
+    {
+        return isAcquired() ? subtractExact( pageCursorTracer.faults(), initialStatementFaults ) : EMPTY_COUNTER;
     }
 
     public final void acquire()
     {
         if ( referenceCount++ == 0 )
         {
-            storeStatement.acquire();
+            clockContext.initializeStatement();
+            this.initialStatementHits = pageCursorTracer.hits();
+            this.initialStatementFaults = pageCursorTracer.faults();
         }
+        recordOpenCloseMethods();
     }
 
     final boolean isAcquired()
@@ -233,10 +190,25 @@ public class KernelStatement implements TxStateHolder, Statement
     {
         if ( referenceCount > 0 )
         {
+            int leakedStatements = referenceCount;
             referenceCount = 0;
             cleanupResources();
+            if ( TRACK_STATEMENTS && transaction.isSuccess() )
+            {
+                String message = getStatementNotClosedMessage( leakedStatements );
+                throw new StatementNotClosedException( message, statementOpenCloseCalls );
+            }
         }
-        pageCursorTracer.reportEvents();
+    }
+
+    private static String getStatementNotClosedMessage( int leakedStatements )
+    {
+        String additionalInstruction = RECORD_STATEMENTS_TRACES ? StringUtils.EMPTY :
+                                       format(" To see statement open/close stack traces please pass '%s' to your JVM" +
+                                                       " or enable corresponding feature toggle.",
+                                       toggle( KernelStatement.class, "recordStatementsTraces", Boolean.TRUE ) );
+        return format( "Statements were not correctly closed. Number of leaked statements: %d.%s", leakedStatements,
+                additionalInstruction );
     }
 
     final String username()
@@ -244,31 +216,31 @@ public class KernelStatement implements TxStateHolder, Statement
         return transaction.securityContext().subject().username();
     }
 
-    final ExecutingQueryList executingQueryList()
+    final Optional<ExecutingQuery> executingQuery()
     {
-        return executingQueryList;
+        return Optional.ofNullable( executingQuery );
     }
 
     final void startQueryExecution( ExecutingQuery query )
     {
-        this.executingQueryList = executingQueryList.push( query );
+        query.setPreviousQuery( executingQuery );
+        this.executingQuery = query;
     }
 
     final void stopQueryExecution( ExecutingQuery executingQuery )
     {
-        this.executingQueryList = executingQueryList.remove( executingQuery );
-    }
-
-    public StorageStatement getStoreStatement()
-    {
-        return storeStatement;
+        this.executingQuery = executingQuery.getPreviousQuery();
+        transaction.getStatistics().addWaitingTime( executingQuery.reportedWaitingTimeNanos() );
     }
 
     private void cleanupResources()
     {
         // closing is done by KTI
-        storeStatement.release();
-        executingQueryList = ExecutingQueryList.EMPTY;
+        transaction.releaseStatementResources();
+        executingQuery = null;
+        initialStatementHits = EMPTY_COUNTER;
+        initialStatementFaults = EMPTY_COUNTER;
+        closeAllCloseableResources();
     }
 
     public KernelTransactionImplementation getTransaction()
@@ -276,14 +248,79 @@ public class KernelStatement implements TxStateHolder, Statement
         return transaction;
     }
 
-    void assertAllows( Function<AccessMode,Boolean> allows, String mode )
+    public VersionContext getVersionContext()
     {
-        AccessMode accessMode = transaction.securityContext().mode();
-        if ( !allows.apply( accessMode ) )
+        return versionContextSupplier.getVersionContext();
+    }
+
+    private void recordOpenCloseMethods()
+    {
+        if ( RECORD_STATEMENTS_TRACES )
         {
-            throw accessMode.onViolation(
-                    String.format( "%s operations are not allowed for %s.", mode,
-                            transaction.securityContext().description() ) );
+            if ( statementOpenCloseCalls.size() > STATEMENT_TRACK_HISTORY_MAX_SIZE )
+            {
+                statementOpenCloseCalls.pop();
+            }
+            StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+            statementOpenCloseCalls.add( Arrays.copyOfRange(stackTrace, 2, stackTrace.length) );
+        }
+    }
+
+    public ClockContext clocks()
+    {
+        return clockContext;
+    }
+
+    static class StatementNotClosedException extends IllegalStateException
+    {
+
+        StatementNotClosedException( String s, Deque<StackTraceElement[]> openCloseTraces )
+        {
+            super( s );
+            this.addSuppressed( new StatementTraceException( buildMessage( openCloseTraces ) ) );
+        }
+
+        private static String buildMessage( Deque<StackTraceElement[]> openCloseTraces )
+        {
+            if ( openCloseTraces.isEmpty() )
+            {
+                return StringUtils.EMPTY;
+            }
+            int separatorLength = 80;
+            String paddingString = "=";
+
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            PrintStream printStream = new PrintStream( out, false, StandardCharsets.UTF_8 );
+            printStream.println();
+            printStream.println( "Last " + STATEMENT_TRACK_HISTORY_MAX_SIZE + " statements open/close stack traces are:" );
+            int element = 0;
+            for ( StackTraceElement[] traceElements : openCloseTraces )
+            {
+                printStream.println( StringUtils.center( "*StackTrace " + element + "*", separatorLength, paddingString ) );
+                for ( StackTraceElement traceElement : traceElements )
+                {
+                    printStream.println( "\tat " + traceElement );
+                }
+                printStream.println( StringUtils.center( "", separatorLength, paddingString ) );
+                printStream.println();
+                element++;
+            }
+            printStream.println( "All statement open/close stack traces printed." );
+            return out.toString( StandardCharsets.UTF_8 );
+        }
+
+        private static class StatementTraceException extends RuntimeException
+        {
+            StatementTraceException( String message )
+            {
+                super( message );
+            }
+
+            @Override
+            public synchronized Throwable fillInStackTrace()
+            {
+                return this;
+            }
         }
     }
 }

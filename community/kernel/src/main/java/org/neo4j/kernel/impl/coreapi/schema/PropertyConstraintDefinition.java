@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -21,17 +21,19 @@ package org.neo4j.kernel.impl.coreapi.schema;
 
 import org.neo4j.graphdb.schema.ConstraintDefinition;
 import org.neo4j.graphdb.schema.ConstraintType;
+import org.neo4j.internal.schema.ConstraintDescriptor;
 
-import static java.util.Arrays.asList;
 import static java.util.Objects.requireNonNull;
 
 abstract class PropertyConstraintDefinition implements ConstraintDefinition
 {
     protected final InternalSchemaActions actions;
+    protected ConstraintDescriptor constraint;
 
-    protected PropertyConstraintDefinition( InternalSchemaActions actions )
+    PropertyConstraintDefinition( InternalSchemaActions actions, ConstraintDescriptor constraint )
     {
         this.actions = requireNonNull( actions );
+        this.constraint = requireNonNull( constraint );
     }
 
     @Override
@@ -42,6 +44,19 @@ abstract class PropertyConstraintDefinition implements ConstraintDefinition
     {
         assertInUnterminatedTransaction();
         return getConstraintType().equals( type );
+    }
+
+    @Override
+    public String getName()
+    {
+        return constraint.getName();
+    }
+
+    @Override
+    public void drop()
+    {
+        assertInUnterminatedTransaction();
+        actions.dropConstraint( constraint );
     }
 
     @Override

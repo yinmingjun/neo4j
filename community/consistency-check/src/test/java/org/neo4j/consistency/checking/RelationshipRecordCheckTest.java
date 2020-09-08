@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,13 +19,13 @@
  */
 package org.neo4j.consistency.checking;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import org.neo4j.consistency.checking.RelationshipRecordCheck.RelationshipField;
 import org.neo4j.consistency.checking.RelationshipRecordCheck.RelationshipTypeField;
 import org.neo4j.consistency.checking.full.CheckStage;
 import org.neo4j.consistency.checking.full.MultiPassStore;
-import org.neo4j.consistency.report.ConsistencyReport;
+import org.neo4j.consistency.report.ConsistencyReport.RelationshipConsistencyReport;
 import org.neo4j.kernel.impl.store.record.NodeRecord;
 import org.neo4j.kernel.impl.store.record.PropertyRecord;
 import org.neo4j.kernel.impl.store.record.RelationshipRecord;
@@ -37,19 +37,19 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.neo4j.consistency.checking.full.MultiPassStore.NODES;
 import static org.neo4j.consistency.checking.full.MultiPassStore.RELATIONSHIPS;
 
-public class RelationshipRecordCheckTest extends
-                                         RecordCheckTestBase<RelationshipRecord, ConsistencyReport.RelationshipConsistencyReport, RelationshipRecordCheck>
+class RelationshipRecordCheckTest extends
+        RecordCheckTestBase<RelationshipRecord, RelationshipConsistencyReport, RelationshipRecordCheck>
 {
     private boolean checkSingleDirection;
 
-    public RelationshipRecordCheckTest()
+    RelationshipRecordCheckTest()
     {
         super( new RelationshipRecordCheck(
                 RelationshipTypeField.RELATIONSHIP_TYPE, NodeField.SOURCE, RelationshipField.SOURCE_PREV,
                 RelationshipField.SOURCE_NEXT, NodeField.TARGET, RelationshipField.TARGET_PREV,
                 RelationshipField.TARGET_NEXT,
                 new PropertyChain<>( from -> null ) ),
-                ConsistencyReport.RelationshipConsistencyReport.class,
+                RelationshipConsistencyReport.class,
                 CheckStage.Stage6_RS_Forward.getCacheSlotSizes(), MultiPassStore.RELATIONSHIPS );
     }
 
@@ -59,11 +59,11 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Override
-    final ConsistencyReport.RelationshipConsistencyReport check( RelationshipRecord record )
+    final RelationshipConsistencyReport check( RelationshipRecord record )
     {
         // Make sure the cache is properly populated
         records.populateCache();
-        ConsistencyReport.RelationshipConsistencyReport report = mock( ConsistencyReport.RelationshipConsistencyReport.class );
+        RelationshipConsistencyReport report = mock( RelationshipConsistencyReport.class );
         records.cacheAccess().setCacheSlotSizes( CheckStage.Stage6_RS_Forward.getCacheSlotSizes() );
         super.check( report, record );
         if ( !checkSingleDirection )
@@ -75,51 +75,58 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldNotReportAnythingForRelationshipNotInUse() throws Exception
+    void shouldNotReportAnythingForRelationshipNotInUse()
     {
         // given
-        RelationshipRecord relationship = notInUse( new RelationshipRecord( 42, 0, 0, 0 ) );
+        RelationshipRecord relationship = notInUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 0, 0, 0 );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verifyNoMoreInteractions( report );
     }
 
     @Test
-    public void shouldNotReportAnythingForRelationshipThatDoesNotReferenceOtherRecords() throws Exception
+    void shouldNotReportAnythingForRelationshipThatDoesNotReferenceOtherRecords()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verifyNoMoreInteractions( report );
     }
 
     @Test
-    public void shouldNotReportAnythingForRelationshipWithConsistentReferences() throws Exception
+    void shouldNotReportAnythingForRelationshipWithConsistentReferences()
     {
         // given
         /*
          * (1) --> (3) <==> (2)
          */
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, relationship.getId(), NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 53, NONE ) ) );
-        add( inUse( new NodeRecord( 3, false, NONE, NONE ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, relationship.getId(), 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 53, 0 ) ) );
+        add( inUse( new NodeRecord( 3 ).initialize( false, NONE, false, NONE, 0 ) ) );
         add( inUse( new PropertyRecord( 101 ) ) );
         relationship.setNextProp( 101 );
-        RelationshipRecord sNext = add( inUse( new RelationshipRecord( 51, 1, 3, 4 ) ) );
-        RelationshipRecord tNext = add( inUse( new RelationshipRecord( 52, 2, 3, 4 ) ) );
-        RelationshipRecord tPrev = add( inUse( new RelationshipRecord( 53, 3, 2, 4 ) ) );
+
+        RelationshipRecord sNext = add( inUse( new RelationshipRecord( 51 ) ) );
+        sNext.setLinks( 1, 3, 4 );
+        RelationshipRecord tNext = add( inUse( new RelationshipRecord( 52 ) ) );
+        tNext.setLinks( 2, 3, 4 );
+        RelationshipRecord tPrev = add( inUse( new RelationshipRecord( 53 ) ) );
+        tPrev.setLinks( 3, 2, 4 );
 
         relationship.setFirstNextRel( sNext.getId() );
         sNext.setFirstPrevRel( relationship.getId() );
@@ -132,23 +139,24 @@ public class RelationshipRecordCheckTest extends
         tPrev.setSecondNextRel( relationship.getId() );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verifyNoMoreInteractions( report );
     }
 
     @Test
-    public void shouldReportIllegalRelationshipType() throws Exception
+    void shouldReportIllegalRelationshipType()
     {
         // given
         checkSingleDirection();
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, NONE ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, NONE );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).illegalRelationshipType();
@@ -156,17 +164,18 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportRelationshipTypeNotInUse() throws Exception
+    void shouldReportRelationshipTypeNotInUse()
     {
         // given
         checkSingleDirection();
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         RelationshipTypeTokenRecord relationshipType = add( notInUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).relationshipTypeNotInUse( relationshipType );
@@ -174,16 +183,17 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportIllegalSourceNode() throws Exception
+    void shouldReportIllegalSourceNode()
     {
         // given
         checkSingleDirection();
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, NONE, 1, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( NONE, 1, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).illegalSourceNode();
@@ -191,18 +201,19 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportSourceNodeNotInUse() throws Exception
+    void shouldReportSourceNodeNotInUse()
     {
         // given
         checkSingleDirection();
         initialize( RELATIONSHIPS, NODES );
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        NodeRecord node = add( notInUse( new NodeRecord( 1, false, NONE, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
+        NodeRecord node = add( notInUse( new NodeRecord( 1 ).initialize( false, NONE, false, NONE, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).sourceNodeNotInUse( node );
@@ -210,16 +221,17 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportIllegalTargetNode() throws Exception
+    void shouldReportIllegalTargetNode()
     {
         // given
         checkSingleDirection();
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, NONE, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, NONE, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).illegalTargetNode();
@@ -227,18 +239,19 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportTargetNodeNotInUse() throws Exception
+    void shouldReportTargetNodeNotInUse()
     {
         // given
         checkSingleDirection();
         initialize( RELATIONSHIPS, NODES );
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        NodeRecord node = add( notInUse( new NodeRecord( 2, false, NONE, NONE ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        NodeRecord node = add( notInUse( new NodeRecord( 2 ).initialize( false, NONE, false, NONE, 0 ) ) );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).targetNodeNotInUse( node );
@@ -246,19 +259,20 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportPropertyNotInUse() throws Exception
+    void shouldReportPropertyNotInUse()
     {
         // given
         checkSingleDirection();
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
         relationship.setNextProp( 11 );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
         PropertyRecord property = add( notInUse( new PropertyRecord( 11 ) ) );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).propertyNotInUse( property );
@@ -266,20 +280,21 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportPropertyNotFirstInChain() throws Exception
+    void shouldReportPropertyNotFirstInChain()
     {
         // given
         checkSingleDirection();
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
         relationship.setNextProp( 11 );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
         PropertyRecord property = add( inUse( new PropertyRecord( 11 ) ) );
         property.setPrevProp( 6 );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).propertyNotFirstInChain( property );
@@ -287,18 +302,19 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportSourceNodeNotReferencingBackForFirstRelationshipInSourceChain() throws Exception
+    void shouldReportSourceNodeNotReferencingBackForFirstRelationshipInSourceChain()
     {
         // given
         checkSingleDirection();
         initialize( RELATIONSHIPS, NODES );
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        NodeRecord source = add( inUse( new NodeRecord( 1, false, 7, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
+        NodeRecord source = add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 7, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).sourceNodeDoesNotReferenceBack( source );
@@ -306,18 +322,19 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportTargetNodeNotReferencingBackForFirstRelationshipInTargetChain() throws Exception
+    void shouldReportTargetNodeNotReferencingBackForFirstRelationshipInTargetChain()
     {
         // given
         checkSingleDirection();
         initialize( RELATIONSHIPS, NODES );
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        NodeRecord target = add( inUse( new NodeRecord( 2, false, 7, NONE ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        NodeRecord target = add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 7, 0 ) ) );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).targetNodeDoesNotReferenceBack( target );
@@ -325,18 +342,19 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportSourceAndTargetNodeNotReferencingBackForFirstRelationshipInChains() throws Exception
+    void shouldReportSourceAndTargetNodeNotReferencingBackForFirstRelationshipInChains()
     {
         // given
         checkSingleDirection();
         initialize( RELATIONSHIPS, NODES );
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        NodeRecord source = add( inUse( new NodeRecord( 1, false, NONE, NONE ) ) );
-        NodeRecord target = add( inUse( new NodeRecord( 2, false, NONE, NONE ) ) );
+        NodeRecord source = add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, NONE, 0 ) ) );
+        NodeRecord target = add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, NONE, 0 ) ) );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).sourceNodeDoesNotReferenceBack( source );
@@ -345,22 +363,24 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportSourceNodeWithoutChainForRelationshipInTheMiddleOfChain() throws Exception
+    void shouldReportSourceNodeWithoutChainForRelationshipInTheMiddleOfChain()
     {
         // given
         checkSingleDirection();
         initialize( RELATIONSHIPS, NODES );
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        NodeRecord source = add( inUse( new NodeRecord( 1, false, NONE, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
-        RelationshipRecord sPrev = add( inUse( new RelationshipRecord( 51, 1, 0, 0 ) ) );
+        NodeRecord source = add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, NONE, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
+        RelationshipRecord sPrev = add( inUse( new RelationshipRecord( 51 ) ) );
+        sPrev.setLinks( 1, 0, 0 );
         relationship.setFirstPrevRel( sPrev.getId() );
         relationship.setFirstInFirstChain( false );
         sPrev.setFirstNextRel( relationship.getId() );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).sourceNodeHasNoRelationships( source );
@@ -368,22 +388,24 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportTargetNodeWithoutChainForRelationshipInTheMiddleOfChain() throws Exception
+    void shouldReportTargetNodeWithoutChainForRelationshipInTheMiddleOfChain()
     {
         // given
         checkSingleDirection();
         initialize( RELATIONSHIPS, NODES );
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        NodeRecord target = add( inUse( new NodeRecord( 2, false, NONE, NONE ) ) );
-        RelationshipRecord tPrev = add( inUse( new RelationshipRecord( 51, 0, 2, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        NodeRecord target = add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, NONE, 0 ) ) );
+        RelationshipRecord tPrev = add( inUse( new RelationshipRecord( 51 ) ) );
+        tPrev.setLinks( 0, 2, 0 );
         relationship.setSecondPrevRel( tPrev.getId() );
         relationship.setFirstInSecondChain( false );
         tPrev.setSecondNextRel( relationship.getId() );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).targetNodeHasNoRelationships( target );
@@ -391,19 +413,21 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportSourcePrevReferencingOtherNodes() throws Exception
+    void shouldReportSourcePrevReferencingOtherNodes()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 0, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
-        RelationshipRecord sPrev = add( inUse( new RelationshipRecord( 51, 8, 9, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 0, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
+        RelationshipRecord sPrev = add( inUse( new RelationshipRecord( 51 ) ) );
+        sPrev.setLinks( 8, 9, 0 );
         relationship.setFirstPrevRel( sPrev.getId() );
         relationship.setFirstInFirstChain( false );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).sourcePrevReferencesOtherNodes( sPrev );
@@ -411,19 +435,21 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportTargetPrevReferencingOtherNodes() throws Exception
+    void shouldReportTargetPrevReferencingOtherNodes()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 0, NONE ) ) );
-        RelationshipRecord tPrev = add( inUse( new RelationshipRecord( 51, 8, 9, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 0, 0 ) ) );
+        RelationshipRecord tPrev = add( inUse( new RelationshipRecord( 51 ) ) );
+        tPrev.setLinks( 8, 9, 0 );
         relationship.setSecondPrevRel( tPrev.getId() );
         relationship.setFirstInSecondChain( false );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).targetPrevReferencesOtherNodes( tPrev );
@@ -431,18 +457,20 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportSourceNextReferencingOtherNodes() throws Exception
+    void shouldReportSourceNextReferencingOtherNodes()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
-        RelationshipRecord sNext = add( inUse( new RelationshipRecord( 51, 8, 9, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
+        RelationshipRecord sNext = add( inUse( new RelationshipRecord( 51 ) ) );
+        sNext.setLinks( 8, 9, 0 );
         relationship.setFirstNextRel( sNext.getId() );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).sourceNextReferencesOtherNodes( sNext );
@@ -450,18 +478,20 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportTargetNextReferencingOtherNodes() throws Exception
+    void shouldReportTargetNextReferencingOtherNodes()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
-        RelationshipRecord tNext = add( inUse( new RelationshipRecord( 51, 8, 9, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
+        RelationshipRecord tNext = add( inUse( new RelationshipRecord( 51 ) ) );
+        tNext.setLinks( 8, 9, 0 );
         relationship.setSecondNextRel( tNext.getId() );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).targetNextReferencesOtherNodes( tNext );
@@ -469,19 +499,21 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportSourcePrevReferencingOtherNodesWhenReferencingTargetNode() throws Exception
+    void shouldReportSourcePrevReferencingOtherNodesWhenReferencingTargetNode()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 0, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
-        RelationshipRecord sPrev = add( inUse( new RelationshipRecord( 51, 2, 0, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 0, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
+        RelationshipRecord sPrev = add( inUse( new RelationshipRecord( 51 ) ) );
+        sPrev.setLinks( 2, 0, 0 );
         relationship.setFirstPrevRel( sPrev.getId() );
         relationship.setFirstInFirstChain( false );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).sourcePrevReferencesOtherNodes( sPrev );
@@ -489,19 +521,21 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportTargetPrevReferencingOtherNodesWhenReferencingSourceNode() throws Exception
+    void shouldReportTargetPrevReferencingOtherNodesWhenReferencingSourceNode()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 0, NONE ) ) );
-        RelationshipRecord tPrev = add( inUse( new RelationshipRecord( 51, 1, 0, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 0, 0 ) ) );
+        RelationshipRecord tPrev = add( inUse( new RelationshipRecord( 51 ) ) );
+        tPrev.setLinks( 1, 0, 0 );
         relationship.setSecondPrevRel( tPrev.getId() );
         relationship.setFirstInSecondChain( false );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).targetPrevReferencesOtherNodes( tPrev );
@@ -509,18 +543,20 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportSourceNextReferencingOtherNodesWhenReferencingTargetNode() throws Exception
+    void shouldReportSourceNextReferencingOtherNodesWhenReferencingTargetNode()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
-        RelationshipRecord sNext = add( inUse( new RelationshipRecord( 51, 2, 0, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
+        RelationshipRecord sNext = add( inUse( new RelationshipRecord( 51 ) ) );
+        sNext.setLinks( 2, 0, 0 );
         relationship.setFirstNextRel( sNext.getId() );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).sourceNextReferencesOtherNodes( sNext );
@@ -528,18 +564,20 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportTargetNextReferencingOtherNodesWhenReferencingSourceNode() throws Exception
+    void shouldReportTargetNextReferencingOtherNodesWhenReferencingSourceNode()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
-        RelationshipRecord tNext = add( inUse( new RelationshipRecord( 51, 1, 0, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
+        RelationshipRecord tNext = add( inUse( new RelationshipRecord( 51 ) ) );
+        tNext.setLinks( 1, 0, 0 );
         relationship.setSecondNextRel( tNext.getId() );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).targetNextReferencesOtherNodes( tNext );
@@ -547,19 +585,21 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportSourcePrevNotReferencingBack() throws Exception
+    void shouldReportSourcePrevNotReferencingBack()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 0, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
-        RelationshipRecord sPrev = add( inUse( new RelationshipRecord( 51, 1, 3, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 0, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
+        RelationshipRecord sPrev = add( inUse( new RelationshipRecord( 51 ) ) );
+        sPrev.setLinks( 1, 3, 0 );
         relationship.setFirstPrevRel( sPrev.getId() );
         relationship.setFirstInFirstChain( false );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).sourcePrevDoesNotReferenceBack( sPrev );
@@ -567,19 +607,21 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportTargetPrevNotReferencingBack() throws Exception
+    void shouldReportTargetPrevNotReferencingBack()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 0, NONE ) ) );
-        RelationshipRecord tPrev = add( inUse( new RelationshipRecord( 51, 2, 3, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 0, 0 ) ) );
+        RelationshipRecord tPrev = add( inUse( new RelationshipRecord( 51 ) ) );
+        tPrev.setLinks( 2, 3, 0 );
         relationship.setSecondPrevRel( tPrev.getId() );
         relationship.setFirstInSecondChain( false );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).targetPrevDoesNotReferenceBack( tPrev );
@@ -587,18 +629,20 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportSourceNextNotReferencingBack() throws Exception
+    void shouldReportSourceNextNotReferencingBack()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
-        RelationshipRecord sNext = add( inUse( new RelationshipRecord( 51, 3, 1, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
+        RelationshipRecord sNext = add( inUse( new RelationshipRecord( 51 ) ) );
+        sNext.setLinks( 3, 1, 0 );
         relationship.setFirstNextRel( sNext.getId() );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).sourceNextDoesNotReferenceBack( sNext );
@@ -606,18 +650,20 @@ public class RelationshipRecordCheckTest extends
     }
 
     @Test
-    public void shouldReportTargetNextNotReferencingBack() throws Exception
+    void shouldReportTargetNextNotReferencingBack()
     {
         // given
-        RelationshipRecord relationship = inUse( new RelationshipRecord( 42, 1, 2, 4 ) );
+        RelationshipRecord relationship = inUse( new RelationshipRecord( 42 ) );
+        relationship.setLinks( 1, 2, 4 );
         add( inUse( new RelationshipTypeTokenRecord( 4 ) ) );
-        add( inUse( new NodeRecord( 1, false, 42, NONE ) ) );
-        add( inUse( new NodeRecord( 2, false, 42, NONE ) ) );
-        RelationshipRecord tNext = add( inUse( new RelationshipRecord( 51, 3, 2, 0 ) ) );
+        add( inUse( new NodeRecord( 1 ).initialize( false, NONE, false, 42, 0 ) ) );
+        add( inUse( new NodeRecord( 2 ).initialize( false, NONE, false, 42, 0 ) ) );
+        RelationshipRecord tNext = add( inUse( new RelationshipRecord( 51 ) ) );
+        tNext.setLinks( 3, 2, 0 );
         relationship.setSecondNextRel( tNext.getId() );
 
         // when
-        ConsistencyReport.RelationshipConsistencyReport report = check( relationship );
+        RelationshipConsistencyReport report = check( relationship );
 
         // then
         verify( report ).targetNextDoesNotReferenceBack( tNext );

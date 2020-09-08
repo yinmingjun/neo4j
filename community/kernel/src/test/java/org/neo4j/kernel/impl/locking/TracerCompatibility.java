@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,35 +19,37 @@
  */
 package org.neo4j.kernel.impl.locking;
 
+import org.junit.jupiter.api.Test;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Future;
 
-import org.junit.Ignore;
-import org.junit.Test;
-
-import org.neo4j.storageengine.api.lock.ResourceType;
+import org.neo4j.lock.LockTracer;
+import org.neo4j.lock.LockType;
+import org.neo4j.lock.LockWaitEvent;
+import org.neo4j.lock.ResourceType;
 
 import static java.lang.String.format;
-import static org.neo4j.kernel.impl.locking.ResourceTypes.NODE;
+import static org.neo4j.lock.ResourceTypes.NODE;
 
-@Ignore( "Not a test. This is a compatibility suite, run from LockingCompatibilityTestSuite." )
-public class TracerCompatibility extends LockingCompatibilityTestSuite.Compatibility
+abstract class TracerCompatibility extends LockCompatibilityTestSupport
 {
-    public TracerCompatibility( LockingCompatibilityTestSuite suite )
+    TracerCompatibility( LockingCompatibilityTestSuite suite )
     {
         super( suite );
     }
 
     @Test
-    public void shouldTraceWaitTimeWhenTryingToAcquireExclusiveLockAndExclusiveIsHeld() throws Exception
+    void shouldTraceWaitTimeWhenTryingToAcquireExclusiveLockAndExclusiveIsHeld() throws Exception
     {
         // given
-        Tracer tracerA = new Tracer(), tracerB = new Tracer();
+        Tracer tracerA = new Tracer();
+        Tracer tracerB = new Tracer();
         clientA.acquireExclusive( tracerA, NODE, 17 );
 
         // when
-        Future<Object> future = acquireExclusive( clientB, tracerB, NODE, 17 ).callAndAssertWaiting();
+        Future<Void> future = acquireExclusive( clientB, tracerB, NODE, 17 ).callAndAssertWaiting();
 
         // then
         clientA.releaseExclusive( NODE, 17 );
@@ -57,14 +59,15 @@ public class TracerCompatibility extends LockingCompatibilityTestSuite.Compatibi
     }
 
     @Test
-    public void shouldTraceWaitTimeWhenTryingToAcquireSharedLockAndExclusiveIsHeld() throws Exception
+    void shouldTraceWaitTimeWhenTryingToAcquireSharedLockAndExclusiveIsHeld() throws Exception
     {
         // given
-        Tracer tracerA = new Tracer(), tracerB = new Tracer();
+        Tracer tracerA = new Tracer();
+        Tracer tracerB = new Tracer();
         clientA.acquireExclusive( tracerA, NODE, 17 );
 
         // when
-        Future<Object> future = acquireShared( clientB, tracerB, NODE, 17 ).callAndAssertWaiting();
+        Future<Void> future = acquireShared( clientB, tracerB, NODE, 17 ).callAndAssertWaiting();
 
         // then
         clientA.releaseExclusive( NODE, 17 );
@@ -74,14 +77,15 @@ public class TracerCompatibility extends LockingCompatibilityTestSuite.Compatibi
     }
 
     @Test
-    public void shouldTraceWaitTimeWhenTryingToAcquireExclusiveLockAndSharedIsHeld() throws Exception
+    void shouldTraceWaitTimeWhenTryingToAcquireExclusiveLockAndSharedIsHeld() throws Exception
     {
         // given
-        Tracer tracerA = new Tracer(), tracerB = new Tracer();
+        Tracer tracerA = new Tracer();
+        Tracer tracerB = new Tracer();
         clientA.acquireShared( tracerA, NODE, 17 );
 
         // when
-        Future<Object> future = acquireExclusive( clientB, tracerB, NODE, 17 ).callAndAssertWaiting();
+        Future<Void> future = acquireExclusive( clientB, tracerB, NODE, 17 ).callAndAssertWaiting();
 
         // then
         clientA.releaseShared( NODE, 17 );
@@ -96,7 +100,7 @@ public class TracerCompatibility extends LockingCompatibilityTestSuite.Compatibi
         final List<StackTraceElement[]> waitCalls = new ArrayList<>();
 
         @Override
-        public LockWaitEvent waitForLock( boolean exclusive, ResourceType resourceType, long... resourceIds )
+        public LockWaitEvent waitForLock( LockType lockType, ResourceType resourceType, long transactionId, long... resourceIds )
         {
             waitCalls.add( Thread.currentThread().getStackTrace() );
             return this;

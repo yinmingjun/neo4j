@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,50 +19,59 @@
  */
 package org.neo4j.kernel.impl.core;
 
+import java.util.function.IntPredicate;
 import java.util.function.Supplier;
 
-import org.neo4j.kernel.api.KernelAPI;
+import org.neo4j.exceptions.KernelException;
+import org.neo4j.kernel.api.Kernel;
 import org.neo4j.kernel.api.KernelTransaction;
 import org.neo4j.kernel.api.KernelTransaction.Type;
-import org.neo4j.kernel.api.Statement;
-import org.neo4j.kernel.api.exceptions.schema.IllegalTokenNameException;
-import org.neo4j.kernel.api.exceptions.schema.TooManyLabelsException;
-import org.neo4j.kernel.impl.store.id.IdGeneratorFactory;
+import org.neo4j.token.TokenCreator;
 
-import static org.neo4j.kernel.api.security.SecurityContext.AUTH_DISABLED;
+import static org.neo4j.internal.kernel.api.security.LoginContext.AUTH_DISABLED;
 
 /**
  * Creates a key within its own transaction, such that the command(s) for creating the key
  * will be alone in a transaction. If there is a running a transaction while calling this
  * it will be temporarily suspended meanwhile.
  */
-public abstract class IsolatedTransactionTokenCreator implements TokenCreator
+abstract class IsolatedTransactionTokenCreator implements TokenCreator
 {
-    protected final IdGeneratorFactory idGeneratorFactory;
-    private final Supplier<KernelAPI> kernelSupplier;
+    private final Supplier<Kernel> kernelSupplier;
 
-    public IsolatedTransactionTokenCreator( Supplier<KernelAPI> kernelSupplier,
-            IdGeneratorFactory idGeneratorFactory )
+    IsolatedTransactionTokenCreator( Supplier<Kernel> kernelSupplier )
     {
         this.kernelSupplier = kernelSupplier;
-        this.idGeneratorFactory = idGeneratorFactory;
     }
 
     @Override
-    public synchronized int getOrCreate( String name ) throws org.neo4j.kernel.api.exceptions.KernelException
+    public synchronized int createToken( String name, boolean internal ) throws KernelException
     {
-        KernelAPI kernel = kernelSupplier.get();
-        try ( KernelTransaction transaction = kernel.newTransaction( Type.implicit, AUTH_DISABLED ) )
+        Kernel kernel = kernelSupplier.get();
+        try ( KernelTransaction tx = kernel.beginTransaction( Type.IMPLICIT, AUTH_DISABLED ) )
         {
-            try ( Statement statement = transaction.acquireStatement() )
-            {
-                int id = createKey( statement, name );
-                transaction.success();
-                return id;
-            }
+            int id = createKey( tx, name, internal );
+            tx.commit();
+            return id;
         }
     }
 
-    protected abstract int createKey( Statement statement, String name )
-            throws IllegalTokenNameException, TooManyLabelsException;
+    @Override
+    public synchronized void createTokens( String[] names, int[] ids, boolean internal, IntPredicate filter ) throws KernelException
+    {
+        Kernel kernel = kernelSupplier.get();
+        try ( KernelTransaction tx = kernel.beginTransaction( Type.IMPLICIT, AUTH_DISABLED ) )
+        {
+            for ( int i = 0; i < ids.length; i++ )
+            {
+                if ( filter.test( i ) )
+                {
+                    ids[i] = createKey( tx, names[i], internal );
+                }
+            }
+            tx.commit();
+        }
+    }
+
+    abstract int createKey( KernelTransaction transaction, String name, boolean internal ) throws KernelException;
 }

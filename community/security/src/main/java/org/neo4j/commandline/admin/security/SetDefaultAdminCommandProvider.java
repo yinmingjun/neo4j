@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,54 +19,25 @@
  */
 package org.neo4j.commandline.admin.security;
 
-import java.nio.file.Path;
-import javax.annotation.Nonnull;
+import org.neo4j.annotations.service.ServiceProvider;
+import org.neo4j.cli.Command;
+import org.neo4j.cli.CommandProvider;
+import org.neo4j.cli.ExecutionContext;
 
-import org.neo4j.commandline.admin.AdminCommand;
-import org.neo4j.commandline.admin.AdminCommandSection;
-import org.neo4j.commandline.admin.OutsideWorld;
-import org.neo4j.commandline.arguments.Arguments;
+import static org.neo4j.cli.Command.CommandType.SET_DEFAULT_ADMIN;
 
-public class SetDefaultAdminCommandProvider extends AdminCommand.Provider
+@ServiceProvider
+public class SetDefaultAdminCommandProvider implements CommandProvider<SetDefaultAdminCommand>
 {
-    public SetDefaultAdminCommandProvider()
+    @Override
+    public SetDefaultAdminCommand createCommand( ExecutionContext ctx )
     {
-        super( SetDefaultAdminCommand.COMMAND_NAME );
+        return new SetDefaultAdminCommand( ctx );
     }
 
     @Override
-    @Nonnull
-    public Arguments allArguments()
+    public Command.CommandType commandType()
     {
-        return SetDefaultAdminCommand.arguments();
-    }
-
-    @Override
-    @Nonnull
-    public String description()
-    {
-        return "Sets the user to become admin if users but no roles are present, " +
-                "for example when upgrading to neo4j 3.1 enterprise.";
-    }
-
-    @Override
-    @Nonnull
-    public String summary()
-    {
-        return "Sets the default admin user when no roles are present.";
-    }
-
-    @Override
-    @Nonnull
-    public AdminCommandSection commandSection()
-    {
-        return AuthenticationCommandSection.instance();
-    }
-
-    @Override
-    @Nonnull
-    public AdminCommand create( Path homeDir, Path configDir, OutsideWorld outsideWorld )
-    {
-        return new SetDefaultAdminCommand( homeDir, configDir, outsideWorld );
+        return SET_DEFAULT_ADMIN;
     }
 }

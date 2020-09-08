@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,6 +22,7 @@ package org.neo4j.consistency.statistics;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.RecordStore;
 import org.neo4j.kernel.impl.store.record.AbstractBaseRecord;
 import org.neo4j.kernel.impl.store.record.RecordLoad;
@@ -30,20 +31,11 @@ import static java.lang.String.format;
 
 /**
  * Keeps access statistics about a store, i.e. identifying
- * {@link RecordStore#getRecord(long, AbstractBaseRecord, RecordLoad)} patterns and how random the access is.
+ * {@link RecordStore#getRecord(long, AbstractBaseRecord, RecordLoad, PageCursorTracer)} patterns and how random the access is.
  */
 public class AccessStatistics
 {
-    public static int LOCALITY = 500;
-
     private final Map<RecordStore<? extends AbstractBaseRecord>,AccessStats> stats = new HashMap<>();
-    private int proximity;
-
-    @SuppressWarnings( "unchecked" )
-    public AccessStats getAccessStats( RecordStore<? extends AbstractBaseRecord> store )
-    {
-        return stats.get( store );
-    }
 
     public void register( RecordStore<? extends AbstractBaseRecord> store, AccessStats accessStats )
     {
@@ -53,16 +45,16 @@ public class AccessStatistics
 
     public String getAccessStatSummary()
     {
-        String msg = "";
+        StringBuilder msg = new StringBuilder();
         for ( AccessStats accessStats : stats.values() )
         {
             String accessStat = accessStats.toString();
-            if ( accessStat.length() != 0 )
+            if ( !accessStat.isEmpty() )
             {
-                msg += format( accessStat + "%n" );
+                msg.append( format( accessStat + "%n" ) );
             }
         }
-        return msg;
+        return msg.toString();
     }
 
     public void reset()
@@ -75,11 +67,15 @@ public class AccessStatistics
 
     public static class AccessStats
     {
-        private long reads = 0, writes = 0, inUse = 0;
-        private long randomReads = 0, randomWrites = 0;
-        private int proximityValue = 0;
+        private long reads;
+        private long writes;
+        private long inUse;
+        private long randomReads;
+        private long randomWrites;
+        private int proximityValue;
         private final String storeType;
-        private long prevReadId, prevWriteId;
+        private long prevReadId;
+        private long prevWriteId;
 
         public AccessStats( String type, int proximity )
         {
@@ -112,7 +108,7 @@ public class AccessStatistics
             // but keep here as a reminder to do so
 //          if ( scatterIndex > 0.5 )
 //          {
-//              buf.append( format( "%n *** Property Store reorgization is recommended for optimal performance ***" ) );
+//              buf.append( format( "%n *** Property Store reorganization is recommended for optimal performance ***" ) );
 //          }
 
             return buf.toString();
@@ -146,17 +142,9 @@ public class AccessStatistics
             }
         }
 
-        private boolean closeBy( long id1, long id2 )
+        private boolean notCloseBy( long id1, long id2 )
         {
-            if ( id1 < 0 || id2 < 0 )
-            {
-                return true;
-            }
-            if ( Math.abs( id2 - id1 ) < this.proximityValue )
-            {
-                return true;
-            }
-            return false;
+            return id1 >= 0 && id2 >= 0 && Math.abs( id2 - id1 ) >= this.proximityValue;
         }
 
         public void upWrite( long id )
@@ -164,7 +152,7 @@ public class AccessStatistics
             if ( prevWriteId != id )
             {
                 writes++;
-                if ( id > 0 && !closeBy( id, prevWriteId ) )
+                if ( id > 0 && notCloseBy( id, prevWriteId ) )
                 {
                     randomWrites++;
                 }
@@ -174,7 +162,7 @@ public class AccessStatistics
 
         public synchronized void incrementRandomReads( long id1, long id2 )
         {
-            if ( !closeBy( id1, id2 ) )
+            if ( notCloseBy( id1, id2 ) )
             {
                 randomReads++;
             }

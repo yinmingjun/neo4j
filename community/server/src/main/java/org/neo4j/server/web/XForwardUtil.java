@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,10 +22,16 @@ package org.neo4j.server.web;
 import java.net.URI;
 import javax.ws.rs.core.UriBuilder;
 
+import static java.util.Objects.requireNonNullElse;
+
 public class XForwardUtil
 {
     public static final String X_FORWARD_HOST_HEADER_KEY = "X-Forwarded-Host";
     public static final String X_FORWARD_PROTO_HEADER_KEY = "X-Forwarded-Proto";
+
+    private XForwardUtil()
+    {
+    }
 
     public static String externalUri( String internalUri, String xForwardedHost, String xForwardedProto )
     {
@@ -64,7 +70,7 @@ public class XForwardUtil
     {
         String host;
         int port = -1;
-        boolean isValid = false;
+        boolean isValid;
 
         ForwardedHost( String headerValue )
         {
@@ -94,7 +100,7 @@ public class XForwardUtil
             }
             if ( strings.length > 1 )
             {
-                this.port = Integer.valueOf( strings[1] );
+                this.port = Integer.parseInt( strings[1] );
                 isValid = true;
             }
             if ( strings.length > 2 )
@@ -125,14 +131,7 @@ public class XForwardUtil
 
         ForwardedProto( String headerValue )
         {
-            if ( headerValue != null )
-            {
-                this.headerValue = headerValue;
-            }
-            else
-            {
-                this.headerValue = "";
-            }
+            this.headerValue = requireNonNullElse( headerValue, "" );
         }
 
         boolean isValid()

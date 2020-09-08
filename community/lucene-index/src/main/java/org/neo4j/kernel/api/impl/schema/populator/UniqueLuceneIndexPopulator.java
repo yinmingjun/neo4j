@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,23 +20,25 @@
 package org.neo4j.kernel.api.impl.schema.populator;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.api.exceptions.index.IndexEntryConflictException;
 import org.neo4j.kernel.api.impl.schema.SchemaIndex;
-import org.neo4j.kernel.api.index.IndexEntryUpdate;
+import org.neo4j.kernel.api.index.IndexSample;
 import org.neo4j.kernel.api.index.IndexUpdater;
-import org.neo4j.kernel.api.index.PropertyAccessor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.kernel.impl.api.index.sampling.UniqueIndexSampler;
-import org.neo4j.storageengine.api.schema.IndexSample;
+import org.neo4j.kernel.api.index.UniqueIndexSampler;
+import org.neo4j.storageengine.api.IndexEntryUpdate;
+import org.neo4j.storageengine.api.NodePropertyAccessor;
 
 /**
  * A {@link LuceneIndexPopulator} used for unique Lucene schema indexes.
  * Performs sampling using {@link UniqueIndexSampler}.
  * Verifies uniqueness of added and changed values using
- * {@link SchemaIndex#verifyUniqueness(PropertyAccessor, int[])} method.
+ * {@link SchemaIndex#verifyUniqueness(NodePropertyAccessor, int[])} method.
  */
-public class UniqueLuceneIndexPopulator extends LuceneIndexPopulator
+public class UniqueLuceneIndexPopulator extends LuceneIndexPopulator<SchemaIndex>
 {
     private final int[] propertyKeyIds;
     private final UniqueIndexSampler sampler;
@@ -49,31 +51,32 @@ public class UniqueLuceneIndexPopulator extends LuceneIndexPopulator
     }
 
     @Override
-    public void verifyDeferredConstraints( PropertyAccessor accessor ) throws IndexEntryConflictException, IOException
+    public void verifyDeferredConstraints( NodePropertyAccessor accessor ) throws IndexEntryConflictException
     {
-        luceneIndex.verifyUniqueness( accessor, propertyKeyIds );
+        try
+        {
+            luceneIndex.verifyUniqueness( accessor, propertyKeyIds );
+        }
+        catch ( IOException e )
+        {
+            throw new UncheckedIOException( e );
+        }
     }
 
     @Override
-    public IndexUpdater newPopulatingUpdater( final PropertyAccessor accessor ) throws IOException
+    public IndexUpdater newPopulatingUpdater( final NodePropertyAccessor accessor, PageCursorTracer cursorTracer )
     {
         return new UniqueLuceneIndexPopulatingUpdater( writer, propertyKeyIds, luceneIndex, accessor, sampler );
     }
 
     @Override
-    public void includeSample( IndexEntryUpdate update )
+    public void includeSample( IndexEntryUpdate<?> update )
     {
         sampler.increment( 1 );
     }
 
     @Override
-    public void configureSampling( boolean onlineSampling )
-    {
-        // nothing to configure so far
-    }
-
-    @Override
-    public IndexSample sampleResult()
+    public IndexSample sample( PageCursorTracer cursorTracer )
     {
         return sampler.result();
     }

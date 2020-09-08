@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,19 +19,21 @@
  */
 package org.neo4j.consistency.checking.full;
 
+import org.eclipse.collections.api.set.primitive.MutableLongSet;
+import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import org.neo4j.collection.primitive.Primitive;
-import org.neo4j.collection.primitive.PrimitiveLongCollections;
-import org.neo4j.collection.primitive.PrimitiveLongSet;
+import org.neo4j.collection.PrimitiveLongCollections;
 import org.neo4j.consistency.checking.CheckerEngine;
 import org.neo4j.consistency.checking.LabelChainWalker;
 import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.store.RecordAccess;
 import org.neo4j.consistency.store.RecordReference;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.DynamicNodeLabels;
 import org.neo4j.kernel.impl.store.InlineNodeLabels;
 import org.neo4j.kernel.impl.store.NodeLabels;
@@ -46,8 +48,12 @@ import static org.neo4j.kernel.impl.store.record.RecordLoad.FORCE;
 
 public class NodeLabelReader
 {
+    private NodeLabelReader()
+    {
+    }
+
     public static <RECORD extends AbstractBaseRecord, REPORT extends ConsistencyReport> Set<Long> getListOfLabels(
-            NodeRecord nodeRecord, RecordAccess records, CheckerEngine<RECORD, REPORT> engine )
+            NodeRecord nodeRecord, RecordAccess records, CheckerEngine<RECORD, REPORT> engine, PageCursorTracer cursorTracer )
     {
         final Set<Long> labels = new HashSet<>();
 
@@ -57,27 +63,27 @@ public class NodeLabelReader
 
             DynamicNodeLabels dynamicNodeLabels = (DynamicNodeLabels) nodeLabels;
             long firstRecordId = dynamicNodeLabels.getFirstDynamicRecordId();
-            RecordReference<DynamicRecord> firstRecordReference = records.nodeLabels( firstRecordId );
+            RecordReference<DynamicRecord> firstRecordReference = records.nodeLabels( firstRecordId, cursorTracer );
             engine.comparativeCheck( firstRecordReference,
                     new LabelChainWalker<>(
-                            new LabelChainWalker.Validator<RECORD, REPORT>()
+                            new LabelChainWalker.Validator<>()
                             {
                                 @Override
                                 public void onRecordNotInUse( DynamicRecord dynamicRecord,
-                                                              CheckerEngine<RECORD, REPORT> engine )
+                                                              CheckerEngine<RECORD,REPORT> engine )
                                 {
                                 }
 
                                 @Override
                                 public void onRecordChainCycle( DynamicRecord record,
-                                                                CheckerEngine<RECORD, REPORT> engine )
+                                                                CheckerEngine<RECORD,REPORT> engine )
                                 {
                                 }
 
                                 @Override
                                 public void onWellFormedChain( long[] labelIds,
-                                                               CheckerEngine<RECORD, REPORT> engine,
-                                                               RecordAccess records )
+                                                               CheckerEngine<RECORD,REPORT> engine,
+                                                               RecordAccess records, PageCursorTracer cursorTracer )
                                 {
                                     copyToSet( labelIds, labels );
                                 }
@@ -85,23 +91,23 @@ public class NodeLabelReader
         }
         else
         {
-            copyToSet( nodeLabels.get( null ), labels );
+            copyToSet( nodeLabels.get( null, cursorTracer ), labels );
         }
 
         return labels;
     }
 
-    public static long[] getListOfLabels( NodeRecord nodeRecord, RecordStore<DynamicRecord> labels )
+    public static long[] getListOfLabels( NodeRecord nodeRecord, RecordStore<DynamicRecord> labels, PageCursorTracer cursorTracer )
     {
         long field = nodeRecord.getLabelField();
         if ( NodeLabelsField.fieldPointsToDynamicRecordOfLabels( field ) )
         {
             List<DynamicRecord> recordList = new ArrayList<>();
-            PrimitiveLongSet alreadySeen = Primitive.longSet( 16 );
+            final MutableLongSet alreadySeen = new LongHashSet();
             long id = NodeLabelsField.firstDynamicLabelRecordId( field );
             while ( !Record.NULL_REFERENCE.is( id ) )
             {
-                DynamicRecord record = labels.getRecord( id, labels.newRecord(), FORCE );
+                DynamicRecord record = labels.getRecord( id, labels.newRecord(), FORCE, cursorTracer );
                 if ( !record.inUse() || !alreadySeen.add( id ) )
                 {
                     return PrimitiveLongCollections.EMPTY_LONG_ARRAY;

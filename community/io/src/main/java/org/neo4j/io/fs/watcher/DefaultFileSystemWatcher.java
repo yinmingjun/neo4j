@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,8 +22,9 @@ package org.neo4j.io.fs.watcher;
 import com.sun.nio.file.SensitivityWatchEventModifier;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
@@ -56,15 +57,15 @@ public class DefaultFileSystemWatcher implements FileWatcher
     }
 
     @Override
-    public WatchedResource watch( File file ) throws IOException
+    public WatchedResource watch( Path path ) throws IOException
     {
-        if ( !file.isDirectory() )
+        if ( !Files.isDirectory( path ) )
         {
             throw new IllegalArgumentException( format( "File `%s` is not a directory. Only directories can be " +
-                    "registered to be monitored.", file.getCanonicalPath() ) );
+                    "registered to be monitored.", path.toAbsolutePath().normalize() ) );
         }
-        WatchKey watchKey = file.toPath().register( watchService, OBSERVED_EVENTS, SensitivityWatchEventModifier.HIGH );
-        return new WatchedFile( watchKey );
+        WatchKey watchKey = path.register( watchService, OBSERVED_EVENTS, SensitivityWatchEventModifier.HIGH );
+        return new WatchedFile( watchKey, path );
     }
 
     @Override
@@ -82,11 +83,11 @@ public class DefaultFileSystemWatcher implements FileWatcher
                     WatchEvent.Kind<?> kind = watchEvent.kind();
                     if ( StandardWatchEventKinds.ENTRY_MODIFY == kind )
                     {
-                        notifyAboutModification( watchEvent );
+                        notifyAboutModification( key, watchEvent );
                     }
                     if ( StandardWatchEventKinds.ENTRY_DELETE == kind )
                     {
-                        notifyAboutDeletion( watchEvent );
+                        notifyAboutDeletion( key, watchEvent );
                     }
                 }
                 key.reset();
@@ -119,31 +120,31 @@ public class DefaultFileSystemWatcher implements FileWatcher
         watchService.close();
     }
 
-    private void notifyAboutModification( WatchEvent<?> watchEvent )
+    private void notifyAboutModification( WatchKey key, WatchEvent<?> watchEvent )
     {
         String context = getContext( watchEvent );
         if ( StringUtils.isNotEmpty( context ) )
         {
             for ( FileWatchEventListener listener : listeners )
             {
-                listener.fileModified( context );
+                listener.fileModified( key, context );
             }
         }
     }
 
-    private void notifyAboutDeletion( WatchEvent<?> watchEvent )
+    private void notifyAboutDeletion( WatchKey key, WatchEvent<?> watchEvent )
     {
         String context = getContext( watchEvent );
         if ( StringUtils.isNotEmpty( context ) )
         {
             for ( FileWatchEventListener listener : listeners )
             {
-                listener.fileDeleted( context );
+                listener.fileDeleted( key, context );
             }
         }
     }
 
-    private String getContext( WatchEvent<?> watchEvent )
+    private static String getContext( WatchEvent<?> watchEvent )
     {
         return Objects.toString( watchEvent.context(), StringUtils.EMPTY );
     }

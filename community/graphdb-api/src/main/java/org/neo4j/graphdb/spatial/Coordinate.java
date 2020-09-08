@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -23,6 +23,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.neo4j.annotations.api.PublicApi;
+
 import static java.util.Arrays.stream;
 
 /**
@@ -39,6 +41,7 @@ import static java.util.Arrays.stream;
  * system
  * (see ${@link CRS})
  */
+@PublicApi
 public final class Coordinate
 {
     private final double[] coordinate;
@@ -47,7 +50,7 @@ public final class Coordinate
     {
         if ( coordinate.length < 2 )
         {
-            throw new IllegalArgumentException( "A coordinate must at least two elements" );
+            throw new IllegalArgumentException( "A coordinate must have at least two elements" );
         }
         this.coordinate = coordinate;
     }
@@ -66,9 +69,13 @@ public final class Coordinate
     public boolean equals( Object o )
     {
         if ( this == o )
-        { return true; }
+        {
+            return true;
+        }
         if ( o == null || getClass() != o.getClass() )
-        { return false; }
+        {
+            return false;
+        }
 
         Coordinate that = (Coordinate) o;
 

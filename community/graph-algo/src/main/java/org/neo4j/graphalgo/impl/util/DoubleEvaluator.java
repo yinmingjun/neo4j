@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -25,17 +25,17 @@ import org.neo4j.graphdb.Relationship;
 
 public class DoubleEvaluator implements CostEvaluator<Double>
 {
-    private String costPropertyName;
+    private final String costPropertyName;
 
     public DoubleEvaluator( String costPropertyName )
     {
-        super();
         this.costPropertyName = costPropertyName;
     }
 
+    @Override
     public Double getCost( Relationship relationship, Direction direction )
     {
-        Object costProp = relationship.getProperty(costPropertyName);
+        Object costProp = relationship.getProperty( costPropertyName );
         if ( costProp instanceof Number )
         {
             return ((Number) costProp).doubleValue();

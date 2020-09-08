@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,79 +19,83 @@
  */
 package org.neo4j.csv.reader;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.CharArrayReader;
 import java.io.IOException;
 import java.util.concurrent.locks.LockSupport;
 
 import static java.util.Arrays.copyOfRange;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class ThreadAheadReadableTest
+class ThreadAheadReadableTest
 {
     @Test
-    public void shouldReadAhead() throws Exception
+    void shouldReadAhead() throws Exception
     {
         // GIVEN
         TrackingReader actual = new TrackingReader( 23 );
         int bufferSize = 5;
-        CharReadable aheadReader = ThreadAheadReadable.threadAhead( actual, bufferSize );
-        SectionedCharBuffer buffer = new SectionedCharBuffer( bufferSize );
+        try ( CharReadable aheadReader = ThreadAheadReadable.threadAhead( actual, bufferSize ) )
+        {
+            SectionedCharBuffer buffer = new SectionedCharBuffer( bufferSize );
 
-        // WHEN starting it up it should read and fill the buffer to the brim
-        assertEquals( bufferSize, actual.awaitCompletedReadAttempts( 1 ) );
+            // WHEN starting it up it should read and fill the buffer to the brim
+            assertEquals( bufferSize, actual.awaitCompletedReadAttempts( 1 ) );
 
-        // WHEN we read one buffer
-        int read = 0;
-        buffer = aheadReader.read( buffer, buffer.front() );
-        assertBuffer( chars( read, bufferSize ), buffer, 0, bufferSize );
-        read += buffer.available();
+            // WHEN we read one buffer
+            int read = 0;
+            buffer = aheadReader.read( buffer, buffer.front() );
+            assertBuffer( chars( read, bufferSize ), buffer, 0, bufferSize );
+            read += buffer.available();
 
-        // and simulate reading all characters, i.e. back section will be empty in the new buffer
-        buffer = aheadReader.read( buffer, buffer.front() );
-        assertBuffer( chars( read, bufferSize ), buffer, 0, bufferSize );
-        read += buffer.available();
+            // and simulate reading all characters, i.e. back section will be empty in the new buffer
+            buffer = aheadReader.read( buffer, buffer.front() );
+            assertBuffer( chars( read, bufferSize ), buffer, 0, bufferSize );
+            read += buffer.available();
 
-        // then simulate reading some characters, i.e. back section will contain some characters
-        int keep = 2;
-        buffer = aheadReader.read( buffer, buffer.front() - keep );
-        assertBuffer( chars( read - keep, bufferSize + keep ), buffer, keep, bufferSize );
-        read += buffer.available();
+            // then simulate reading some characters, i.e. back section will contain some characters
+            int keep = 2;
+            buffer = aheadReader.read( buffer, buffer.front() - keep );
+            assertBuffer( chars( read - keep, bufferSize + keep ), buffer, keep, bufferSize );
+            read += buffer.available();
 
-        keep = 3;
-        buffer = aheadReader.read( buffer, buffer.front() - keep );
-        assertBuffer( chars( read - keep, bufferSize + keep ), buffer, keep, bufferSize );
-        read += buffer.available();
+            keep = 3;
+            buffer = aheadReader.read( buffer, buffer.front() - keep );
+            assertBuffer( chars( read - keep, bufferSize + keep ), buffer, keep, bufferSize );
+            read += buffer.available();
 
-        keep = 1;
-        buffer = aheadReader.read( buffer, buffer.front() - keep );
-        assertEquals( 3, buffer.available() );
-        assertBuffer( chars( read - keep, buffer.available() + keep ), buffer, keep, 3 );
-        read += buffer.available();
-        assertEquals( 23, read );
+            keep = 1;
+            buffer = aheadReader.read( buffer, buffer.front() - keep );
+            assertEquals( 3, buffer.available() );
+            assertBuffer( chars( read - keep, buffer.available() + keep ), buffer, keep, 3 );
+            read += buffer.available();
+            assertEquals( 23, read );
+        }
     }
 
     @Test
-    public void shouldHandleReadAheadEmptyData() throws Exception
+    void shouldHandleReadAheadEmptyData() throws Exception
     {
         // GIVEN
         TrackingReader actual = new TrackingReader( 0 );
         int bufferSize = 10;
-        CharReadable aheadReadable = ThreadAheadReadable.threadAhead( actual, bufferSize );
+        try ( CharReadable aheadReadable = ThreadAheadReadable.threadAhead( actual, bufferSize ) )
+        {
 
-        // WHEN
-        actual.awaitCompletedReadAttempts( 1 );
+            // WHEN
+            actual.awaitCompletedReadAttempts( 1 );
 
-        // THEN
-        SectionedCharBuffer buffer = new SectionedCharBuffer( bufferSize );
-        buffer = aheadReadable.read( buffer, buffer.front() );
-        assertEquals( buffer.pivot(), buffer.back() );
-        assertEquals( buffer.pivot(), buffer.front() );
+            // THEN
+            SectionedCharBuffer buffer = new SectionedCharBuffer( bufferSize );
+            buffer = aheadReadable.read( buffer, buffer.front() );
+            assertEquals( buffer.pivot(), buffer.back() );
+            assertEquals( buffer.pivot(), buffer.front() );
+        }
     }
 
-    private void assertBuffer( char[] expectedChars, SectionedCharBuffer buffer, int charsInBack, int charsInFront )
+    private static void assertBuffer( char[] expectedChars, SectionedCharBuffer buffer, int charsInBack, int charsInFront )
     {
         assertEquals( buffer.pivot() - charsInBack, buffer.back() );
         assertEquals( buffer.pivot() + charsInFront, buffer.front() );
@@ -103,10 +107,12 @@ public class ThreadAheadReadableTest
         private int bytesRead;
         private volatile int readsCompleted;
         private final CharReadable actual;
+        private final long bytes;
 
         TrackingReader( int length )
         {
-            this.actual = Readables.wrap( new CharArrayReader( chars( 0, length ) ) );
+            this.bytes = length * 2;
+            this.actual = Readables.wrap( new CharArrayReader( chars( 0, length ) ), length * 2 );
         }
 
         @Override
@@ -123,7 +129,7 @@ public class ThreadAheadReadableTest
         }
 
         @Override
-        public int read( char[] into, int offset, int length ) throws IOException
+        public int read( char[] into, int offset, int length )
         {
             throw new UnsupportedOperationException();
         }
@@ -135,7 +141,7 @@ public class ThreadAheadReadableTest
         }
 
         @Override
-        public void close() throws IOException
+        public void close()
         {   // Nothing to close
         }
 
@@ -158,6 +164,12 @@ public class ThreadAheadReadableTest
         public String sourceDescription()
         {
             return getClass().getSimpleName();
+        }
+
+        @Override
+        public long length()
+        {
+            return bytes;
         }
     }
 

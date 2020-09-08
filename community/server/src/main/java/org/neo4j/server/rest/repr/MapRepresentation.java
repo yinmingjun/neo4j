@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -32,7 +32,7 @@ import static java.util.Arrays.asList;
 public class MapRepresentation extends MappingRepresentation
 {
 
-    private final Map value;
+    private final Map<String,Object> value;
 
     public MapRepresentation( Map value )
     {
@@ -43,10 +43,10 @@ public class MapRepresentation extends MappingRepresentation
     @Override
     protected void serialize( MappingSerializer serializer )
     {
-        for ( Object key : value.keySet() )
+        for ( var entry : value.entrySet() )
         {
-            Object val = value.get( key );
-            String keyString = key == null ? "null" : key.toString();
+            Object val = entry.getValue();
+            String keyString = entry.getKey() == null ? "null" : entry.getKey();
             if ( val instanceof Number )
             {
                 serializer.putNumber( keyString, (Number) val );
@@ -59,32 +59,30 @@ public class MapRepresentation extends MappingRepresentation
             {
                 serializer.putString( keyString, (String) val );
             }
-            else if (val instanceof Path )
+            else if ( val instanceof Path )
             {
                 PathRepresentation<Path> representation = new PathRepresentation<>( (Path) val );
                 serializer.putMapping( keyString, representation );
             }
             else if ( val instanceof Iterable )
             {
-                serializer.putList( keyString, ObjectToRepresentationConverter.getListRepresentation( (Iterable)
-                        val ) );
+                serializer.putList( keyString, ObjectToRepresentationConverter.getListRepresentation( (Iterable) val ) );
             }
             else if ( val instanceof Map )
             {
-                serializer.putMapping( keyString, ObjectToRepresentationConverter.getMapRepresentation( (Map)
-                        val ) );
+                serializer.putMapping( keyString, ObjectToRepresentationConverter.getMapRepresentation( (Map) val ) );
             }
-            else if (val == null)
+            else if ( val == null )
             {
                 serializer.putString( keyString, null );
             }
-            else if (val.getClass().isArray())
+            else if ( val.getClass().isArray() )
             {
                 Object[] objects = toArray( val );
 
                 serializer.putList( keyString, ObjectToRepresentationConverter.getListRepresentation( asList(objects) ) );
             }
-            else if (val instanceof Node || val instanceof Relationship )
+            else if ( val instanceof Node || val instanceof Relationship )
             {
                 Representation representation = ObjectToRepresentationConverter.getSingleRepresentation( val );
                 serializer.putMapping( keyString, (MappingRepresentation) representation );
@@ -96,7 +94,7 @@ public class MapRepresentation extends MappingRepresentation
         }
     }
 
-    private Object[] toArray( Object val )
+    private static Object[] toArray( Object val )
     {
         int length = getLength( val );
 

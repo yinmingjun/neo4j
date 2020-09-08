@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,28 +19,33 @@
  */
 package org.neo4j.kernel.impl.api.index.sampling;
 
-import org.neo4j.kernel.api.TokenNameLookup;
+import org.neo4j.common.TokenNameLookup;
+import org.neo4j.io.pagecache.tracing.PageCacheTracer;
 import org.neo4j.kernel.impl.api.index.IndexProxy;
-import org.neo4j.kernel.impl.api.index.IndexStoreView;
+import org.neo4j.kernel.impl.api.index.stats.IndexStatisticsStore;
 import org.neo4j.logging.LogProvider;
 
 public class OnlineIndexSamplingJobFactory implements IndexSamplingJobFactory
 {
-    private final IndexStoreView storeView;
+    private final IndexStatisticsStore indexStatisticsStore;
     private final LogProvider logProvider;
     private final TokenNameLookup nameLookup;
+    private final PageCacheTracer pageCacheTracer;
 
-    public OnlineIndexSamplingJobFactory( IndexStoreView storeView, TokenNameLookup nameLookup, LogProvider logProvider )
+    public OnlineIndexSamplingJobFactory( IndexStatisticsStore indexStatisticsStore, TokenNameLookup nameLookup, LogProvider logProvider,
+            PageCacheTracer pageCacheTracer )
     {
-        this.storeView = storeView;
+        this.indexStatisticsStore = indexStatisticsStore;
         this.logProvider = logProvider;
         this.nameLookup = nameLookup;
+        this.pageCacheTracer = pageCacheTracer;
     }
 
     @Override
     public IndexSamplingJob create( long indexId, IndexProxy indexProxy )
     {
         final String indexUserDescription = indexProxy.getDescriptor().userDescription( nameLookup );
-        return new OnlineIndexSamplingJob( indexId, indexProxy, storeView, indexUserDescription, logProvider );
+        String indexName = indexProxy.getDescriptor().getName();
+        return new OnlineIndexSamplingJob( indexId, indexProxy, indexStatisticsStore, indexUserDescription, indexName, logProvider, pageCacheTracer );
     }
 }

@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,25 +19,27 @@
  */
 package org.neo4j.kernel.impl.util.dbstructure;
 
+import org.eclipse.collections.api.map.primitive.MutableIntLongMap;
+import org.eclipse.collections.impl.map.mutable.primitive.IntLongHashMap;
+
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
-import org.neo4j.helpers.collection.Iterators;
-import org.neo4j.helpers.collection.Pair;
-import org.neo4j.kernel.api.schema.LabelSchemaDescriptor;
-import org.neo4j.kernel.api.schema.LabelSchemaSupplier;
-import org.neo4j.kernel.api.schema.SchemaDescriptorFactory;
-import org.neo4j.kernel.api.schema.constaints.NodeExistenceConstraintDescriptor;
-import org.neo4j.kernel.api.schema.constaints.NodeKeyConstraintDescriptor;
-import org.neo4j.kernel.api.schema.constaints.RelExistenceConstraintDescriptor;
-import org.neo4j.kernel.api.schema.constaints.UniquenessConstraintDescriptor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
+import org.neo4j.common.EntityType;
+import org.neo4j.internal.helpers.collection.Iterators;
+import org.neo4j.internal.helpers.collection.Pair;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.internal.schema.SchemaDescriptor;
+import org.neo4j.internal.schema.SchemaDescriptorSupplier;
+import org.neo4j.internal.schema.constraints.NodeExistenceConstraintDescriptor;
+import org.neo4j.internal.schema.constraints.NodeKeyConstraintDescriptor;
+import org.neo4j.internal.schema.constraints.RelExistenceConstraintDescriptor;
+import org.neo4j.internal.schema.constraints.UniquenessConstraintDescriptor;
 
 import static java.lang.String.format;
-import static org.neo4j.kernel.api.schema.index.IndexDescriptor.Type.UNIQUE;
 
 public class DbStructureCollector implements DbStructureVisitor
 {
@@ -50,7 +52,7 @@ public class DbStructureCollector implements DbStructureVisitor
     private final Set<NodeExistenceConstraintDescriptor> nodePropertyExistenceConstraints = new HashSet<>();
     private final Set<RelExistenceConstraintDescriptor> relPropertyExistenceConstraints = new HashSet<>();
     private final Set<NodeKeyConstraintDescriptor> nodeKeyConstraints = new HashSet<>();
-    private final Map<Integer, Long> nodeCounts = new HashMap<>();
+    private final MutableIntLongMap nodeCounts = new IntLongHashMap();
     private final Map<RelSpecifier, Long> relCounts = new HashMap<>();
     private long allNodesCount = -1L;
 
@@ -77,13 +79,13 @@ public class DbStructureCollector implements DbStructureVisitor
             }
 
             @Override
-            public Iterator<Pair<String,String[]>> knownIndices()
+            public Iterator<Pair<String[],String[]>> knownIndices()
             {
                 return regularIndices.iterator();
             }
 
             @Override
-            public Iterator<Pair<String,String[]>> knownUniqueIndices()
+            public Iterator<Pair<String[],String[]>> knownUniqueIndices()
             {
                 return uniqueIndices.iterator();
             }
@@ -107,6 +109,12 @@ public class DbStructureCollector implements DbStructureVisitor
             }
 
             @Override
+            public long nodesAllCardinality()
+            {
+                return allNodesCount;
+            }
+
+            @Override
             public Iterator<Pair<String,String[]>> knownRelationshipPropertyExistenceConstraints()
             {
                 return Iterators.map( relConstraint ->
@@ -121,8 +129,7 @@ public class DbStructureCollector implements DbStructureVisitor
             @Override
             public long nodesWithLabelCardinality( int labelId )
             {
-                Long result = labelId == -1 ? allNodesCount : nodeCounts.get( labelId );
-                return result == null ? 0L : result;
+                return nodeCounts.getIfAbsent( labelId, 0L );
             }
 
             @Override
@@ -134,9 +141,9 @@ public class DbStructureCollector implements DbStructureVisitor
             }
 
             @Override
-            public double indexSelectivity( int labelId, int... propertyKeyIds )
+            public double indexUniqueValueSelectivity( int labelId, int... propertyKeyIds )
             {
-                LabelSchemaDescriptor descriptor = SchemaDescriptorFactory.forLabel( labelId, propertyKeyIds );
+                SchemaDescriptor descriptor = SchemaDescriptor.forLabel( labelId, propertyKeyIds );
                 IndexStatistics result1 = regularIndices.getIndex( descriptor );
                 IndexStatistics result2 = result1 == null ? uniqueIndices.getIndex( descriptor ) : result1;
                 return result2 == null ? Double.NaN : result2.uniqueValuesPercentage;
@@ -145,13 +152,14 @@ public class DbStructureCollector implements DbStructureVisitor
             @Override
             public double indexPropertyExistsSelectivity( int labelId, int... propertyKeyIds )
             {
-                LabelSchemaDescriptor descriptor = SchemaDescriptorFactory.forLabel( labelId, propertyKeyIds );
+                SchemaDescriptor descriptor = SchemaDescriptor.forLabel( labelId, propertyKeyIds );
                 IndexStatistics result1 = regularIndices.getIndex( descriptor );
                 IndexStatistics result2 = result1 == null ? uniqueIndices.getIndex( descriptor ) : result1;
-                return result2 == null ? Double.NaN : result2.size;
+                double indexSize = result2 == null ? Double.NaN : result2.size;
+                return indexSize / nodesWithLabelCardinality( labelId );
             }
 
-            private Iterator<Pair<String,String[]>> idsToNames( Iterable<? extends LabelSchemaSupplier> nodeConstraints )
+            private Iterator<Pair<String,String[]>> idsToNames( Iterable<? extends SchemaDescriptorSupplier> nodeConstraints )
             {
                 return Iterators.map( nodeConstraint ->
                 {
@@ -186,7 +194,7 @@ public class DbStructureCollector implements DbStructureVisitor
     public void visitIndex( IndexDescriptor descriptor, String userDescription,
                             double uniqueValuesPercentage, long size )
     {
-        IndexDescriptorMap indices = descriptor.type() == UNIQUE ? uniqueIndices : regularIndices;
+        IndexDescriptorMap indices = descriptor.isUnique() ? uniqueIndices : regularIndices;
         indices.putIndex( descriptor.schema(), userDescription, uniqueValuesPercentage, size );
     }
 
@@ -253,12 +261,13 @@ public class DbStructureCollector implements DbStructureVisitor
     @Override
     public void visitNodeCount( int labelId, String labelName, long nodeCount )
     {
-        if ( nodeCounts.put( labelId, nodeCount ) != null )
+        if ( nodeCounts.containsKey( labelId ) )
         {
             throw new IllegalArgumentException(
                     format( "Duplicate node count %s for label with id %s", nodeCount, labelName )
             );
         }
+        nodeCounts.put( labelId, nodeCount );
     }
 
     @Override
@@ -322,29 +331,29 @@ public class DbStructureCollector implements DbStructureVisitor
         }
     }
 
-    private class IndexStatistics
+    private static class IndexStatistics
     {
         private final double uniqueValuesPercentage;
         private final long size;
 
-        private IndexStatistics(double uniqueValuesPercentage, long size)
+        private IndexStatistics( double uniqueValuesPercentage, long size )
         {
             this.uniqueValuesPercentage = uniqueValuesPercentage;
             this.size = size;
         }
     }
 
-    private class IndexDescriptorMap implements Iterable<Pair<String,String[]>>
+    private class IndexDescriptorMap implements Iterable<Pair<String[],String[]>>
     {
         private final String indexType;
-        private final Map<LabelSchemaDescriptor, IndexStatistics> indexMap = new HashMap<>();
+        private final Map<SchemaDescriptor, IndexStatistics> indexMap = new HashMap<>();
 
         IndexDescriptorMap( String indexType )
         {
             this.indexType = indexType;
         }
 
-        public void putIndex( LabelSchemaDescriptor descriptor, String userDescription, double uniqueValuesPercentage, long size )
+        public void putIndex( SchemaDescriptor descriptor, String userDescription, double uniqueValuesPercentage, long size )
         {
             if ( indexMap.containsKey( descriptor ) )
             {
@@ -354,18 +363,19 @@ public class DbStructureCollector implements DbStructureVisitor
                 );
             }
 
-            indexMap.put( descriptor, new IndexStatistics(uniqueValuesPercentage, size) );
+            indexMap.put( descriptor, new IndexStatistics( uniqueValuesPercentage, size ) );
         }
 
-        public IndexStatistics getIndex( LabelSchemaDescriptor descriptor )
+        public IndexStatistics getIndex( SchemaDescriptor descriptor )
         {
             return indexMap.get( descriptor );
         }
 
-        public Iterator<Pair<String,String[]>> iterator()
+        @Override
+        public Iterator<Pair<String[],String[]>> iterator()
         {
-            final Iterator<LabelSchemaDescriptor> iterator = indexMap.keySet().iterator();
-            return new Iterator<Pair<String,String[]>>()
+            final Iterator<SchemaDescriptor> iterator = indexMap.keySet().iterator();
+            return new Iterator<>()
             {
                 @Override
                 public boolean hasNext()
@@ -374,13 +384,24 @@ public class DbStructureCollector implements DbStructureVisitor
                 }
 
                 @Override
-                public Pair<String,String[]> next()
+                public Pair<String[],String[]> next()
                 {
-                    //TODO: Add support for composite indexes
-                    LabelSchemaDescriptor next = iterator.next();
-                    String label = labels.byIdOrFail( next.getLabelId() );
+                    SchemaDescriptor next = iterator.next();
+                    EntityType type = next.entityType();
+                    String[] entityTokens;
+                    switch ( type )
+                    {
+                    case NODE:
+                        entityTokens = labels.byIdOrFail( next.getEntityTokenIds() );
+                        break;
+                    case RELATIONSHIP:
+                        entityTokens = relationshipTypes.byIdOrFail( next.getEntityTokenIds() );
+                        break;
+                    default:
+                        throw new IllegalStateException( "Indexing is not supported for EntityType: " + type );
+                    }
                     String[] propertyKeyNames = propertyKeys.byIdOrFail( next.getPropertyIds() );
-                    return Pair.of( label, propertyKeyNames );
+                    return Pair.of( entityTokens, propertyKeyNames );
                 }
 
                 @Override
@@ -447,7 +468,7 @@ public class DbStructureCollector implements DbStructureVisitor
         public Iterator<Pair<Integer, String>> iterator()
         {
             final Iterator<Map.Entry<Integer, String>> iterator = forward.entrySet().iterator();
-            return new Iterator<Pair<Integer, String>>()
+            return new Iterator<>()
             {
                 @Override
                 public boolean hasNext()
@@ -456,9 +477,9 @@ public class DbStructureCollector implements DbStructureVisitor
                 }
 
                 @Override
-                public Pair<Integer, String> next()
+                public Pair<Integer,String> next()
                 {
-                    Map.Entry<Integer, String> next = iterator.next();
+                    Map.Entry<Integer,String> next = iterator.next();
                     return Pair.of( next.getKey(), next.getValue() );
                 }
 

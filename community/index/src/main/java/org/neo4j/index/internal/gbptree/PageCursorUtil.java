@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -28,9 +28,15 @@ import org.neo4j.io.pagecache.PageCursor;
  */
 class PageCursorUtil
 {
+    static final short _1B_MASK = 0xFF;
     static final int _2B_MASK = 0xFFFF;
+    static final int _3B_MASK = 0xFFFFFF;
     static final long _4B_MASK = 0xFFFFFFFFL;
     static final long _6B_MASK = 0xFFFF_FFFFFFFFL;
+
+    private PageCursorUtil()
+    {
+    }
 
     /**
      * Puts the low 6 bytes of the {@code value} into {@code cursor} at current offset.
@@ -66,6 +72,73 @@ class PageCursorUtil
         return lsb | (msb << Integer.SIZE);
     }
 
+    static void put3BInt( PageCursor cursor, int value )
+    {
+        int offset = cursor.getOffset();
+        put3BInt( cursor, offset, value );
+        cursor.setOffset( offset + 3 );
+    }
+
+    static void put3BInt( PageCursor cursor, int offset, int value )
+    {
+        if ( (value & ~_3B_MASK) != 0 )
+        {
+            throw new IllegalArgumentException( "Illegal 3B value " + value );
+        }
+
+        short lsb = (short) value;
+        byte msb = (byte) (value >>> Short.SIZE);
+        cursor.putShort( offset, lsb );
+        cursor.putByte( offset + Short.BYTES, msb );
+    }
+
+    static int get3BInt( PageCursor cursor )
+    {
+        int offset = cursor.getOffset();
+        int result = get3BInt( cursor, offset );
+        cursor.setOffset( offset + 3 );
+        return result;
+    }
+
+    public static int get3BInt( PageCursor cursor, int offset )
+    {
+        int lsb = getUnsignedShort( cursor, offset );
+        int msb = getUnsignedByte( cursor, offset + Short.BYTES );
+        return lsb | (msb << Short.SIZE);
+    }
+
+    /**
+     *  Puts the low 2 bytes of the {@code value} into cursor at current offset.
+     *  Puts {@link PageCursor#putShort(short)}.
+     *
+     * @param cursor {@link PageCursor} to put into, at the current offset.
+     * @param value the value to put.
+     */
+    static void putUnsignedShort( PageCursor cursor, int value )
+    {
+        int offset = cursor.getOffset();
+        putUnsignedShort( cursor, offset, value );
+        cursor.setOffset( offset + 2 );
+    }
+
+    /**
+     *  Puts the low 2 bytes of the {@code value} into cursor at given offset.
+     *  Puts {@link PageCursor#putShort(short)}.
+     *
+     * @param cursor {@link PageCursor} to put into.
+     * @param offset offset into page where to write.
+     * @param value the value to put.
+     */
+    static void putUnsignedShort( PageCursor cursor, int offset, int value )
+    {
+        if ( (value & ~_2B_MASK) != 0 )
+        {
+            throw new IllegalArgumentException( "Illegal 2B value " + value );
+        }
+
+        cursor.putShort( offset, (short) value );
+    }
+
     /**
      * Gets 2 bytes and returns that value as an {@code int}, ignoring its sign.
      *
@@ -78,6 +151,18 @@ class PageCursorUtil
     }
 
     /**
+     * Gets 2 bytes and returns that value as an {@code int}, ignoring its sign.
+     *
+     * @param cursor {@link PageCursor} to get from.
+     * @param offset offset into page from where to read.
+     * @return {@code int} containing the value of the unsigned {@code short}.
+     */
+    static int getUnsignedShort( PageCursor cursor, int offset )
+    {
+        return cursor.getShort( offset ) & _2B_MASK;
+    }
+
+    /**
      * Gets 4 bytes and returns that value as an {@code long}, ignoring its sign.
      *
      * @param cursor {@link PageCursor} to get from, at the current offset.
@@ -86,6 +171,18 @@ class PageCursorUtil
     static long getUnsignedInt( PageCursor cursor )
     {
         return cursor.getInt() & _4B_MASK;
+    }
+
+    /**
+     * Gets 1 byte and returns that value as an {@code int}, ignoring its sign.
+     *
+     * @param cursor {@link PageCursor} to get from, at the current offset.
+     * @param offset offset into page from where to read.
+     * @return {@code int} containing the value of the unsigned {@code byte}.
+     */
+    static int getUnsignedByte( PageCursor cursor, int offset )
+    {
+        return cursor.getByte( offset ) & _1B_MASK;
     }
 
     /**

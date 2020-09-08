@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,51 +19,55 @@
  */
 package org.neo4j.kernel.lifecycle;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import static org.hamcrest.core.Is.is;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.neo4j.kernel.lifecycle.LifecycleStatus.NONE;
 import static org.neo4j.kernel.lifecycle.LifecycleStatus.SHUTDOWN;
 import static org.neo4j.kernel.lifecycle.LifecycleStatus.STARTED;
 import static org.neo4j.kernel.lifecycle.LifecycleStatus.STOPPED;
 
-public class TestLifecycleException
+class TestLifecycleException
 {
 
     @Test
-    public void shouldMakeNoneToStoppedIntoHumanReadableInitMessage() throws Exception
+    void shouldMakeNoneToStoppedIntoHumanReadableInitMessage()
     {
-        assertThat(
-                exceptionFor( NONE, STOPPED ).getMessage(),
-                is("Component 'SomeComponent' failed to initialize. Please see attached cause exception."));
+        assertThat( exceptionFor( NONE, STOPPED ).getMessage() ).isEqualTo( "Component 'SomeComponent' failed to initialize." );
     }
 
     @Test
-    public void shouldMakeStoppedToStartedIntoHumanReadableStartingMessage() throws Exception
+    void shouldMakeStoppedToStartedIntoHumanReadableStartingMessage()
     {
-        assertThat(
-                exceptionFor( STOPPED, STARTED ).getMessage(),
-                is("Component 'SomeComponent' was successfully initialized, but failed to start. Please see attached cause exception."));
+        assertThat( exceptionFor( STOPPED, STARTED ).getMessage() ).isEqualTo( "Component 'SomeComponent' was successfully initialized, but failed to start." );
     }
 
     @Test
-    public void shouldMakeStartedToStoppedIntoHumanReadableStoppingMessage() throws Exception
+    void shouldMakeStartedToStoppedIntoHumanReadableStoppingMessage()
     {
-        assertThat(
-                exceptionFor( STARTED, STOPPED ).getMessage(),
-                is("Component 'SomeComponent' failed to stop. Please see attached cause exception."));
+        assertThat( exceptionFor( STARTED, STOPPED ).getMessage() ).isEqualTo( "Component 'SomeComponent' failed to stop." );
     }
 
     @Test
-    public void shouldMakeShutdownIntoHumanReadableShutdownMessage() throws Exception
+    void shouldMakeShutdownIntoHumanReadableShutdownMessage()
     {
-        assertThat(
-                exceptionFor( STOPPED, SHUTDOWN ).getMessage(),
-                is("Component 'SomeComponent' failed to shut down. Please see attached cause exception."));
+        assertThat( exceptionFor( STOPPED, SHUTDOWN ).getMessage() ).isEqualTo( "Component 'SomeComponent' failed to shut down." );
     }
 
-    private LifecycleException exceptionFor( LifecycleStatus from, LifecycleStatus to )
+    @Test
+    void shouldIncludeRootCauseMessageInExceptionMessage()
+    {
+        Exception root = new Exception( "big bad root cause" );
+        Exception intermediate = new Exception( "intermediate exception", root );
+        assertThat( exceptionFor( STARTED, STOPPED, intermediate ) ).hasMessageContaining( root.getMessage() );
+    }
+
+    private static LifecycleException exceptionFor( LifecycleStatus from, LifecycleStatus to )
+    {
+        return exceptionFor( from, to, null );
+    }
+
+    private static LifecycleException exceptionFor( LifecycleStatus from, LifecycleStatus to, Throwable cause )
     {
         return new LifecycleException( new Object()
         {
@@ -72,7 +76,6 @@ public class TestLifecycleException
             {
                 return "SomeComponent";
             }
-        }, from, to, null );
+        }, from, to, cause );
     }
-
 }

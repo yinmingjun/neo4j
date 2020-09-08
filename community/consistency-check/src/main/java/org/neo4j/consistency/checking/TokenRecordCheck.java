@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,6 +22,7 @@ package org.neo4j.consistency.checking;
 import org.neo4j.consistency.report.ConsistencyReport;
 import org.neo4j.consistency.store.RecordAccess;
 import org.neo4j.consistency.store.RecordReference;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
 import org.neo4j.kernel.impl.store.record.DynamicRecord;
 import org.neo4j.kernel.impl.store.record.Record;
 import org.neo4j.kernel.impl.store.record.TokenRecord;
@@ -30,7 +31,7 @@ abstract class TokenRecordCheck<RECORD extends TokenRecord, REPORT extends Consi
         implements RecordCheck<RECORD, REPORT>, ComparativeRecordChecker<RECORD, DynamicRecord, REPORT>
 {
     @Override
-    public void check( RECORD record, CheckerEngine<RECORD, REPORT> engine, RecordAccess records )
+    public void check( RECORD record, CheckerEngine<RECORD, REPORT> engine, RecordAccess records, PageCursorTracer cursorTracer )
     {
         if ( !record.inUse() )
         {
@@ -38,13 +39,12 @@ abstract class TokenRecordCheck<RECORD extends TokenRecord, REPORT extends Consi
         }
         if ( !Record.NO_NEXT_BLOCK.is( record.getNameId() ) )
         {
-            engine.comparativeCheck( name( records, record.getNameId() ), this );
+            engine.comparativeCheck( name( records, record.getNameId(), cursorTracer ), this );
         }
     }
 
     @Override
-    public void checkReference( RECORD record, DynamicRecord name, CheckerEngine<RECORD, REPORT> engine,
-                                RecordAccess records )
+    public void checkReference( RECORD record, DynamicRecord name, CheckerEngine<RECORD,REPORT> engine, RecordAccess records, PageCursorTracer cursorTracer )
     {
         if ( !name.inUse() )
         {
@@ -59,7 +59,7 @@ abstract class TokenRecordCheck<RECORD extends TokenRecord, REPORT extends Consi
         }
     }
 
-    abstract RecordReference<DynamicRecord> name( RecordAccess records, int id );
+    abstract RecordReference<DynamicRecord> name( RecordAccess records, int id, PageCursorTracer cursorTracer );
 
     abstract void nameNotInUse( REPORT report, DynamicRecord name );
 

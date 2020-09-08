@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -20,10 +20,9 @@
 package org.neo4j.server.rest.repr;
 
 import org.neo4j.graphdb.Relationship;
-import org.neo4j.helpers.collection.IterableWrapper;
-import org.neo4j.server.rest.transactional.TransactionStateChecker;
+import org.neo4j.server.http.cypher.TransactionStateChecker;
 
-import static org.neo4j.helpers.collection.MapUtil.map;
+import static org.neo4j.internal.helpers.collection.MapUtil.map;
 
 public final class RelationshipRepresentation extends ObjectRepresentation implements ExtensibleRepresentation,
         EntityRepresentation
@@ -53,6 +52,7 @@ public final class RelationshipRepresentation extends ObjectRepresentation imple
         return rel.getId();
     }
 
+    @Override
     @Mapping( "self" )
     public ValueRepresentation selfUri()
     {
@@ -104,7 +104,7 @@ public final class RelationshipRepresentation extends ObjectRepresentation imple
     {
         if ( isDeleted() )
         {
-            return new MapRepresentation( map( "id", rel.getId(), "deleted", true ) );
+            return new MapRepresentation( map( "id", rel.getId(), "deleted", Boolean.TRUE ) );
         }
         else
         {
@@ -118,7 +118,7 @@ public final class RelationshipRepresentation extends ObjectRepresentation imple
     }
 
     @Override
-    void extraData( MappingSerializer serializer )
+    public void extraData( MappingSerializer serializer )
     {
         if ( !isDeleted() )
         {
@@ -126,18 +126,5 @@ public final class RelationshipRepresentation extends ObjectRepresentation imple
             new PropertiesRepresentation( rel ).serialize( properties );
             properties.done();
         }
-    }
-
-    public static ListRepresentation list( Iterable<Relationship> relationships )
-    {
-        return new ListRepresentation( RepresentationType.RELATIONSHIP,
-                new IterableWrapper<Representation, Relationship>( relationships )
-                {
-                    @Override
-                    protected Representation underlyingObjectToObject( Relationship relationship )
-                    {
-                        return new RelationshipRepresentation( relationship );
-                    }
-                } );
     }
 }

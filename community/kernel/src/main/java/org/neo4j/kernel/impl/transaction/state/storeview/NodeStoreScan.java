@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,85 +19,80 @@
  */
 package org.neo4j.kernel.impl.transaction.state.storeview;
 
-import org.neo4j.collection.primitive.PrimitiveLongCollections;
-import org.neo4j.collection.primitive.PrimitiveLongResourceIterator;
-import org.neo4j.kernel.impl.api.index.StoreScan;
-import org.neo4j.kernel.impl.locking.Lock;
-import org.neo4j.kernel.impl.locking.LockService;
-import org.neo4j.kernel.impl.store.NodeStore;
-import org.neo4j.kernel.impl.store.StoreIdIterator;
-import org.neo4j.kernel.impl.store.record.NodeRecord;
-import org.neo4j.storageengine.api.schema.PopulationProgress;
+import java.util.function.IntPredicate;
+import javax.annotation.Nullable;
 
-import static org.neo4j.kernel.impl.store.record.RecordLoad.FORCE;
+import org.neo4j.internal.helpers.collection.Visitor;
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+import org.neo4j.lock.LockService;
+import org.neo4j.memory.MemoryTracker;
+import org.neo4j.storageengine.api.EntityTokenUpdate;
+import org.neo4j.storageengine.api.EntityUpdates;
+import org.neo4j.storageengine.api.StorageNodeCursor;
+import org.neo4j.storageengine.api.StorageReader;
+
+import static org.neo4j.collection.PrimitiveLongCollections.EMPTY_LONG_ARRAY;
+import static org.neo4j.lock.LockType.SHARED;
 
 /**
- * Node scanner that will perform some sort of process over set of nodes
- * from nodeStore {@link NodeStore} based on node ids supplied by underlying store aware id iterator.
- * @param <FAILURE>
+ * Scan the node store and produce {@link EntityUpdates updates for indexes} and/or {@link EntityTokenUpdate updates for label index}
+ * depending on which {@link Visitor visitors} that are used.
  */
-public abstract class NodeStoreScan<FAILURE extends Exception> implements StoreScan<FAILURE>
+public class NodeStoreScan<FAILURE extends Exception> extends PropertyAwareEntityStoreScan<StorageNodeCursor,FAILURE>
 {
-    private volatile boolean continueScanning;
-    private final NodeRecord record;
+    private final Visitor<EntityTokenUpdate,FAILURE> labelUpdateVisitor;
+    private final Visitor<EntityUpdates,FAILURE> propertyUpdatesVisitor;
+    protected final int[] labelIds;
 
-    protected final NodeStore nodeStore;
-    protected final LockService locks;
-    private final long totalCount;
-
-    private long count = 0;
-
-    public abstract void process( NodeRecord loaded ) throws FAILURE;
-
-    public NodeStoreScan( NodeStore nodeStore, LockService locks, long totalCount )
+    public NodeStoreScan( StorageReader storageReader, LockService locks,
+            @Nullable Visitor<EntityTokenUpdate,FAILURE> labelUpdateVisitor,
+            @Nullable Visitor<EntityUpdates,FAILURE> propertyUpdatesVisitor,
+            int[] labelIds, IntPredicate propertyKeyIdFilter, PageCursorTracer cursorTracer, MemoryTracker memoryTracker )
     {
-        this.nodeStore = nodeStore;
-        this.record = nodeStore.newRecord();
-        this.locks = locks;
-        this.totalCount = totalCount;
+        super( storageReader, nodeCount( storageReader, cursorTracer ), propertyKeyIdFilter,
+                id -> locks.acquireNodeLock( id, SHARED ), cursorTracer, memoryTracker );
+        this.labelUpdateVisitor = labelUpdateVisitor;
+        this.propertyUpdatesVisitor = propertyUpdatesVisitor;
+        this.labelIds = labelIds;
     }
 
     @Override
-    public void run() throws FAILURE
+    protected StorageNodeCursor allocateCursor( StorageReader storageReader, PageCursorTracer cursorTracer )
     {
-        try (PrimitiveLongResourceIterator nodeIds = getNodeIdIterator())
+        return storageReader.allocateNodeCursor( cursorTracer );
+    }
+
+    @Override
+    public boolean process( StorageNodeCursor cursor ) throws FAILURE
+    {
+        long[] labels = cursor.labels();
+        if ( labels.length == 0 && labelIds.length != 0 )
         {
-            continueScanning = true;
-            while ( continueScanning && nodeIds.hasNext() )
+            // This node has no labels at all
+            return false;
+        }
+
+        if ( labelUpdateVisitor != null )
+        {
+            // Notify the label update visitor
+            labelUpdateVisitor.visit( EntityTokenUpdate.tokenChanges( cursor.entityReference(), EMPTY_LONG_ARRAY, labels ) );
+        }
+
+        if ( propertyUpdatesVisitor != null && containsAnyEntityToken( labelIds, labels ) )
+        {
+            // Notify the property update visitor
+            EntityUpdates.Builder updates = EntityUpdates.forEntity( cursor.entityReference(), true ).withTokens( labels );
+
+            if ( hasRelevantProperty( cursor, updates ) )
             {
-                long id = nodeIds.next();
-                try ( Lock ignored = locks.acquireNodeLock( id, LockService.LockType.READ_LOCK ) )
-                {
-                    count++;
-                    if ( nodeStore.getRecord( id, record, FORCE ).inUse() )
-                    {
-                        process( record );
-                    }
-                }
+                return propertyUpdatesVisitor.visit( updates.build() );
             }
         }
+        return false;
     }
 
-    protected PrimitiveLongResourceIterator getNodeIdIterator()
+    private static long nodeCount( StorageReader reader, PageCursorTracer cursorTracer )
     {
-        return PrimitiveLongCollections.resourceIterator( new StoreIdIterator( nodeStore ), null );
-    }
-
-    @Override
-    public void stop()
-    {
-        continueScanning = false;
-    }
-
-    @Override
-    public PopulationProgress getProgress()
-    {
-        if ( totalCount > 0 )
-        {
-            return new PopulationProgress( count, totalCount );
-        }
-
-        // nothing to do 100% completed
-        return PopulationProgress.DONE;
+        return reader.nodesGetCount( cursorTracer );
     }
 }

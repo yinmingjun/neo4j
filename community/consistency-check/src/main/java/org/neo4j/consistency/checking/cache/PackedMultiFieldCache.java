@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,63 +19,57 @@
  */
 package org.neo4j.consistency.checking.cache;
 
+import org.neo4j.consistency.checking.ByteArrayBitsManipulator;
+import org.neo4j.internal.batchimport.cache.ByteArray;
 import org.neo4j.kernel.impl.store.record.Record;
-import org.neo4j.unsafe.impl.batchimport.cache.LongArray;
-import org.neo4j.unsafe.impl.batchimport.cache.LongBitsManipulator;
 
 import static org.neo4j.consistency.checking.cache.CacheSlots.ID_SLOT_SIZE;
-import static org.neo4j.unsafe.impl.batchimport.cache.NumberArrayFactory.AUTO;
 
 /**
- * Simply combining a {@link LongArray} with {@link LongBitsManipulator}, so that each long can be split up into
- * slots, i.e. holding multiple values per long for space efficiency.
+ * Simply combining a {@link ByteArray} with {@link ByteArrayBitsManipulator}, so that each byte[] index can be split up into
+ * slots, i.e. holding multiple values for space efficiency and convenience.
  */
-public class PackedMultiFieldCache
+class PackedMultiFieldCache
 {
-    private final LongArray array;
-    private LongBitsManipulator slots;
+    private final ByteArray array;
+    private ByteArrayBitsManipulator slots;
     private long[] initValues;
 
-    public PackedMultiFieldCache( int... slotSizes )
-    {
-        this( AUTO.newDynamicLongArray( 1_000_000, 0 ), slotSizes );
-    }
-
-    public PackedMultiFieldCache( LongArray array, int... slotSizes )
+    PackedMultiFieldCache( ByteArray array, int... slotSizes )
     {
         this.array = array;
         setSlotSizes( slotSizes );
     }
 
-    public void put( long index, long... values )
+    void put( long index, long... values )
     {
-        long field = 0;
         for ( int i = 0; i < values.length; i++ )
         {
-            field = slots.set( field, i, values[i] );
+            slots.set( array, index, i, values[i] );
         }
-        array.set( index, field );
     }
 
-    public void put( long index, int slot, long value )
+    void put( long index, int slot, long value )
     {
-        long field = array.get( index );
-        field = slots.set( field, slot, value );
-        array.set( index, field );
+        slots.set( array, index, slot, value );
     }
 
-    public long get( long index, int slot )
+    long get( long index, int slot )
     {
-        return slots.get( array.get( index ), slot );
+        if ( index < array.length() )
+        {
+            return slots.get( array, index, slot );
+        }
+        return initValues[slot];
     }
 
-    public void setSlotSizes( int... slotSizes )
+    void setSlotSizes( int... slotSizes )
     {
-        this.slots = new LongBitsManipulator( slotSizes );
+        this.slots = new ByteArrayBitsManipulator( slotSizes );
         this.initValues = getInitVals( slotSizes );
     }
 
-    public void clear()
+    void clear()
     {
         long length = array.length();
         for ( long i = 0; i < length; i++ )
@@ -84,7 +78,7 @@ public class PackedMultiFieldCache
         }
     }
 
-    public void clear( long index )
+    void clear( long index )
     {
         put( index, initValues );
     }

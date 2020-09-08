@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,7 +19,7 @@
  */
 package org.neo4j.kernel.api.impl.index.storage.layout;
 
-import java.io.File;
+import java.nio.file.Path;
 
 /**
  * Default implementation of {@link FolderLayout} for partitioned lucene index.
@@ -28,22 +28,22 @@ import java.io.File;
  */
 public class IndexFolderLayout implements FolderLayout
 {
-    private final File indexFolder;
+    private final Path indexFolder;
 
-    public IndexFolderLayout( File rootDirectory, String identifier )
+    public IndexFolderLayout( Path rootDirectory )
     {
-        this.indexFolder = new File( rootDirectory, identifier );
+        this.indexFolder = rootDirectory;
     }
 
     @Override
-    public File getIndexFolder()
+    public Path getIndexFolder()
     {
         return indexFolder;
     }
 
     @Override
-    public File getPartitionFolder( int partition )
+    public Path getPartitionFolder( int partition )
     {
-        return new File( indexFolder, String.valueOf( partition ) );
+        return indexFolder.resolve( String.valueOf( partition ) );
     }
 }

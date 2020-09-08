@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -22,51 +22,55 @@ package org.neo4j.kernel.api.impl.schema;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
-import org.junit.After;
-import org.junit.Rule;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.UUID;
 
+import org.neo4j.configuration.Config;
+import org.neo4j.internal.schema.IndexDescriptor;
+import org.neo4j.internal.schema.IndexPrototype;
 import org.neo4j.io.IOUtils;
+import org.neo4j.io.fs.DefaultFileSystemAbstraction;
 import org.neo4j.kernel.api.impl.index.storage.DirectoryFactory;
-import org.neo4j.kernel.api.schema.index.IndexDescriptor;
-import org.neo4j.kernel.api.schema.index.IndexDescriptorFactory;
+import org.neo4j.test.extension.Inject;
+import org.neo4j.test.extension.testdirectory.TestDirectoryExtension;
 import org.neo4j.test.rule.TestDirectory;
-import org.neo4j.test.rule.fs.DefaultFileSystemRule;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.neo4j.internal.schema.SchemaDescriptor.forLabel;
 
-public class LuceneSchemaIndexTest
+@TestDirectoryExtension
+class LuceneSchemaIndexTest
 {
-    @Rule
-    public final DefaultFileSystemRule fs = new DefaultFileSystemRule();
-    @Rule
-    public TestDirectory testDir = TestDirectory.testDirectory();
+    @Inject
+    private DefaultFileSystemAbstraction fs;
+    @Inject
+    private TestDirectory testDir;
 
     private final DirectoryFactory dirFactory = new DirectoryFactory.InMemoryDirectoryFactory();
     private SchemaIndex index;
-    private final IndexDescriptor descriptor = IndexDescriptorFactory.forLabel( 3, 5 );
+    private final IndexDescriptor descriptor = IndexPrototype.forSchema( forLabel( 3, 5 ) ).withName( "a" ).materialise( 1 );
 
-    @After
-    public void closeIndex() throws Exception
+    @AfterEach
+    void closeIndex() throws Exception
     {
         IOUtils.closeAll( index, dirFactory );
     }
 
     @Test
-    public void markAsOnline() throws IOException
+    void markAsOnline() throws IOException
     {
         index = createIndex();
         index.getIndexWriter().addDocument( newDocument() );
         index.markAsOnline();
 
-        assertTrue( "Should have had online status set", index.isOnline() );
+        assertTrue( index.isOnline(), "Should have had online status set" );
     }
 
     @Test
-    public void markAsOnlineAndClose() throws IOException
+    void markAsOnlineAndClose() throws IOException
     {
         index = createIndex();
         index.getIndexWriter().addDocument( newDocument() );
@@ -75,11 +79,11 @@ public class LuceneSchemaIndexTest
         index.close();
 
         index = openIndex();
-        assertTrue( "Should have had online status set", index.isOnline() );
+        assertTrue( index.isOnline(), "Should have had online status set" );
     }
 
     @Test
-    public void markAsOnlineTwice() throws IOException
+    void markAsOnlineTwice() throws IOException
     {
         index = createIndex();
         index.markAsOnline();
@@ -87,11 +91,11 @@ public class LuceneSchemaIndexTest
         index.getIndexWriter().addDocument( newDocument() );
         index.markAsOnline();
 
-        assertTrue( "Should have had online status set", index.isOnline() );
+        assertTrue( index.isOnline(), "Should have had online status set" );
     }
 
     @Test
-    public void markAsOnlineTwiceAndClose() throws IOException
+    void markAsOnlineTwiceAndClose() throws IOException
     {
         index = createIndex();
         index.markAsOnline();
@@ -101,11 +105,11 @@ public class LuceneSchemaIndexTest
         index.close();
 
         index = openIndex();
-        assertTrue( "Should have had online status set", index.isOnline() );
+        assertTrue( index.isOnline(), "Should have had online status set" );
     }
 
     @Test
-    public void markAsOnlineIsRespectedByOtherWriter() throws IOException
+    void markAsOnlineIsRespectedByOtherWriter() throws IOException
     {
         index = createIndex();
         index.markAsOnline();
@@ -116,7 +120,7 @@ public class LuceneSchemaIndexTest
         index.close();
 
         index = openIndex();
-        assertTrue( "Should have had online status set", index.isOnline() );
+        assertTrue( index.isOnline(), "Should have had online status set" );
     }
 
     private SchemaIndex createIndex() throws IOException
@@ -136,12 +140,11 @@ public class LuceneSchemaIndexTest
 
     private SchemaIndex newSchemaIndex()
     {
-        LuceneSchemaIndexBuilder builder = LuceneSchemaIndexBuilder.create( descriptor );
+        LuceneSchemaIndexBuilder builder = LuceneSchemaIndexBuilder.create( descriptor, Config.defaults() );
         return builder
-                .withIndexRootFolder( testDir.directory( "index" ) )
+                .withIndexRootFolder( testDir.directoryPath( "index" ).resolve( "testIndex" ) )
                 .withDirectoryFactory( dirFactory )
-                .withFileSystem( fs.get() )
-                .withIndexIdentifier( "testIndex" )
+                .withFileSystem( fs )
                 .build();
     }
 

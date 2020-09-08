@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2002-2017 "Neo Technology,"
- * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * Copyright (c) 2002-2020 "Neo4j,"
+ * Neo4j Sweden AB [http://neo4j.com]
  *
  * This file is part of Neo4j.
  *
@@ -19,14 +19,16 @@
  */
 package org.neo4j.consistency.checking.full;
 
+import org.neo4j.io.pagecache.tracing.cursor.PageCursorTracer;
+
 public interface RecordProcessor<RECORD>
 {
     /**
-     * Must be called by the thread executing {@link #process(Object)}.
+     * Must be called by the thread executing {@link #process(Object, PageCursorTracer)}.
      */
     void init( int id );
 
-    void process( RECORD record );
+    void process( RECORD record, PageCursorTracer cursorTracer );
 
     void close();
 
